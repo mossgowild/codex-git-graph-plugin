@@ -42,11 +42,11 @@ function parseCommits(raw) {
 
 export async function history({ repoPath, branch = '', offset = 0, tips, limit = 250 }) {
   const repo = await repository(repoPath);
-  const refText = await git(repo, ['for-each-ref', '--format=%(refname)%00%(objectname)%00%(*objectname)%00%(symref)%00%(objecttype)%00%(*objecttype)',
+  const refText = await git(repo, ['for-each-ref', '--format=%(refname)%00%(objectname)%00%(*objectname)%00%(symref)%00%(objecttype)%00%(*objecttype)%00%(upstream)',
     'refs/heads', 'refs/remotes', 'refs/tags']);
   const refs = refText.trimEnd().split('\n').filter(Boolean).map(line => {
-    const [name, hash, peeled, symbolic, type, peeledType] = line.split('\0');
-    return { name, hash: peeled || hash, symbolic, type: peeledType || type };
+    const [name, hash, peeled, symbolic, type, peeledType, upstream] = line.split('\0');
+    return { name, hash: peeled || hash, symbolic, type: peeledType || type, upstream };
   }).filter(ref => !ref.symbolic && ['commit', 'tag'].includes(ref.type));
   const headRaw = await git(repo, ['rev-parse', '--verify', '--quiet', 'HEAD']).catch(error => {
     if (refs.length || error.cause?.code !== 1) throw error;
@@ -95,7 +95,7 @@ export function parseFiles(raw) {
   return files;
 }
 
-export async function commit({ repoPath, hash, parent = 0, compareHash = '' }) {
+export async function commit({ repoPath, hash, parent = 0 }) {
   const repo = await repository(repoPath);
   hash = await verifyCommit(repo, hash);
   const raw = await git(repo, ['show', '-s', '--no-show-signature',
@@ -103,12 +103,11 @@ export async function commit({ repoPath, hash, parent = 0, compareHash = '' }) {
   const [id, parentText, author, email, date, message] = raw.split('\0');
   const parents = parentText ? parentText.split(' ') : [];
   if (!Number.isInteger(parent) || parent < 0 || parent >= Math.max(parents.length, 1)) throw new Error('父提交选择无效。');
-  if (compareHash && parent !== 0) throw new Error('不能同时选择比较提交和合并父节点。');
-  const base = compareHash ? await verifyCommit(repo, compareHash) : parents[parent] || null;
+  const base = parents[parent] || null;
   const args = base ? ['diff', '--name-status', '-z', '-M', base, hash, '--']
     : ['diff-tree', '--root', '--no-commit-id', '-r', '--name-status', '-z', '-M', hash, '--'];
   const files = parseFiles(await git(repo, args));
-  return { repo, hash: id, parents, parent, base, compareHash, author, email, date, message: message.trimEnd(), files };
+  return { repo, hash: id, parents, parent, base, author, email, date, message: message.trimEnd(), files };
 }
 
 async function revisionFile(repo, hash, path, exists) {

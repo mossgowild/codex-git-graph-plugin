@@ -10,3 +10,13 @@ export const columns = [
 export const maxColumnWidth = 2400;
 export const widthsSchema = z.strictObject(Object.fromEntries(columns.map(column =>
   [column.id, z.number().int().min(column.min).max(maxColumnWidth).optional()])));
+
+export const panelsSchema = z.strictObject({
+  detailHeight: z.number().int().min(160).max(10000).optional(),
+  summaryHeight: z.number().int().min(64).max(10000).optional(),
+  filesWidth: z.number().int().min(96).max(10000).optional(),
+  detailMaximized: z.boolean().optional(),
+});
+
+// Read only supported layout fields; retired preferences must not hide current UI.
+export const storedPanelsSchema = panelsSchema.strip();

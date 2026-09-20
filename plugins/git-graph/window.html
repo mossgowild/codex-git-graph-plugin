@@ -14,144 +14,174 @@
   --muted: var(--color-text-secondary, GrayText);
   --border: var(--color-border-secondary, color-mix(in srgb, CanvasText 12%, Canvas));
   --accent: var(--color-ring-primary, LinkText);
+  --graph-current: var(--color-text-info, var(--fg));
+  --graph-remote: var(--color-text-warning, var(--fg));
+  --graph-1: var(--color-text-success, var(--fg));
+  --graph-2: var(--color-text-danger, var(--fg));
+  --graph-3: var(--color-text-info, var(--fg));
+  --graph-4: var(--color-text-secondary, var(--fg));
+  --graph-5: var(--fg);
+  --radius-control: var(--border-radius-lg, 10px);
+  --radius-card: calc(var(--border-radius-xl, 12px) * 4 / 3);
+  --radius-badge: var(--border-radius-sm, 6px);
+  --resize-highlight: color-mix(in oklab, var(--fg) 25%, transparent);
   --danger: var(--color-text-danger, CanvasText);
   --success: var(--color-text-success, CanvasText);
   --warning: var(--color-text-warning, CanvasText);
-  --surface: color-mix(in srgb, var(--fg) 4%, var(--bg));
-  --hover: color-mix(in srgb, var(--fg) 6%, var(--bg));
-  --selected: color-mix(in srgb, var(--fg) 9%, var(--bg));
+  --detail-bg: var(--color-background-secondary, var(--surface));
   font-family: var(--font-sans, system-ui);
   font-size: var(--font-text-sm-size, 13px);
   font-weight: var(--font-weight-normal, 400);
   line-height: 1.4;
   background: var(--bg); color: var(--fg);
 }
+:root, #detail {
+  --surface: color-mix(in oklab, var(--fg) 5%, var(--bg));
+  --hover: color-mix(in oklab, var(--fg) 5%, transparent);
+  --hover-surface: color-mix(in oklab, var(--fg) 5%, var(--bg));
+  --selected: var(--color-background-disabled, color-mix(in oklab, var(--fg) 5%, transparent));
+}
 * { box-sizing: border-box }
 body { margin: 0 }
 [hidden] { display: none !important }
-button, input, select { font: inherit; color: inherit; min-width: 0 }
-button, select { cursor: var(--interaction-cursor, default) }
-button, input, select { border: 0; border-radius: var(--border-radius-sm, 6px); min-height: 28px; padding: 4px 8px; background: transparent }
+@scope (#app) to (#diff-editor) {
+button, input { font: inherit; color: inherit; min-width: 0 }
+button { cursor: var(--interaction-cursor, default) }
+button, input { border: 0; border-radius: var(--radius-control); min-height: 28px; padding: 4px 8px; background: transparent }
 button { display: inline-flex; align-items: center; justify-content: center; gap: 6px }
-button:hover, select:hover { background: var(--hover) }
+button:hover { background: var(--hover) }
 button:disabled { opacity: .35; cursor: default }
-button:focus-visible, select:focus-visible, #search-field:focus-within { outline: 2px solid var(--accent); outline-offset: -2px }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
 input { background: var(--surface); border: 1px solid transparent }
 input::placeholder { color: var(--muted); opacity: 1 }
-select, select::picker(select) { appearance: base-select }
-select { align-items: center; gap: 6px }
-select:open { background: var(--hover) }
-select::picker-icon { content: ''; width: 6px; height: 6px; flex: none; margin-inline: 3px; border: solid var(--muted); border-width: 0 1.4px 1.4px 0; transform: translateY(-1px) rotate(45deg) }
-select::picker(select) {
-  min-width: max(180px, anchor-size(self-inline)); max-width: calc(100vw - 16px); max-height: min(360px, calc(100dvh - 16px));
-  margin-block: 4px; padding: 4px; border: .5px solid var(--border);
-  border-radius: calc(var(--border-radius-xl, 12px) * 4 / 3);
-  background: var(--color-background-secondary, var(--bg)); color: var(--fg);
-  font: inherit; box-shadow: var(--shadow-lg); backdrop-filter: blur(8px); overflow: auto;
 }
-select option {
-  display: flex; align-items: center; gap: 12px; min-height: 28px; padding: 5px 8px;
-  border: 0; border-radius: var(--border-radius-xl, 12px); background: transparent; color: var(--fg);
-  font-weight: var(--font-weight-normal, 400); cursor: var(--interaction-cursor, default); overflow-wrap: anywhere;
-}
-select option:hover, select option:focus { background: color-mix(in srgb, var(--fg) 8%, transparent); outline: none }
-select option:checked { font-weight: var(--font-weight-normal, 400) }
-select option::checkmark { order: 1; margin-left: auto; color: var(--fg) }
-select optgroup { padding: 0; margin: 4px 0 0; font-weight: var(--font-weight-normal, 400) }
-select legend { padding: 4px 8px; color: var(--muted); font-size: var(--font-text-sm-size, 13px) }
 button svg { width: 16px; height: 16px; flex: none }
 .spacer { flex: 1 }
 #app { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; background: var(--bg) }
 #toolbar { display: flex; align-items: center; gap: 4px; min-height: 40px; padding: 6px 10px }
-#repo-label { max-width: 34%; padding-inline: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg) }
-#branch { max-width: 50%; color: var(--muted); text-overflow: ellipsis }
-#refresh { color: var(--muted) }
-#searchbar { display: flex; align-items: center; gap: 2px; padding: 0 12px 8px; border-bottom: 1px solid var(--border) }
-#search-field { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; background: var(--surface); border-radius: var(--border-radius-sm, 6px); padding-left: 8px; color: var(--muted) }
-#search-field > svg { width: 14px; height: 14px; flex: none }
+#repo-label { max-width: 34%; padding-inline: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg) }
+#repository { max-width: 34% }
+#branch { max-width: 50% }
+#refresh, #toggle-search { color: var(--muted); flex: none }
+#toggle-search[aria-expanded=true] { color: var(--fg); background: var(--selected) }
+#searchbar { display: flex; align-items: center; gap: 4px; padding: 0 12px 8px; border-bottom: 1px solid var(--border) }
+#search-field { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; background: var(--surface); border-radius: var(--radius-control); padding-left: 8px; color: var(--muted) }
+#search-field > svg { width: 16px; height: 16px; flex: none }
 #search { flex: 1; width: 100%; background: transparent; border: 0; outline: none; border-radius: 0; padding-left: 0; color: var(--fg) }
-#search-count { font-variant-numeric: tabular-nums; color: var(--muted); font-size: var(--font-text-xs-size, 12px); white-space: nowrap; margin-inline: 6px }
+#search::-webkit-search-cancel-button { appearance: none; width: 16px; height: 16px; background: var(--muted); mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%20fill%3D%22none%22%20aria-hidden%3D%22true%22%20data-codex-icon%3D%22xmark-md-light-16%22%3E%3Cpath%20d%3D%22M10.962%204.29539C11.1669%204.09057%2011.4992%204.09076%2011.7042%204.29539C11.9092%204.50039%2011.9091%204.83255%2011.7042%205.03758L8.74229%207.99949L11.7052%2010.9624C11.9097%2011.1673%2011.9097%2011.4996%2011.7052%2011.7046C11.5003%2011.9095%2011.168%2011.9093%2010.963%2011.7046L8.0001%208.74168L5.03721%2011.7046C4.83216%2011.9093%204.49994%2011.9095%204.29502%2011.7046C4.09047%2011.4996%204.09045%2011.1673%204.29502%2010.9624L7.25791%207.99949L4.296%205.03758C4.09101%204.83255%204.09099%204.5004%204.296%204.29539C4.50105%204.09079%204.8333%204.09054%205.03819%204.29539L8.0001%207.2573L10.962%204.29539Z%22%20fill%3D%22currentColor%22%2F%3E%3C%2Fsvg%3E") center / contain no-repeat }
+#search-count { font-variant-numeric: tabular-nums; color: var(--muted); font-size: var(--font-text-xs-size, 12px); white-space: nowrap }
+#search-count:empty { display: none }
 .step { width: 28px; flex: none; padding: 4px; color: var(--muted) }
-.error { padding: 8px 12px; background: color-mix(in srgb, var(--danger) 10%, var(--bg)); border-bottom: 1px solid var(--border); color: var(--danger); display: flex; gap: 8px; align-items: center }
+.error { padding: 8px 12px; background: var(--color-background-danger, color-mix(in srgb, var(--danger) 12%, var(--bg))); border-bottom: 1px solid var(--border); color: var(--danger); display: flex; gap: 8px; align-items: center }
 .error span { flex: 1; white-space: pre-wrap; overflow-wrap: anywhere }
 #content { display: flex; flex: 1; min-height: 0 }
 #history-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0 }
-#history-table { width: 100%; min-width: var(--table-min-width, 476px) }
-.columns, .commit-row { display: grid; grid-template-columns: var(--graph-width, 20px) var(--message-width, minmax(180px, 1fr)) var(--author-width, 100px) var(--date-width, 60px) var(--hash-width, 64px); align-items: center; justify-content: start; gap: 8px; padding: 0 12px 0 8px; width: 100% }
-.columns { height: 26px; font-size: var(--font-text-xs-size, 12px); font-weight: var(--font-weight-normal, 400); color: var(--muted); background: var(--bg); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 1 }
-.columns > span { position: relative; min-width: 0; align-self: stretch; display: flex; align-items: center }
-.column-resize { position: absolute; top: 0; bottom: 0; right: -8px; width: 16px; cursor: col-resize; touch-action: none; user-select: none }
-.column-resize::after { content: ''; position: absolute; top: 5px; bottom: 5px; left: 8px; width: 1px; background: var(--border) }
-.column-resize:hover::after, .column-resize:focus-visible::after, .resizing .column-resize[data-active]::after { background: var(--accent) }
-.column-resize:focus-visible { outline: none }
-.column-resize[aria-disabled=true] { pointer-events: none }
-.resizing, .resizing * { cursor: col-resize !important; user-select: none !important }
-#history-scroll { flex: 1; overflow: auto; position: relative }
+#history-table { width: 100% }
+#load-more { display: flex; margin: 8px auto; color: var(--muted) }
+#history-scroll { flex: 1; overflow: auto; overflow-x: hidden; position: relative; overflow-anchor: none }
 #rows { width: 100% }
-.commit-row { height: 28px; width: 100%; border-radius: 0; text-align: left; background: transparent; white-space: nowrap }
-.commit-row:hover { background: var(--hover) }
-.commit-row[aria-selected=true] { background: var(--selected) }
-.commit-row.compare-base { box-shadow: inset 2px 0 var(--accent) }
-.commit-row.is-match .subject { color: var(--accent) }
-.commit-row svg { display: block; align-self: stretch; width: auto; height: 28px; overflow: visible }
-.commit-row .message { display: flex; align-items: center; min-width: 0; gap: 6px; overflow: hidden }
-.subject { overflow: hidden; text-overflow: ellipsis }
-.author { overflow: hidden; text-overflow: ellipsis; color: var(--muted) }
-.date, .hash { color: var(--muted); font-variant-numeric: tabular-nums; font-size: var(--font-text-xs-size, 12px); overflow: hidden; text-overflow: ellipsis }
-.hash, code, pre { font-family: var(--font-mono, 'SFMono-Regular', Consolas, monospace) }
-.ref { flex: none; font-size: var(--font-text-xs-size, 12px); line-height: 18px; height: 18px; border-radius: var(--border-radius-xs, 4px); padding: 0 5px; background: var(--hover); color: var(--muted) }
-.ref.tag { color: var(--warning) }
-.ref.head { color: var(--accent) }
+.commit-entry { min-width: 0 }
+#detail-row { position: relative; padding: 6px 8px 6px calc(var(--graph-width, 22px) + 8px) }
+#detail-graph { position: absolute; top: 0; bottom: 0; left: 8px; width: var(--graph-width, 20px); pointer-events: none }
+#detail-graph svg { display: block; height: 100% }
+.commit-row { --row-bg: var(--bg); display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative; isolation: isolate; height: 28px; min-height: 28px; width: 100%; padding: 0 12px 0 8px; border-radius: 0; text-align: left; background: transparent; white-space: nowrap }
+.commit-row:hover { --row-bg: var(--hover-surface); background: transparent }
+.commit-row[aria-pressed=true] { --row-bg: var(--selected-surface, var(--surface)) }
+.commit-row::before { content: ''; position: absolute; inset: 2px 4px; z-index: -1; border-radius: var(--radius-control); pointer-events: none; background: var(--row-bg) }
+.commit-row[aria-pressed=true]::before { background: var(--row-bg) }
+.commit-row:focus-visible { outline: none }
+.commit-row:focus-visible::before { outline: 2px solid var(--accent); outline-offset: -2px }
+/* Codex 26.915 content-find tokens; MCP does not forward chart colors. */
+.commit-row mark[data-search-match] { background: var(--color-chart-yellow, light-dark(#ffc300, #ffd240)); color: var(--fg); border-radius: calc(var(--border-radius-xs, 4px) / 2); padding: 0 }
+.commit-row mark[data-search-match][data-active] { background: var(--color-chart-orange, light-dark(#e25507, #fb6a22)) }
+.search-context { flex: 0 1 auto; min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: var(--font-text-xs-size, 12px) }
+.commit-row > .graph { display: block; flex: none; align-self: stretch; height: 28px }
+.commit-row[aria-expanded=true] > .graph .node-edge { stroke-width: 3px }
+.graph circle { stroke: var(--bg) }
+.commit-row:hover .graph circle:first-of-type, .commit-row.is-focused[aria-pressed=true] .graph circle:first-of-type { stroke: transparent }
+.commit-row:hover .graph circle:nth-of-type(2) { stroke: var(--hover) }
+#rows:has(.commit-row:focus) .commit-row[aria-pressed=true] .graph circle:nth-of-type(2) { stroke: var(--selected) }
+.commit-row.is-focused .graph circle:nth-of-type(2) { stroke: var(--selected-surface, var(--surface)) }
+.commit-row.current:hover .graph circle:last-of-type { fill: var(--hover) }
+.commit-row .message { display: flex; align-items: center; flex: 1; min-width: 0; gap: 8px; overflow: hidden }
+.subject { overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto }
+.author { flex: 0 1 auto; max-width: 20%; margin-left: 12px; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: var(--font-text-xs-size, 12px) }
+code, pre { font-family: var(--font-mono, 'SFMono-Regular', Consolas, monospace) }
+.badges { display: flex; flex: 0 1 auto; min-width: 0; max-width: 50%; align-items: center; gap: 4px; overflow: hidden }
+.badges:empty { display: none }
+.ref { --ref-color: var(--fg); display: inline-flex; align-items: center; gap: 4px; flex: none; min-width: 0; font-size: var(--font-text-xs-size, 12px); line-height: 18px; height: 20px; border: 1px solid var(--border); border-radius: var(--radius-badge); padding: 0 6px; background: var(--surface); color: var(--ref-color) }
+.badges .ref { flex: 0 1 auto; overflow: hidden }
+.ref-name { min-width: 0; overflow: hidden; text-overflow: ellipsis }
 .empty { color: var(--muted); text-align: center; padding: 48px 20px; line-height: 1.8; overflow-wrap: anywhere }
 .empty strong { display: block; color: var(--fg); font-weight: var(--font-weight-medium, 500); margin-bottom: 4px }
-.history-footer { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 3px 12px; border-top: 1px solid var(--border); min-height: 28px; color: var(--muted); font-size: var(--font-text-xs-size, 12px) }
-#history-status { min-width: 0; overflow-wrap: anywhere }
-.readonly { margin-left: auto; white-space: nowrap }
-#detail { width: 43%; min-width: 320px; max-width: 780px; border-left: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; overflow: auto }
-#detail-header { display: flex; align-items: center; gap: 4px; padding: 6px 10px; border-bottom: 1px solid var(--border) }
-#detail-header { flex-wrap: wrap }
+#detail { --bg: var(--detail-bg); position: sticky; left: 0; width: calc(var(--history-viewport-width, 100vw) - var(--graph-width, 20px) - 16px); height: var(--detail-height, 420px); display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--bg) }
+#detail-header { display: flex; align-items: center; flex-wrap: wrap; flex: none; gap: 4px; min-height: 36px; padding: 4px 0 }
 #detail-header button { font-size: var(--font-text-xs-size, 12px); color: var(--muted) }
-#detail-hash { font-size: var(--font-text-xs-size, 12px); color: var(--muted) }
-#compare-hint { padding: 6px 12px; margin: 0; color: var(--muted); font-size: var(--font-text-xs-size, 12px) }
-#content.detail-expanded #history-pane { display: none }
-#content.detail-expanded #detail { width: 100%; max-width: none; height: 100%; border: 0 }
-#copy-hash { color: var(--muted) }
-#close-detail { margin-left: auto; color: var(--muted) }
-#detail-summary { padding: 12px; border-bottom: 1px solid var(--border); overflow: auto; max-height: 33%; flex-shrink: 0 }
-#commit-refs { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; margin-bottom: 8px; font-size: var(--font-text-xs-size, 12px); color: var(--muted) }
-#commit-refs .ref { flex: 0 1 auto; min-width: 0; max-width: 100%; height: auto; overflow-wrap: anywhere }
+#detail-identity { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; flex: 1; min-width: 0; padding: 4px 6px }
+#detail-hash { flex: none; max-width: 100%; font-size: var(--font-text-xs-size, 12px); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+#detail-header .step { width: 28px; height: 28px }
+#detail-summary { padding: 4px 6px 6px; overflow: auto; flex: 1; min-height: 0 }
+#commit-refs { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; min-width: 0; font-size: var(--font-text-xs-size, 12px); color: var(--muted) }
+#commit-refs:empty { display: none }
+#commit-refs .ref { flex: 0 1 auto; max-width: 100%; height: auto }
+#commit-refs .ref-name { white-space: normal; overflow-wrap: anywhere }
 #commit-message { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; margin: 0 0 8px }
 #commit-meta { font-size: var(--font-text-xs-size, 12px); line-height: 1.7; color: var(--muted); overflow-wrap: anywhere }
-#parent-label { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: var(--muted); font-size: var(--font-text-xs-size, 12px) }
-#parent { max-width: 100%; font-family: var(--font-mono, monospace); font-size: var(--font-text-xs-size, 12px) }
-.files-label { padding: 8px 12px 4px; color: var(--muted); font-size: var(--font-text-xs-size, 12px) }
-#files { max-height: 26%; min-height: 36px; overflow: auto; padding: 0 6px 6px; flex-shrink: 0 }
-#files button { border-radius: var(--border-radius-sm, 6px); display: flex; justify-content: flex-start; width: 100%; gap: 8px; text-align: left; padding: 4px 6px; font-size: var(--font-text-sm-size, 13px) }
+#parent-label { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: var(--muted) }
+#files { min-height: 0; flex: 1; overflow: auto; padding: 0 6px 4px 2px }
+#files button { border-radius: var(--radius-control); display: flex; justify-content: flex-start; width: 100%; gap: 8px; text-align: left; padding: 4px 6px; font-size: var(--font-text-sm-size, 13px) }
 #files button[aria-pressed=true] { background: var(--selected) }
 .file-status { flex: none; margin-left: auto; color: var(--muted); font-family: var(--font-mono, monospace); font-size: var(--font-text-xs-size, 12px) }
 .file-status.A { color: var(--success) }
 .file-status.D { color: var(--danger) }
 .file-path, .file-directory { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .file-directory { color: var(--muted); max-width: 45%; font-size: var(--font-text-xs-size, 12px) }
-#diff-toolbar { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 2px 6px 2px 12px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border) }
+#changes-header { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; min-height: 36px; padding: 4px 2px; flex: none }
+#files-label { flex: 0 1 auto; max-width: 50%; min-width: 0 }
 #diff-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-text-xs-size, 12px); color: var(--muted) }
 #open-file { flex: none; color: var(--muted) }
-#diff-mode { font-size: var(--font-text-xs-size, 12px); color: var(--muted) }
-#diff-revisions { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 4px 12px; color: var(--muted); font-size: var(--font-text-xs-size, 12px) }
+#expand-detail[aria-pressed=false] .restore-icon, #expand-detail[aria-pressed=true] .expand-icon { display: none }
+#diff-mode[data-mode=inline] .diff-icon-inline, #diff-mode[data-mode=split] .diff-icon-split { display: none }
+#diff-revisions { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 4px 6px; color: var(--muted); font-size: var(--font-text-xs-size, 12px) }
 #diff-revisions span { overflow-wrap: anywhere }
 #diff-body { flex: 1; position: relative; min-height: 80px }
-#diff-editor { position: absolute; inset: 0; font-family: var(--font-mono, 'SFMono-Regular', Consolas, monospace); font-size: var(--font-text-xs-size, 12px) }
-#diff-notice { white-space: pre-wrap; color: var(--muted); padding: 12px; overflow: auto; height: 100% }
-#diff-status { min-height: 22px; flex-shrink: 0; padding: 3px 12px; color: var(--muted); font-size: var(--font-text-xs-size, 12px) }
-@media (max-width: 1000px) {
-  #content { flex-direction: column }
-  #detail { width: 100%; max-width: none; min-width: 0; height: 60%; min-height: min(400px, calc(100% - 100px)); border-left: 0; border-top: 1px solid var(--border); flex-shrink: 0 }
-  #detail-summary { max-height: 30%; padding: 8px 12px }
-  #files { max-height: 22% }
-  #history-pane { min-height: 100px }
+#diff-editor { position: absolute; inset: 0 }
+#diff-notice { white-space: pre-wrap; color: var(--muted); padding: 8px; overflow: auto; height: 100% }
+#diff-status { min-height: 22px; flex-shrink: 0; padding: 3px 6px; color: var(--muted); font-size: var(--font-text-xs-size, 12px) }
+#history-body, #detail-content, #changes-pane, #diff-content { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0 }
+#detail-content { overflow: hidden }
+#detail-body { display: flex; flex: 1; min-height: 0; min-width: 0 }
+#summary-pane, #files-pane, #diff-pane { display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden }
+#summary-pane { flex: none; height: var(--summary-height, auto); max-height: var(--summary-height, min(160px, calc(var(--detail-height, 420px) / 3))) }
+#files-pane { width: var(--files-width, 220px); flex: none }
+#diff-pane { flex: 1 }
+#changes-heading { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; padding: 4px; color: var(--muted) }
+#changes-heading span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+#history-pane.detail-maximized #searchbar,
+#history-pane.detail-maximized .commit-entry:not(.is-open), #history-pane.detail-maximized #load-more { display: none }
+#history-pane.detail-maximized :is(#history-table, #rows, .commit-entry.is-open) { height: 100% }
+#history-pane.detail-maximized .commit-entry.is-open { display: flex; flex-direction: column; min-height: 0 }
+#history-pane.detail-maximized .commit-row { flex: none }
+#history-pane.detail-maximized #detail-row { flex: 1; min-height: 0 }
+#history-pane.detail-maximized #detail { height: 100% }
+.panel-resize { position: relative; flex: 0 0 1px; background: var(--border); cursor: row-resize; touch-action: none; user-select: none; z-index: 2; outline: none }
+#detail-resize { position: absolute; bottom: -1px; left: var(--radius-card); right: var(--radius-card); height: 1px; background: transparent }
+#detail-resize::before { content: none }
+.panel-resize::before { content: ''; position: absolute; inset: 0; background: linear-gradient(to right in oklab, transparent, var(--resize-highlight), transparent); opacity: 0; pointer-events: none }
+.panel-resize::after { content: ''; position: absolute; left: 0; right: 0; top: -7.5px; height: 16px }
+.panel-resize:hover::before, .panel-resize:focus-visible::before, .panel-resize[data-active]::before { opacity: 1 }
+.panel-resize:focus-visible::after { outline: 2px solid var(--accent); outline-offset: -2px }
+.panel-resize[aria-orientation=vertical] { cursor: col-resize }
+.panel-resize[aria-orientation=vertical]::before { background: linear-gradient(to bottom in oklab, transparent, var(--resize-highlight), transparent) }
+.panel-resize[aria-orientation=vertical]::after { top: 0; bottom: 0; left: -7.5px; right: auto; width: 16px; height: auto }
+.panel-resize[aria-disabled=true] { pointer-events: none }
+.panel-resizing, .panel-resizing * { cursor: var(--resize-cursor) !important; user-select: none !important }
+@media (forced-colors: active) {
+  #search-field:focus-within { outline: 2px solid Highlight; outline-offset: -2px }
 }
 @media (max-width: 540px) {
-  #search-count { font-size: var(--font-text-xs-size, 12px) }
+  #search::-webkit-search-cancel-button { appearance: none; width: 16px; height: 16px; background: var(--muted); mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%20fill%3D%22none%22%20aria-hidden%3D%22true%22%20data-codex-icon%3D%22xmark-md-light-16%22%3E%3Cpath%20d%3D%22M10.962%204.29539C11.1669%204.09057%2011.4992%204.09076%2011.7042%204.29539C11.9092%204.50039%2011.9091%204.83255%2011.7042%205.03758L8.74229%207.99949L11.7052%2010.9624C11.9097%2011.1673%2011.9097%2011.4996%2011.7052%2011.7046C11.5003%2011.9095%2011.168%2011.9093%2010.963%2011.7046L8.0001%208.74168L5.03721%2011.7046C4.83216%2011.9093%204.49994%2011.9095%204.29502%2011.7046C4.09047%2011.4996%204.09045%2011.1673%204.29502%2010.9624L7.25791%207.99949L4.296%205.03758C4.09101%204.83255%204.09099%204.5004%204.296%204.29539C4.50105%204.09079%204.8333%204.09054%205.03819%204.29539L8.0001%207.2573L10.962%204.29539Z%22%20fill%3D%22currentColor%22%2F%3E%3C%2Fsvg%3E") center / contain no-repeat }
+#search-count { font-size: var(--font-text-xs-size, 12px) }
 }
 </style>
 </head>
@@ -159,31 +189,44 @@ button svg { width: 16px; height: 16px; flex: none }
 <main id="app">
   <div id="toolbar" hidden>
     <span id="repo-label" aria-label="当前任务仓库"></span>
+    <select id="repository" aria-label="切换项目内仓库" hidden></select>
     <select id="branch" aria-label="筛选分支"></select><span class="spacer"></span>
-    <button id="refresh" title="重新读取仓库" aria-label="刷新"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 8a6.2 6.2 0 1 0 .1 4M16 3v5h-5"/></svg></button>
+    <button id="toggle-search" class="step" title="搜索提交" aria-label="搜索提交" aria-controls="searchbar" aria-expanded="false"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" data-codex-icon="magnifying-glass-lg-light-16"><path fill-rule="evenodd" clip-rule="evenodd" d="M7.32849 1.91016C10.2877 1.91016 12.6867 4.30938 12.6869 7.26855C12.6869 8.57363 12.2192 9.7688 11.4437 10.6982L14.0433 13.2979C14.2481 13.5028 14.2481 13.8351 14.0433 14.04C13.8384 14.245 13.5062 14.2449 13.3011 14.04L10.6957 11.4346C9.77536 12.1793 8.60462 12.627 7.32849 12.627C4.36931 12.6268 1.97009 10.2278 1.97009 7.26855C1.97027 4.30949 4.36942 1.91033 7.32849 1.91016ZM7.32849 2.96094C4.94932 2.96111 3.02105 4.88939 3.02087 7.26855C3.02087 9.64787 4.94921 11.577 7.32849 11.5771C9.70792 11.5771 11.6371 9.64798 11.6371 7.26855C11.6369 4.88928 9.70781 2.96094 7.32849 2.96094Z" fill="currentColor"/></svg></button>
+    <button id="refresh" class="step" title="重新读取仓库" aria-label="刷新"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" data-codex-icon="arrows-clockwise-rotate-lg-light-16"><path d="M14.0219 8.22363C14.3094 8.25975 14.5128 8.52209 14.477 8.80957C14.0729 12.0322 11.311 14.5222 7.96723 14.5225C6.11053 14.5225 4.40157 13.752 3.19184 12.5146V13.9961C3.19184 14.286 2.9564 14.5215 2.66645 14.5215C2.37668 14.5213 2.14106 14.2859 2.14106 13.9961V11.4961C2.14122 10.9303 2.60064 10.4709 3.16645 10.4707H5.66645C5.9563 10.4707 6.19167 10.7063 6.19184 10.9961C6.19184 11.286 5.9564 11.5215 5.66645 11.5215H3.70356C4.72588 12.7119 6.27317 13.4717 7.96723 13.4717C10.7796 13.4715 13.0975 11.3782 13.436 8.67871C13.4724 8.39145 13.7345 8.18763 14.0219 8.22363Z" fill="currentColor"/> <path d="M13.3334 1.47461C13.6234 1.47461 13.8588 1.71005 13.8588 2V4.5C13.8588 5.06609 13.3995 5.52539 12.8334 5.52539H10.3334C10.0435 5.52534 9.80805 5.28992 9.80805 5C9.80805 4.71008 10.0435 4.47466 10.3334 4.47461H12.2905C11.2691 3.28567 9.72356 2.52743 8.03168 2.52734C5.22176 2.52746 2.90507 4.61922 2.56684 7.31738C2.53053 7.60481 2.26843 7.80851 1.9809 7.77246C1.69351 7.73623 1.48997 7.47397 1.52582 7.18652C1.9297 3.96546 4.69011 1.47668 8.03168 1.47656C9.88918 1.47665 11.5991 2.24798 12.8081 3.4873V2C12.8081 1.71008 13.0435 1.47466 13.3334 1.47461Z" fill="currentColor"/></svg></button>
   </div>
-  <div id="searchbar" hidden>
-    <label id="search-field"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 4 4"/></svg><input id="search" type="search" aria-label="搜索已加载的提交" placeholder="搜索提交、作者或 SHA"></label>
-    <span id="search-count" role="status"></span>
-    <button class="step" id="prev-match" title="上一个匹配" aria-label="上一个匹配"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 16V4m-5 5 5-5 5 5"/></svg></button>
-    <button class="step" id="next-match" title="下一个匹配" aria-label="下一个匹配"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 4v12m-5-5 5 5 5-5"/></svg></button>
-  </div>
-  <div id="error" class="error" role="alert" hidden><span></span><button id="retry">重试</button><button id="dismiss-error" aria-label="关闭错误">×</button></div>
+  <div id="error" class="error" role="alert" hidden><span></span><button id="retry">重试</button><button id="dismiss-error" class="step" aria-label="关闭错误"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" data-codex-icon="xmark-lg-light-16"><path d="M11.8786 3.37864C12.0835 3.17377 12.4158 3.17407 12.6208 3.37864C12.8259 3.58367 12.8259 3.9158 12.6208 4.12083L8.74192 7.99974L12.6208 11.8786C12.8259 12.0837 12.8259 12.4158 12.6208 12.6208C12.4158 12.8259 12.0837 12.8259 11.8786 12.6208L7.99974 8.74192L4.12083 12.6208C3.9158 12.8258 3.58366 12.8259 3.37864 12.6208C3.17408 12.4158 3.17378 12.0835 3.37864 11.8786L7.25755 7.99974L3.37864 4.12083C3.17407 3.91577 3.17377 3.58352 3.37864 3.37864C3.58352 3.17377 3.91577 3.17407 4.12083 3.37864L7.99974 7.25755L11.8786 3.37864Z" fill="currentColor"/></svg></button></div>
   <div id="layout-error" class="error" role="alert" hidden><span></span><button id="layout-retry">重试</button></div>
   <div id="content">
-    <section id="history-pane" aria-label="提交历史">
-      <div id="history-scroll"><div id="history-table"><div id="columns" class="columns" hidden><span aria-label="关系图"></span><span>提交</span><span>作者</span><span>日期</span><span>SHA</span></div><div id="rows" role="listbox" aria-multiselectable="true" aria-label="Git 提交列表" title="选择提交查看差异；按住 ⌘ / Ctrl 点击另一提交进行比较"></div></div><div id="empty" class="empty"><strong>正在读取当前任务的 Git 仓库</strong>浏览分支关系，选择提交查看文件差异。</div></div>
-      <footer class="history-footer"><span id="history-status" role="status">正在读取当前任务仓库…</span><span class="readonly" title="Git Graph 0.2.1 · 所有 Git 操作只读">只读</span><button id="load-more" hidden>加载更多</button></footer>
+    <section id="history-pane" aria-label="提交历史" aria-busy="true">
+      <div id="history-body">
+  <div id="searchbar" hidden>
+    <label id="search-field"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" data-codex-icon="magnifying-glass-lg-light-16"><path fill-rule="evenodd" clip-rule="evenodd" d="M7.32849 1.91016C10.2877 1.91016 12.6867 4.30938 12.6869 7.26855C12.6869 8.57363 12.2192 9.7688 11.4437 10.6982L14.0433 13.2979C14.2481 13.5028 14.2481 13.8351 14.0433 14.04C13.8384 14.245 13.5062 14.2449 13.3011 14.04L10.6957 11.4346C9.77536 12.1793 8.60462 12.627 7.32849 12.627C4.36931 12.6268 1.97009 10.2278 1.97009 7.26855C1.97027 4.30949 4.36942 1.91033 7.32849 1.91016ZM7.32849 2.96094C4.94932 2.96111 3.02105 4.88939 3.02087 7.26855C3.02087 9.64787 4.94921 11.577 7.32849 11.5771C9.70792 11.5771 11.6371 9.64798 11.6371 7.26855C11.6369 4.88928 9.70781 2.96094 7.32849 2.96094Z" fill="currentColor"/></svg><input id="search" type="search" aria-label="搜索已加载的提交" placeholder="搜索提交、作者或 SHA"></label>
+    <span id="search-count" role="status"></span>
+    <button class="step" id="prev-match" title="上一个匹配" aria-label="上一个匹配"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" data-codex-icon="arrow-up-lg-light-16"><path d="M7.45819 2.4721C7.77271 2.21556 8.22656 2.2158 8.5412 2.4721L8.60663 2.53069L13.0373 6.96233C13.2423 7.16736 13.2423 7.49949 13.0373 7.70452C12.8322 7.90905 12.5 7.90938 12.2951 7.70452L8.52557 3.93401V13.3334C8.5254 13.6232 8.29002 13.8578 8.00018 13.8578C7.71034 13.8578 7.47497 13.6232 7.47479 13.3334V3.93206L3.70429 7.70452C3.49929 7.90915 3.16702 7.90927 2.9621 7.70452C2.75738 7.49959 2.75747 7.16732 2.9621 6.96233L7.39276 2.53069L7.45819 2.4721Z" fill="currentColor"/></svg></button>
+    <button class="step" id="next-match" title="下一个匹配" aria-label="下一个匹配"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" data-codex-icon="arrow-down-lg-light-16"><path d="M8.00022 2.1416C8.29017 2.1416 8.52562 2.37704 8.52562 2.66699V12.0645L12.2951 8.2959C12.5 8.091 12.8323 8.09124 13.0373 8.2959C13.2424 8.50092 13.2424 8.83306 13.0373 9.03809L8.60667 13.4688C8.27145 13.8037 7.72792 13.8039 7.3928 13.4688L2.96214 9.03809C2.7574 8.83313 2.75743 8.50087 2.96214 8.2959C3.1671 8.09094 3.49928 8.09108 3.70433 8.2959L7.47483 12.0664V2.66699C7.47483 2.37708 7.71033 2.14167 8.00022 2.1416Z" fill="currentColor"/></svg></button>
+  </div>
+
+      <div id="history-scroll"><div id="history-table"><div id="rows" role="list" aria-label="Git 提交列表" title="选择提交查看差异"></div></div><button id="load-more" hidden>加载更多</button><div id="empty" class="empty"><strong>正在读取当前任务的 Git 仓库</strong>浏览分支关系，选择提交查看文件差异。</div></div>
+      </div>
     </section>
-    <aside id="detail" aria-label="提交详情" hidden>
-      <div id="detail-header"><code id="detail-hash"></code><button id="copy-hash" title="复制目标提交的完整 SHA">复制</button><button id="compare" aria-pressed="false" title="将当前提交作为基准，再选择目标提交">比较…</button><button id="swap-comparison" hidden title="交换基准与目标">交换</button><button id="expand-detail" aria-pressed="false" title="展开详情以查看差异">展开</button><button id="close-detail" aria-label="关闭提交详情">×</button></div>
-      <p id="compare-hint" hidden role="status">请选择另一条提交作为目标；也可按住 ⌘ / Ctrl 点击提交进行比较。</p>
-      <div id="detail-summary"><div id="commit-refs"></div><p id="commit-message"></p><div id="commit-meta"></div><label id="parent-label" hidden>对比父提交<select id="parent" aria-label="选择对比的父提交"></select></label></div>
-      <div class="files-label" id="files-label">变更文件</div><div id="files"></div>
-      <div id="diff-toolbar"><span id="diff-title">选择文件查看差异</span><select id="diff-mode" aria-label="差异视图" disabled><option value="inline">行内</option><option value="split">并排</option></select><button class="step" id="prev-change" disabled title="上一处差异" aria-label="上一处差异">↑</button><button class="step" id="next-change" disabled title="下一处差异" aria-label="下一处差异">↓</button><button id="open-file" hidden disabled title="在 Codex 中打开工作区文件（当前内容）" aria-label="在 Codex 中打开工作区文件"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 3h6v6m0-6-8 8M8 4H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-3"/></svg></button></div>
+    <div id="detail-row" hidden><div id="detail-graph" aria-hidden="true"></div>
+    <section id="detail" aria-label="提交详情">
+      <div id="detail-header"><div id="detail-identity"><code id="detail-hash"></code><div id="commit-refs" aria-label="分支与标签"></div></div><button id="expand-detail" class="step" aria-pressed="false" title="放大详情" aria-label="放大详情"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" data-codex-icon="arrow-up-right-arrow-down-left-md-light-16" class="expand-icon"><path d="M2.66528 8.81445C2.95513 8.81454 3.19063 9.04999 3.19067 9.33984V12.082L5.9856 9.28711C6.19062 9.08208 6.52276 9.08208 6.72778 9.28711C6.93244 9.49216 6.93269 9.82439 6.72778 10.0293L3.94556 12.8115H6.66333C6.9532 12.8116 7.18872 13.047 7.18872 13.3369C7.18865 13.6268 6.95316 13.8622 6.66333 13.8623H2.76587C2.42086 13.8623 2.14115 13.5822 2.14087 13.2373V9.33984C2.14091 9.04999 2.37544 8.81454 2.66528 8.81445Z" fill="currentColor"/> <path d="M13.2346 2.14355C13.5796 2.14364 13.8594 2.42361 13.8596 2.76855V6.66602C13.8596 6.95582 13.625 7.19123 13.3352 7.19141C13.0453 7.19141 12.8099 6.95593 12.8098 6.66602V3.9248L10.0149 6.71973C9.81001 6.92456 9.47775 6.92429 9.27271 6.71973C9.06786 6.5147 9.06777 6.18251 9.27271 5.97754L12.0559 3.19434H9.33716C9.04721 3.19434 8.81177 2.95889 8.81177 2.66895C8.81177 2.379 9.04721 2.14355 9.33716 2.14355H13.2346Z" fill="currentColor"/></svg><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" data-codex-icon="arrow-down-left-arrow-up-right-sm-light-16" class="restore-icon"><path d="M6.16622 8.80776C6.73222 8.80776 7.19146 9.26719 7.19161 9.83315V12.6662C7.19161 12.9561 6.95617 13.1915 6.66622 13.1915C6.37644 13.1913 6.14083 12.956 6.14083 12.6662V10.5939L3.37228 13.3703C3.16754 13.5755 2.83441 13.5759 2.62911 13.3712C2.42414 13.1665 2.4237 12.8343 2.62813 12.629L5.39278 9.85756H3.33321C3.04354 9.85737 2.808 9.62283 2.80782 9.33315C2.80798 9.04345 3.04353 8.80796 3.33321 8.80776H6.16622Z" fill="currentColor"/> <path d="M12.6281 2.62905C12.8326 2.42395 13.1649 2.42297 13.3703 2.6271C13.5757 2.83159 13.5766 3.16477 13.3723 3.37026L10.6125 6.14174H12.6662C12.9561 6.14174 13.1914 6.37636 13.1916 6.66616C13.1916 6.95608 12.9562 7.19155 12.6662 7.19155H9.83321C9.26719 7.19148 8.80785 6.73219 8.80782 6.16616V3.33315C8.80782 3.04324 9.04332 2.80783 9.33321 2.80776C9.62316 2.80776 9.8586 3.0432 9.8586 3.33315V5.4103L12.6281 2.62905Z" fill="currentColor"/></svg></button><button id="close-detail" class="step" title="关闭提交详情" aria-label="关闭提交详情"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" data-codex-icon="xmark-lg-light-16"><path d="M11.8786 3.37864C12.0835 3.17377 12.4158 3.17407 12.6208 3.37864C12.8259 3.58367 12.8259 3.9158 12.6208 4.12083L8.74192 7.99974L12.6208 11.8786C12.8259 12.0837 12.8259 12.4158 12.6208 12.6208C12.4158 12.8259 12.0837 12.8259 11.8786 12.6208L7.99974 8.74192L4.12083 12.6208C3.9158 12.8258 3.58366 12.8259 3.37864 12.6208C3.17408 12.4158 3.17378 12.0835 3.37864 11.8786L7.25755 7.99974L3.37864 4.12083C3.17407 3.91577 3.17377 3.58352 3.37864 3.37864C3.58352 3.17377 3.91577 3.17407 4.12083 3.37864L7.99974 7.25755L11.8786 3.37864Z" fill="currentColor"/></svg></button></div>
+      <div id="detail-content">
+      <section id="summary-pane" aria-label="提交信息"><div id="detail-summary"><p id="commit-message"></p><div id="commit-meta"></div><label id="parent-label" hidden>对比父提交<select id="parent" aria-label="选择对比的父提交"></select></label></div></section>
+      <div id="summary-resize" class="panel-resize" role="separator" tabindex="0" aria-label="调整提交信息与变更文件大小" aria-controls="summary-pane changes-pane" aria-orientation="horizontal" title="拖动调整大小；双击恢复默认；方向键微调"></div>
+      <section id="changes-pane" aria-label="变更文件">
+      <div id="changes-header"><div id="changes-heading"><span id="files-label">变更文件</span><span id="diff-title">选择文件查看差异</span></div><button id="diff-mode" class="step" data-mode="inline" aria-label="切换为并排差异" title="切换为并排差异" disabled><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="3" stroke="currentColor" stroke-width="2"/><g class="diff-icon-split" fill-opacity=".5"><path d="M6 8C6 7.44772 6.44772 7 7 7H10.25C10.8023 7 11.25 7.44772 11.25 8V16C11.25 16.5523 10.8023 17 10.25 17H7C6.44772 17 6 16.5523 6 16V8Z" fill="var(--danger)"/><path d="M12.75 8C12.75 7.44772 13.1977 7 13.75 7H17C17.5523 7 18 7.44772 18 8V16C18 16.5523 17.5523 17 17 17H13.75C13.1977 17 12.75 16.5523 12.75 16V8Z" fill="var(--success)"/></g><g class="diff-icon-inline" fill-opacity=".5"><path d="M6 8C6 7.44772 6.44772 7 7 7H17C17.5523 7 18 7.44772 18 8V10.25C18 10.8023 17.5523 11.25 17 11.25H7C6.44772 11.25 6 10.8023 6 10.25V8Z" fill="var(--danger)"/><path d="M6 13.75C6 13.1977 6.44772 12.75 7 12.75H17C17.5523 12.75 18 13.1977 18 13.75V16C18 16.5523 17.5523 17 17 17H7C6.44772 17 6 16.5523 6 16V13.75Z" fill="var(--success)"/></g></svg></button><button class="step" id="prev-change" disabled title="上一处差异" aria-label="上一处差异"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" data-codex-icon="arrow-up-lg-light-16"><path d="M7.45819 2.4721C7.77271 2.21556 8.22656 2.2158 8.5412 2.4721L8.60663 2.53069L13.0373 6.96233C13.2423 7.16736 13.2423 7.49949 13.0373 7.70452C12.8322 7.90905 12.5 7.90938 12.2951 7.70452L8.52557 3.93401V13.3334C8.5254 13.6232 8.29002 13.8578 8.00018 13.8578C7.71034 13.8578 7.47497 13.6232 7.47479 13.3334V3.93206L3.70429 7.70452C3.49929 7.90915 3.16702 7.90927 2.9621 7.70452C2.75738 7.49959 2.75747 7.16732 2.9621 6.96233L7.39276 2.53069L7.45819 2.4721Z" fill="currentColor"/></svg></button><button class="step" id="next-change" disabled title="下一处差异" aria-label="下一处差异"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" data-codex-icon="arrow-down-lg-light-16"><path d="M8.00022 2.1416C8.29017 2.1416 8.52562 2.37704 8.52562 2.66699V12.0645L12.2951 8.2959C12.5 8.091 12.8323 8.09124 13.0373 8.2959C13.2424 8.50092 13.2424 8.83306 13.0373 9.03809L8.60667 13.4688C8.27145 13.8037 7.72792 13.8039 7.3928 13.4688L2.96214 9.03809C2.7574 8.83313 2.75743 8.50087 2.96214 8.2959C3.1671 8.09094 3.49928 8.09108 3.70433 8.2959L7.47483 12.0664V2.66699C7.47483 2.37708 7.71033 2.14167 8.00022 2.1416Z" fill="currentColor"/></svg></button><button id="open-file" class="step" hidden disabled title="在 Codex 中打开工作区文件（当前内容）" aria-label="在 Codex 中打开工作区文件"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" data-codex-icon="arrow-up-right-lg-light-16"><path d="M11.9489 3.47949C12.0996 3.46465 12.2552 3.51279 12.3707 3.62793C12.4862 3.74328 12.5337 3.89898 12.5192 4.0498C12.5205 4.06633 12.525 4.08275 12.525 4.09961V10.667C12.5249 10.9565 12.2901 11.191 12.0006 11.1914C11.7108 11.1914 11.4754 10.9568 11.4752 10.667V5.2666L4.37172 12.376C4.16672 12.5807 3.83352 12.5808 3.62855 12.376C3.42373 12.1711 3.42384 11.8388 3.62855 11.6338L10.733 4.52539H5.33363C5.04368 4.52539 4.80824 4.28995 4.80824 4C4.80824 3.71005 5.04368 3.47461 5.33363 3.47461H11.9C11.9165 3.47462 11.9327 3.47822 11.9489 3.47949Z" fill="currentColor"/></svg></button></div>
+      <div id="detail-body">
+      <section id="files-pane" aria-label="文件列表"><div id="files"></div></section>
+      <div id="files-resize" class="panel-resize" role="separator" tabindex="0" aria-label="调整文件列表与差异大小" aria-controls="files-pane diff-pane" aria-orientation="vertical" title="拖动调整大小；双击恢复默认；方向键微调"></div>
+      <section id="diff-pane" aria-label="文件差异">
+      <div id="diff-content">
       <div id="diff-revisions" hidden><span id="diff-original"></span><span id="diff-modified"></span></div>
-      <div id="diff-body"><div id="diff-editor" hidden></div><div id="diff-notice" hidden role="status"></div></div><div id="diff-status" role="status"></div>
-    </aside>
+      <div id="diff-body"><div id="diff-editor" hidden></div><div id="diff-notice" hidden role="status"></div></div><div id="diff-status" role="status"></div></div></section>
+      </div></section></div>
+    <div id="detail-resize" class="panel-resize" role="separator" tabindex="0" aria-label="调整提交详情高度" aria-controls="detail" aria-orientation="horizontal" title="拖动调整大小；双击恢复默认；方向键微调"></div>
+    </section></div>
   </div>
 </main>
 <script>/* APP_SCRIPT */</script>

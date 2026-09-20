@@ -6,26 +6,63 @@ import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { git, history, commit, diff, repository, workspaceFile } from './git.mjs';
-import { layout } from './graph.mjs';
+import { createCodeFontSizeReader } from './codex.mjs';
+import { layout, graphPaths, colors } from './graph.mjs';
 
 function checkGraph(commits) {
   const graph = layout(commits);
   for (const [index, row] of graph.rows.entries()) {
-    const edges = row.lines.filter(line => line.kind === 'parent');
-    assert.equal(edges.length, row.parents.length);
-    for (const [edgeIndex, edge] of edges.entries()) {
-      const parent = row.parents[edgeIndex];
+    assert.deepEqual(row.input, graph.rows[index - 1]?.output || [], 'adjacent rows share lanes and colors');
+    for (const parent of row.parents) {
+      assert.ok(row.output.some(lane => lane.hash === parent), 'every parent has an outgoing lane');
       const destination = graph.rows.findIndex(row => row.hash === parent);
-      const end = destination === -1 ? graph.rows.length : destination;
-      assert.ok(destination === -1 || destination > index, 'topological order');
-      for (let next = index + 1; next < end; next++) {
-        assert.ok(graph.rows[next].lines.some(line => line.kind === 'through' && line.from === edge.to),
-          `edge ${row.hash} -> ${parent} must continue through row ${next}`);
+      if (destination >= 0) {
+        assert.ok(destination > index, 'topological order');
+        for (let next = index + 1; next <= destination; next++) {
+          assert.ok(graph.rows[next].input.some(lane => lane.hash === parent), 'parent persists until its commit');
+        }
       }
-      if (destination !== -1) assert.equal(graph.rows[destination].column, edge.to, 'edge must reach the real parent');
     }
   }
 }
+
+test('VS Code swimlanes converge at the ancestor, compact lanes, and share semantic reference colors', () => {
+  const commits = [['A',['C']],['B',['C']],['C',['D']],['D',[]]].map(([hash, parents]) => ({hash, parents}));
+  const { rows } = layout(commits);
+  assert.deepEqual(rows.map(row => row.column), [0,1,0,0]);
+  assert.deepEqual(rows.map(row => row.output.map(lane => lane.hash)), [['C'],['C','C'],['D'],[]]);
+  assert.deepEqual(rows[1].output.map(lane => lane.color), [colors[0],colors[1]]);
+  assert.ok(graphPaths(rows[2]).some(path => path.d === 'M22 0A11 11 0 0 1 11 11H11' && path.color === colors[1]));
+  const merge = layout([{hash:'M',parents:['L','R']},{hash:'L',parents:['O']},{hash:'R',parents:['O']},{hash:'O',parents:[]}]).rows;
+  assert.ok(graphPaths(merge[0]).some(path => path.d === 'M11 11A11 11 0 0 1 22 22M11 11H11'));
+  const separateRoots = [{hash:'A',parents:['C']},{hash:'B',parents:[]},{hash:'C',parents:[]}];
+  checkGraph(separateRoots);
+  const disconnected = [['a',['x']],['b',['y']],['x',[]],['z',[]],['y',[]]].map(([hash,parents])=>({hash,parents}));
+  const roots = layout(disconnected).rows;
+  assert.equal(roots[2].color, roots[2].input[roots[2].column].color, 'root node keeps its incoming lineage color');
+  assert.notEqual(roots[2].color, roots[2].output[0].color, 'compacting a passing lane does not recolor the root');
+  assert.deepEqual(roots[2].output.map(lane=>lane.hash), ['y']);
+  assert.equal(roots[3].input[roots[3].column], undefined, 'isolated root has no incoming edge');
+  assert.equal(graphPaths(roots[3]).length, 1, 'isolated root only has an unrelated passing edge');
+  checkGraph(disconnected);
+  const refs = [
+    {name:'refs/heads/topic',hash:'A'},
+    {name:'refs/heads/main',hash:'B',upstream:'refs/remotes/origin/main'},
+    {name:'refs/remotes/origin/main',hash:'C'},
+    {name:'refs/heads/alias',hash:'B'}, {name:'refs/heads/alias2',hash:'B'},
+    {name:'refs/tags/v1',hash:'B'},
+  ];
+  const semantic = layout(commits, {refs, head:'B', headName:'main'}).rows;
+  assert.equal(semantic[1].kind, 'HEAD');
+  assert.equal(semantic[1].color, 'var(--graph-current)');
+  assert.equal(semantic[2].color, 'var(--graph-remote)');
+  assert.equal(semantic[1].references[0].icon, 'target');
+  assert.ok(semantic[1].references.every(ref => ref.color === semantic[1].color));
+  assert.equal(layout(commits, {refs, branch:'refs/tags/v1'}).rows[0].references[0].color, undefined);
+  assert.ok(graphPaths(rows[2], 28).some(path => path.d === 'M22 0V3A11 11 0 0 1 11 14H11'));
+  assert.ok(graphPaths(merge[0], 28).some(path => path.d === 'M11 14A11 11 0 0 1 22 25V28M11 14H11'));
+  checkGraph(commits);
+});
 
 test('real Git history, merge parents, renames, paths, pagination, read-only state and MCP window contract', async () => {
   const repo = await mkdtemp(join(tmpdir(), 'git graph 测试-'));
@@ -65,6 +102,9 @@ test('real Git history, merge parents, renames, paths, pagination, read-only sta
     assert.equal(all.head, latest);
     assert.equal(all.refs.find(ref => ref.name === 'refs/tags/v1.0').hash, latest);
     checkGraph(all.commits);
+    await git(repo, ['branch', '--set-upstream-to=feature', 'main']);
+    const tracked = await history({ repoPath: repo });
+    assert.equal(tracked.refs.find(ref => ref.name === 'refs/heads/main').upstream, 'refs/heads/feature');
     const first = await history({ repoPath: repo, limit: 2 });
     assert.equal(first.hasMore, true);
     const next = await history({ repoPath: repo, limit: 3, offset: 2, tips: first.tips });
@@ -106,6 +146,11 @@ test('real Git history, merge parents, renames, paths, pagination, read-only sta
       assert.equal(await (await fetch(icon.src)).text(), await readFile(new URL(asset, import.meta.url), 'utf8'));
     }
     const tools = await client.listTools();
+    for (const name of ['git_graph_commit', 'git_graph_diff', 'git_graph_workspace_file']) {
+      const schema = tools.tools.find(tool => tool.name === name).inputSchema;
+      assert.deepEqual(Object.keys(schema.properties).sort(), name === 'git_graph_commit' ? ['hash', 'parent', 'repository'] : ['hash', 'parent', 'path', 'repository']);
+      assert.equal(schema.additionalProperties, false);
+    }
     const tool = tools.tools.find(tool => tool.name === 'git_graph');
     assert.deepEqual(tool._meta['openai/ui'].entrypoints, [{ type: 'thread' }]);
     assert.equal(tool.annotations.readOnlyHint, true);
@@ -165,7 +210,7 @@ test('graph edges preserve ancestry across multi-parent DAGs and partial histori
   }
 });
 
-test('revision comparison reads exact blobs and represents missing, binary, large and special files', async () => {
+test('commit diff reads exact blobs and represents missing, binary, large and special files', async () => {
   const repo = await mkdtemp(join(tmpdir(), 'git-graph-revisions-'));
   try {
     await git(repo, ['init', '-b', 'main']);
@@ -189,11 +234,9 @@ test('revision comparison reads exact blobs and represents missing, binary, larg
     await writeFile(join(repo, 'eol.txt'), 'one\ntwo');
     await symlink('/outside/repository', join(repo, 'link'));
     const target = await save('Changed files');
-    const detail = await commit({ repoPath: repo, hash: target, compareHash: base });
+    const detail = await commit({ repoPath: repo, hash: target });
     assert.equal(detail.base, base);
-    assert.equal(detail.compareHash, base);
-    assert.deepEqual((await commit({ repoPath: repo, hash: base, compareHash: base })).files, []);
-    const read = path => diff({ repoPath: repo, hash: target, compareHash: base, path });
+    const read = path => diff({ repoPath: repo, hash: target, path });
     const changed = await read(path);
     assert.equal(changed.original.content, 'original\n');
     assert.equal(changed.modified.content, 'modified\n');
@@ -204,9 +247,6 @@ test('revision comparison reads exact blobs and represents missing, binary, larg
     assert.equal(added.original.exists, false);
     assert.equal(added.modified.exists, true);
     assert.equal(added.modified.content, '');
-    const reversed = await diff({ repoPath: repo, hash: base, compareHash: target, path: 'deleted.txt' });
-    assert.equal(reversed.original.exists, false);
-    assert.equal(reversed.modified.content, 'delete me\n');
     assert.match((await read('binary.bin')).modified.reason, /二进制/);
     assert.match((await read('invalid.txt')).modified.reason, /UTF-8/);
     assert.match((await read('large.txt')).modified.reason, /2 MiB/);
@@ -216,7 +256,6 @@ test('revision comparison reads exact blobs and represents missing, binary, larg
     const link = await read('link');
     assert.equal(link.modified.mode, '120000');
     assert.equal(link.modified.content, '/outside/repository');
-    await assert.rejects(commit({ repoPath: repo, hash: target, compareHash: '--help' }), /无效/);
     await assert.rejects(read('../outside'), /不在/);
     await assert.rejects(read('eol.txt\0'), /不在/);
     // Mode-only and submodule changes must remain visible even without a text hunk.
@@ -277,18 +316,29 @@ await createServer({ preferencesDirectory: ${JSON.stringify(data)} }).connect(ne
     assert.equal(save.annotations.destructiveHint, false);
     assert.deepEqual(save._meta.ui.visibility, ['app']);
     assert.ok(tools.filter(tool => tool !== save).every(tool => tool.annotations.readOnlyHint));
-    assert.deepEqual((await first.callTool({ name: 'git_graph_layout', arguments: {} })).structuredContent, { widths: {} });
+    assert.deepEqual((await first.callTool({ name: 'git_graph_layout', arguments: {} })).structuredContent, { widths: {}, panels: {} });
     const widths = { graph: 100, message: 720, author: 160, date: 90, hash: 100 };
     assert.ok(!(await first.callTool({ name: 'git_graph_save_layout', arguments: { widths } })).isError);
     await first.close();
     const second = await connect(directory);
-    assert.deepEqual((await second.callTool({ name: 'git_graph_layout', arguments: {} })).structuredContent, { widths });
+    assert.deepEqual((await second.callTool({ name: 'git_graph_layout', arguments: {} })).structuredContent, { widths, panels: {} });
+    const panels = { detailHeight: 380, filesWidth: 180, summaryHeight: 144,
+      detailMaximized: true };
+    assert.ok(!(await second.callTool({ name: 'git_graph_save_layout', arguments: { widths, panels } })).isError);
+    await writeFile(join(data, 'panel-layout.json'), JSON.stringify({ ...panels, historyCollapsed: true, changesCollapsed: true, detailCollapsed: true, filesCollapsed: true, diffCollapsed: false, summaryCollapsed: true }));
+    assert.deepEqual((await second.callTool({ name: 'git_graph_layout', arguments: {} })).structuredContent.panels, panels);
+    assert.ok(!(await second.callTool({ name: 'git_graph_save_layout', arguments: { widths, panels } })).isError);
+    const savedPanels = await readFile(join(data, 'panel-layout.json'), 'utf8');
+    assert.deepEqual(JSON.parse(savedPanels), panels);
     const saved = await readFile(settings, 'utf8');
     for (const args of [{ widths: { graph: -1 } }, { widths: { message: 99 } }, { widths: { author: 2401 } },
       { widths: { date: 64.5 } }, { widths: { hash: '80' } }, { widths: { extra: 100 } },
+      { widths, panels: { detailHeight: -1 } }, { widths, panels: { filesWidth: 1 } },
+      { widths, panels: { detailMaximized: 'true' } }, { widths, panels: { summaryCollapsed: true } }, { widths, panels: { summaryHeight: 63 } }, { widths, panels: { summaryHeight: 10001 } }, { widths, panels: { repoPath: directory } },
       { widths: {}, preferencesDirectory: directory }, { widths: {}, repoPath: directory }]) {
       assert.equal((await second.callTool({ name: 'git_graph_save_layout', arguments: args })).isError, true);
       assert.equal(await readFile(settings, 'utf8'), saved);
+      assert.equal(await readFile(join(data, 'panel-layout.json'), 'utf8'), savedPanels);
     }
     await writeFile(settings, '{broken');
     const invalid = await second.callTool({ name: 'git_graph_layout', arguments: {} });
@@ -298,7 +348,7 @@ await createServer({ preferencesDirectory: ${JSON.stringify(data)} }).connect(ne
     assert.ok(!(await second.callTool({ name: 'git_graph_save_layout', arguments: { widths: {} } })).isError);
     await second.close();
     const third = await connect(import.meta.dirname);
-    assert.deepEqual((await third.callTool({ name: 'git_graph_layout', arguments: {} })).structuredContent, { widths: {} });
+    assert.deepEqual((await third.callTool({ name: 'git_graph_layout', arguments: {} })).structuredContent, { widths: {}, panels });
     await rm(data, { recursive: true }); await writeFile(data, 'not a directory');
     assert.equal((await third.callTool({ name: 'git_graph_save_layout', arguments: { widths } })).isError, true);
     assert.equal(await readFile(data, 'utf8'), 'not a directory');
@@ -306,4 +356,67 @@ await createServer({ preferencesDirectory: ${JSON.stringify(data)} }).connect(ne
     for (const client of clients) await client.close();
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test('project repositories route every Git operation and isolate task scopes', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'git-graph-project-'));
+  const first = await mkdtemp(join(directory, 'web-'));
+  const second = await mkdtemp(join(directory, 'app-'));
+  const empty = await mkdtemp(join(directory, 'documents-'));
+  const runner = join(directory, 'server.mjs');
+  const client = new Client({ name: 'project-test', version: '1.0.0' });
+  try {
+    const heads = [];
+    for (const [repo, contents] of [[first, 'web'], [second, 'app']]) {
+      await git(repo, ['init', '-b', 'main']);
+      await git(repo, ['config', 'user.name', 'Graph Test']);
+      await git(repo, ['config', 'user.email', 'graph@example.invalid']);
+      await writeFile(join(repo, 'file.txt'), contents);
+      await git(repo, ['add', '.']); await git(repo, ['commit', '-m', contents]);
+      heads.push((await git(repo, ['rev-parse', 'HEAD'])).trim());
+    }
+    await writeFile(runner, `import { createServer } from ${JSON.stringify(new URL('./dist/server.mjs', import.meta.url).href)};
+import { StdioServerTransport } from ${JSON.stringify(import.meta.resolve('@modelcontextprotocol/server/stdio'))};
+await createServer({ projectRoots: async threadId => threadId === 'multi' ? ${JSON.stringify([first, second, first, empty])} : [] }).connect(new StdioServerTransport());`);
+    await client.connect(new StdioClientTransport({ command: process.execPath, args: [runner], cwd: first }));
+    const call = (name, args = {}, threadId = 'multi') => client.callTool({ name, arguments: args, _meta: { threadId } });
+    const opened = (await call('git_graph')).structuredContent;
+    assert.equal(opened.repositories.length, 2, 'deduplicate roots and omit non-Git folders');
+    const selected = opened.repositories[1].id;
+    const selectedArgs = { repository: selected, hash: heads[1] };
+    assert.equal((await call('git_graph_history', { repository: selected })).structuredContent.head, heads[1]);
+    assert.equal((await call('git_graph_commit', selectedArgs)).structuredContent.message, 'app');
+    assert.equal((await call('git_graph_diff', { ...selectedArgs, path: 'file.txt' })).structuredContent.modified.content, 'app');
+    assert.equal((await call('git_graph_workspace_file', { ...selectedArgs, path: 'file.txt' })).structuredContent.path, await realpath(join(second, 'file.txt')));
+    assert.equal((await call('git_graph_history')).structuredContent.head, heads[0], 'selection never changes process cwd');
+    await call('git_graph', {}, 'single');
+    assert.equal((await call('git_graph_history', { repository: selected }, 'single')).isError, true);
+    assert.equal((await call('git_graph_history', { repository: 'f'.repeat(64) })).isError, true);
+    assert.equal((await call('git_graph_history', { repoPath: second })).isError, true);
+  } finally { await client.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+
+test('Codex code size follows configuration changes, defaults and read failures', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'git-graph-font-'));
+  const configPath = join(directory, 'config.toml');
+  let desktop = {}, reads = 0, failure;
+  const read = createCodeFontSizeReader({ configPath, readConfig: async () => {
+    reads++; if (failure) throw failure; return { config: { desktop } };
+  } });
+  try {
+    assert.deepEqual(await read(), { codeFontSize: 12 });
+    await read(); assert.equal(reads, 1, 'unchanged files do not launch another config reader');
+    desktop = { codeFontSize: 18 }; await writeFile(configPath, 'changed');
+    assert.deepEqual(await read(), { codeFontSize: 18 });
+    desktop = { codeFontSize: 24 }; await writeFile(configPath, 'another change');
+    assert.deepEqual(await read(), { codeFontSize: 24 });
+    desktop = { codeFontSize: 100 }; await writeFile(configPath, 'invalid code size');
+    await assert.rejects(read());
+    failure = new Error('configuration unavailable'); await assert.rejects(read(), /configuration unavailable/);
+    failure = null; desktop = { codeFontSize: 16 };
+    assert.deepEqual(await read(), { codeFontSize: 16 }, 'failed reads are not cached');
+    desktop = {}; await rm(configPath);
+    assert.deepEqual(await read(), { codeFontSize: 12 });
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });

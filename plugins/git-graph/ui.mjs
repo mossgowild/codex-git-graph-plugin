@@ -1,120 +1,50 @@
-import { App, applyDocumentTheme, applyHostStyleVariables } from '@modelcontextprotocol/ext-apps';
+import { App, applyDocumentTheme, applyHostStyleVariables, applyHostFonts } from '@modelcontextprotocol/ext-apps';
 import { z } from 'zod';
-import { layout, colors } from './graph.mjs';
-import { columns, maxColumnWidth, widthsSchema } from './column-layout.mjs';
-import { clearDiff, showDiff, themeDiff, disposeDiff } from './diff-editor.mjs';
+import { layout, graphPaths, laneX } from './graph.mjs';
+import { widthsSchema, panelsSchema } from './layout.mjs';
+import { createPanels } from './panels.mjs';
+import { setSelectOptions } from './select.mjs';
+import { clearDiff, showDiff, themeDiff, disposeDiff, setCodeFontSize } from './diff-editor.mjs';
 
 const $ = id => document.getElementById(id);
-const app = new App({ name: 'Git Graph', version: '0.2.1' });
-const state = { repo: '', branch: '', historyNotice: '', parent: 0, compareHash: '', compareArmed: false, commits: [], refs: [], tips: [], selected: '', detail: null, file: '', matches: [], match: -1,
+const rowHeight = 28;
+const detailRow = $('detail-row');
+const commitRows = () => [...$('rows').querySelectorAll('.commit-row')];
+const app = new App({ name: 'Git Graph', version: '0.3.0' });
+const state = { repo: '', repository: '', repositories: [], branch: '', parent: 0, commits: [], refs: [], tips: [], selected: '', focused: '', detail: null, file: '', matches: [], match: -1, searchQuery: '', searchSelection: '',
   hasMore: false, historyVersion: 0, detailVersion: 0, diffVersion: 0, connected: false, loading: false };
-let retry = null;
-let columnWidths = {}, graphWidth = 20, layoutReady = false, layoutRetry = null;
+let retry = null, fontRefresh = null, fontTimer;
+let columnWidths = {}, layoutReady = false, layoutRetry = null;
 let saveQueue = Promise.resolve(), saveVersion = 0;
+const panels = createPanels({ ready: () => layoutReady, save: saveLayout });
 
-function applyColumnWidths() {
-  let minimum = 20 + (columns.length - 1) * 8;
-  for (const column of columns) {
-    let width = columnWidths[column.id];
-    if (column.id === 'graph') width = Math.max(graphWidth, width || 0);
-    minimum += width ?? column.initial;
-    if (width == null) $('history-pane').style.removeProperty(`--${column.id}-width`);
-    else $('history-pane').style.setProperty(`--${column.id}-width`, `${width}px`);
-  }
-  $('history-pane').style.setProperty('--table-min-width', `${minimum}px`);
-}
 function layoutError(message, action) {
   $('layout-error').hidden = false;
   $('layout-error').querySelector('span').textContent = message;
   layoutRetry = action;
 }
-async function loadColumnWidths() {
+async function loadLayout() {
   try {
     const result = await call('git_graph_layout', {});
     columnWidths = widthsSchema.parse(result.widths);
+    const panelLayout = panelsSchema.parse(result.panels);
     layoutReady = true;
-    applyColumnWidths();
+    panels.load(panelLayout);
     $('layout-error').hidden = true;
-    updateResizeHandles();
-  } catch (e) { layoutError(`无法读取已保存的布局。${e.message}`, loadColumnWidths); }
+  } catch (e) { layoutError(`无法读取已保存的布局。${e.message}`, loadLayout); }
 }
-function saveColumnWidths() {
-  const widths = { ...columnWidths }, version = ++saveVersion;
+function saveLayout() {
+  const widths = { ...columnWidths }, panelLayout = panels.preferences, version = ++saveVersion;
   saveQueue = saveQueue.then(async () => {
     try {
-      await call('git_graph_save_layout', { widths });
+      await call('git_graph_save_layout', { widths, panels: panelLayout });
       if (version === saveVersion) $('layout-error').hidden = true;
     } catch (e) {
-      if (version === saveVersion) layoutError(`列宽尚未保存。${e.message}`, saveColumnWidths);
+      if (version === saveVersion) layoutError(`布局尚未保存。${e.message}`, saveLayout);
     }
   });
   return saveQueue;
 }
-function columnMinimum(column) { return column.id === 'graph' ? Math.max(column.min, graphWidth) : column.min; }
-function updateResizeHandles() {
-  for (const [index, column] of columns.entries()) {
-    const cell = $('columns').children[index], handle = cell.querySelector('.column-resize');
-    handle.setAttribute('aria-valuenow', Math.round(cell.getBoundingClientRect().width));
-    handle.setAttribute('aria-valuemin', columnMinimum(column));
-    handle.setAttribute('aria-valuemax', Math.max(maxColumnWidth, columnMinimum(column)));
-    handle.setAttribute('aria-disabled', String(!layoutReady));
-    handle.tabIndex = layoutReady ? 0 : -1;
-  }
-}
-for (const [index, column] of columns.entries()) {
-  const cell = $('columns').children[index], handle = node('span', null, 'column-resize');
-  handle.role = 'separator'; handle.dataset.column = column.id;
-  handle.setAttribute('aria-label', `调整${column.label}列宽`);
-  handle.setAttribute('aria-orientation', 'vertical');
-  handle.title = '拖动调整列宽；双击恢复自动宽度；方向键微调';
-  cell.append(handle);
-  const resize = width => {
-    if (column.id !== 'message' && columnWidths.message == null) {
-      columnWidths.message = Math.round($('columns').children[1].getBoundingClientRect().width);
-    }
-    columnWidths[column.id] = Math.min(maxColumnWidth, Math.max(columnMinimum(column), Math.round(width)));
-    applyColumnWidths(); updateResizeHandles();
-  };
-  const reset = () => { delete columnWidths[column.id]; applyColumnWidths(); updateResizeHandles(); saveColumnWidths(); };
-  let drag = null;
-  handle.addEventListener('pointerdown', event => {
-    if (!layoutReady || event.button !== 0 || drag) return;
-    event.preventDefault();
-    handle.focus({ preventScroll: true });
-    drag = { pointer: event.pointerId, x: event.clientX, scroll: $('history-scroll').scrollLeft,
-      width: cell.getBoundingClientRect().width, previous: { ...columnWidths } };
-    handle.setPointerCapture(event.pointerId);
-    handle.dataset.active = ''; document.documentElement.classList.add('resizing');
-  });
-  handle.addEventListener('pointermove', event => {
-    if (drag?.pointer === event.pointerId) resize(drag.width + event.clientX - drag.x + $('history-scroll').scrollLeft - drag.scroll);
-  });
-  const finish = cancelled => {
-    if (!drag) return;
-    const previous = drag.previous; drag = null;
-    delete handle.dataset.active; document.documentElement.classList.remove('resizing');
-    if (cancelled) {
-      columnWidths = previous;
-      applyColumnWidths(); updateResizeHandles();
-    } else if (columns.some(({ id }) => previous[id] !== columnWidths[id])) saveColumnWidths();
-  };
-  handle.addEventListener('pointerup', () => finish(false));
-  handle.addEventListener('pointercancel', () => finish(true));
-  handle.addEventListener('lostpointercapture', () => finish(true));
-  handle.addEventListener('dblclick', () => { if (layoutReady) reset(); });
-  handle.addEventListener('keydown', event => {
-    if (event.key === 'Escape' && drag) { event.preventDefault(); event.stopPropagation(); finish(true); return; }
-    if (!layoutReady || drag) return;
-    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-      event.preventDefault();
-      resize(cell.getBoundingClientRect().width + (event.key === 'ArrowRight' ? 1 : -1) * (event.shiftKey ? 1 : 8));
-      saveColumnWidths();
-    } else if (event.key === 'Home') { event.preventDefault(); reset(); }
-  });
-}
-const columnsObserver = new ResizeObserver(updateResizeHandles);
-for (const cell of $('columns').children) columnsObserver.observe(cell);
-updateResizeHandles();
 $('layout-retry').addEventListener('click', () => layoutRetry?.());
 
 function node(tag, text, className) {
@@ -131,16 +61,45 @@ function error(message, action) {
 }
 async function call(name, args) {
   if (!state.connected) throw new Error('尚未连接到 Codex，请重新打开 Git Graph 窗口。');
+  if (state.repository && ['git_graph_history', 'git_graph_commit', 'git_graph_diff', 'git_graph_workspace_file'].includes(name)) {
+    args = { repository: state.repository, ...args };
+  }
   const result = await app.callServerTool({ name, arguments: args });
   if (result.isError) throw new Error(result.content?.filter(item => item.type === 'text').map(item => item.text).join('\n') || 'Git 查询失败。');
   if (!result.structuredContent) throw new Error('Git Graph 返回了无效的数据。');
   return result.structuredContent;
 }
+function refreshCodeFontSize() {
+  if (!state.connected || fontRefresh) return fontRefresh;
+  fontRefresh = call('git_graph_appearance', {}).then(data => {
+    if (state.connected) setCodeFontSize(z.number().min(8).max(24).parse(data.codeFontSize));
+  }).catch(e => error(`无法读取 Codex 代码字号：${e.message}`, refreshCodeFontSize))
+    .finally(() => { fontRefresh = null; });
+  return fontRefresh;
+}
+window.addEventListener('focus', refreshCodeFontSize);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshCodeFontSize(); });
+
 function theme(context) {
   if (context.theme) applyDocumentTheme(context.theme);
+  if (context.styles?.css?.fonts) applyHostFonts(context.styles.css.fonts);
   if (context.styles?.variables) applyHostStyleVariables(context.styles.variables);
   if (context['openai/interactionCursor']) document.documentElement.style.setProperty('--interaction-cursor', context['openai/interactionCursor']);
+  const probe = document.createElement('span'); probe.hidden = true; document.body.append(probe);
+  const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1;
+  const painter = canvas.getContext('2d', { willReadFrequently: true });
+  // Flatten translucent host colors so overlapping SVG shapes do not accumulate opacity.
+  for (const name of ['selected-surface', 'graph-current', 'graph-remote', 'graph-1', 'graph-2', 'graph-3', 'graph-4', 'graph-5']) {
+    document.documentElement.style.removeProperty(`--${name}`);
+    painter.clearRect(0, 0, 1, 1);
+    for (const value of ['var(--bg)', `var(--${name === 'selected-surface' ? 'selected' : name})`]) {
+      probe.style.color = value; painter.fillStyle = getComputedStyle(probe).color; painter.fillRect(0, 0, 1, 1);
+    }
+    document.documentElement.style.setProperty(`--${name}`, `rgb(${[...painter.getImageData(0, 0, 1, 1).data].slice(0, 3).join(',')})`);
+  }
+  probe.remove();
   themeDiff(document.documentElement.style.colorScheme || context.theme);
+  refreshCodeFontSize();
 }
 function refsLabel(ref) { return ref.name.replace(/^refs\/(heads|remotes|tags)\//, ''); }
 function refDisplayName(ref) {
@@ -150,23 +109,26 @@ function refDisplayName(ref) {
   return `${kind} · ${label}`;
 }
 function refBadge(ref) {
-  const label = node('span', refDisplayName(ref), `ref${ref.name.startsWith('refs/tags/') ? ' tag' : ''}`);
+  const label = node('span', null, `ref ${ref.icon}`);
   label.title = ref.name;
+  label.setAttribute('aria-label', refDisplayName(ref));
+  if (ref.color) label.style.setProperty('--ref-color', ref.color);
+  label.append(node('span', refDisplayName(ref), 'ref-name'));
   return label;
 }
 function renderCommitRefs() {
-  const refs = state.refs.filter(ref => ref.hash === state.selected);
-  $('commit-refs').replaceChildren(...(refs.length
-    ? [node('span', state.compareHash ? '指向目标提交：' : '指向此提交：'), ...refs.map(refBadge)]
-    : [node('span', '无分支或标签直接指向此提交')]));
+  const refs = state.graphRows.get(state.selected)?.references || [];
+  $('commit-refs').replaceChildren(...refs.map(refBadge));
 }
 
-function acceptHistory(data, append = false, notice = '') {
+function acceptHistory(data, append = false) {
   state.repo = data.repo;
+  if (data.repositories) state.repositories = data.repositories;
+  state.repository = state.repositories.find(repo => repo.path === data.repo)?.id || '';
   state.commits = append ? [...state.commits, ...data.commits] : data.commits;
   state.refs = data.refs;
   state.branch = data.branch;
-  state.historyNotice = data.missingBranch ? `所选分支或标签“${refsLabel({ name: data.missingBranch })}”已不存在，已显示所有分支与标签` : notice;
+  if (data.missingBranch) error(`所选分支或标签“${refsLabel({ name: data.missingBranch })}”已不存在，已显示所有分支与标签`, null);
   state.refCounts = new Map();
   for (const ref of state.refs) {
     const label = refsLabel(ref);
@@ -178,184 +140,262 @@ function acceptHistory(data, append = false, notice = '') {
   state.headName = data.headName;
   $('repo-label').textContent = data.repo.split('/').at(-1);
   $('repo-label').title = data.repo;
+  $('repo-label').hidden = state.repositories.length > 1;
+  $('repository').hidden = state.repositories.length < 2;
+  setSelectOptions($('repository'), state.repositories.map(repo => ({
+    label: state.repositories.some(other => other.id !== repo.id && other.name === repo.name) ? repo.path : repo.name,
+    value: repo.id, title: repo.path,
+  })), state.repository, 'folder-light-16');
+  $('repository').title = data.repo;
   $('toolbar').hidden = false;
-  $('searchbar').hidden = false;
-  $('columns').hidden = !state.commits.length;
-  $('branch').replaceChildren(new Option('所有分支与标签', ''));
   const groups = [['本地分支', 'refs/heads/'], ['远程分支', 'refs/remotes/'], ['标签', 'refs/tags/']];
-  for (const [label, prefix] of groups) {
-    const refs = data.refs.filter(ref => ref.name.startsWith(prefix));
-    if (!refs.length) continue;
-    const group = node('optgroup'); group.label = label; group.append(node('legend', label));
-    for (const ref of refs) group.append(new Option(refDisplayName(ref), ref.name));
-    $('branch').append(group);
-  }
-  $('branch').value = state.branch;
+  setSelectOptions($('branch'), [{ label: '所有分支与标签', value: '' },
+    ...groups.map(([label, prefix]) => ({ label,
+      options: data.refs.filter(ref => ref.name.startsWith(prefix)).map(ref => ({ label: refDisplayName(ref), value: ref.name })),
+    })).filter(group => group.options.length),
+  ], state.branch, 'branch-light-16');
   renderHistory();
   if (state.selected && !state.commits.some(commit => commit.hash === state.selected)) closeDetail();
 }
 
-async function loadHistory(append = false, branch = $('branch').value) {
+async function loadHistory(append = false, branch = $('branch').value, repository = state.repository) {
   if (append && (state.loading || !state.hasMore)) return;
   const version = ++state.historyVersion;
-  const switching = branch !== state.branch;
+  const changingRepository = repository !== state.repository;
+  const switching = changingRepository || branch !== state.branch;
   if (switching) closeDetail();
+  if (changingRepository) { $('search').value = ''; updateSearch(); }
   state.loading = true;
   $('branch').value = branch;
+  $('repository').value = repository;
+  $('branch').disabled = changingRepository;
   $('history-table').hidden = switching;
   $('searchbar').inert = switching;
   $('empty').hidden = true;
-  $('history-status').textContent = '正在读取提交历史…';
+  $('history-pane').setAttribute('aria-busy', 'true');
   $('load-more').disabled = true;
   $('error').hidden = true;
   try {
-    const args = { branch };
+    const args = { branch, ...(repository ? { repository } : {}) };
     if (append) { args.offset = state.commits.length; args.tips = state.tips; }
     let result = await call('git_graph_history', args);
     if (version !== state.historyVersion) return;
-    let notice = '';
     if (append && !result.missingBranch && (result.head !== state.head || result.headName !== state.headName
       || JSON.stringify(result.refs) !== JSON.stringify(state.refs))) {
-      result = await call('git_graph_history', { branch });
+      result = await call('git_graph_history', { branch, ...(repository ? { repository } : {}) });
       if (version !== state.historyVersion) return;
       append = false;
-      notice = '仓库引用已更新，已重新加载';
     }
     if (result.missingBranch) append = false;
-    acceptHistory(result, append, notice);
+    acceptHistory(result, append);
     if (!append) $('history-scroll').scrollTop = 0;
-    if (state.selected && !append && !$('detail').hidden) selectCommit(state.selected, state.parent, false, state.file, state.compareHash);
+    if (state.selected && !append && !detailRow.hidden) selectCommit(state.selected, state.parent, false, state.file);
   } catch (e) {
     if (version !== state.historyVersion) return;
     $('branch').value = state.branch;
+    $('repository').value = state.repository;
     $('empty').hidden = state.commits.length > 0;
-    $('history-status').textContent = '读取失败';
-    error(e.message, () => loadHistory(append, branch));
+    error(e.message, () => loadHistory(append, branch, repository));
   } finally {
     if (version === state.historyVersion) {
+      $('history-pane').setAttribute('aria-busy', 'false');
       state.loading = false; $('load-more').disabled = false; $('history-table').hidden = false; $('searchbar').inert = false;
+      $('branch').disabled = false;
     }
   }
 }
 
-function graphSvg(row, width) {
-  const ns = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(ns, 'svg');
-  svg.setAttribute('width', width); svg.setAttribute('height', '28'); svg.setAttribute('aria-hidden', 'true');
-  const x = lane => lane * 18 + 10;
-  for (const line of row.lines) {
+function graphSvg(row) {
+  const ns = 'http://www.w3.org/2000/svg', svg = document.createElementNS(ns, 'svg');
+  svg.classList.add('graph'); svg.style.width = `${row.width}px`;
+  svg.setAttribute('width', row.width); svg.setAttribute('height', rowHeight); svg.setAttribute('aria-hidden', 'true');
+  for (const { d, color } of graphPaths(row, rowHeight)) {
     const path = document.createElementNS(ns, 'path');
-    const from = x(line.from), to = x(line.to);
-    let d = `M${from} 0V28`;
-    if (line.kind === 'incoming') d = `M${from} 0V14`;
-    if (line.kind === 'parent') d = from === to ? `M${from} 14V28` : `M${from} 14C${from} 23 ${to} 20 ${to} 28`;
-    path.setAttribute('d', d); path.setAttribute('fill', 'none'); path.setAttribute('stroke', colors[line.color]);
-    path.setAttribute('stroke-width', '1.6'); svg.append(path);
+    path.setAttribute('d', d); path.setAttribute('fill', 'none'); path.setAttribute('stroke', color);
+    path.setAttribute('stroke-width', '1'); path.setAttribute('stroke-linecap', 'round'); svg.append(path);
   }
-  const dot = document.createElementNS(ns, 'circle');
-  dot.setAttribute('cx', x(row.column)); dot.setAttribute('cy', 14); dot.setAttribute('r', row.parents.length > 1 ? 3.5 : 2.8);
-  dot.setAttribute('stroke', colors[row.color]); dot.setAttribute('stroke-width', '1.8');
-  dot.setAttribute('fill', row.parents.length > 1 ? 'var(--bg)' : colors[row.color]); svg.append(dot);
+  if (row.parents.length || row.input[row.column]?.hash === row.hash) svg.lastElementChild.classList.add('node-edge');
+  const circle = (radius, width, hollow = false) => {
+    const dot = document.createElementNS(ns, 'circle');
+    dot.setAttribute('cx', laneX(row.column)); dot.setAttribute('cy', rowHeight / 2); dot.setAttribute('r', radius);
+    dot.setAttribute('stroke-width', width); dot.setAttribute('fill', hollow ? 'var(--bg)' : row.color);
+    svg.append(dot);
+  };
+  if (row.kind === 'HEAD') { circle(7, 2); circle(2, 4, true); }
+  else if (row.parents.length > 1) { circle(6, 2); circle(3, 2); }
+  else circle(5, 2);
   return svg;
 }
 function renderHistory() {
-  const graph = layout(state.commits);
-  const width = graph.width * 18 + 2;
-  graphWidth = width;
-  applyColumnWidths();
-  const refs = new Map();
-  for (const ref of state.refs) { if (!refs.has(ref.hash)) refs.set(ref.hash, []); refs.get(ref.hash).push(ref); }
+  const graph = layout(state.commits, state);
+  state.graphRows = new Map(graph.rows.map(row => [row.hash, row]));
   const fragment = document.createDocumentFragment();
   for (const row of graph.rows) {
+    const entry = node('div', null, 'commit-entry'); entry.role = 'listitem';
     const button = node('button', null, 'commit-row');
-    button.role = 'option'; button.dataset.hash = row.hash;
-    button.setAttribute('aria-selected', String(row.hash === state.selected || row.hash === state.compareHash));
-    button.classList.toggle('compare-base', row.hash === state.compareHash);
-    button.setAttribute('aria-label', `${row.subject}，${row.author}，${row.hash.slice(0, 8)}`);
+    button.dataset.hash = row.hash;
+    button.classList.toggle('current', row.kind === 'HEAD');
+    button.classList.toggle('is-focused', row.hash === state.focused);
+    button.setAttribute('aria-pressed', String(row.hash === state.selected));
+    button.setAttribute('aria-expanded', 'false'); button.setAttribute('aria-controls', 'detail-row');
+    button.setAttribute('aria-label', `${row.subject}，${row.author}，${row.hash.slice(0, 8)}${row.references.length ? `，${row.references.map(refDisplayName).join('，')}` : ''}`);
     button.tabIndex = row.hash === state.selected || (!state.selected && fragment.childNodes.length === 0) ? 0 : -1;
-    button.append(graphSvg(row, width));
     const message = node('span', null, 'message');
-    if (row.hash === state.head) message.append(node('span', 'HEAD', 'ref head'));
-    message.append(...(refs.get(row.hash) || []).map(refBadge));
     const subject = node('span', row.subject || '（无提交标题）', 'subject'); subject.title = row.subject;
-    message.append(subject);
     const author = node('span', row.author, 'author'); author.title = `${row.author} <${row.email}>`;
-    const date = node('span', new Date(row.date).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }), 'date');
-    date.title = new Date(row.date).toLocaleString('zh-CN');
-    const hash = node('span', row.hash.slice(0, 7), 'hash'); hash.title = row.hash;
-    button.append(message, author, date, hash); fragment.append(button);
+    const badges = node('span', null, 'badges');
+    badges.append(...row.references.map(refBadge));
+    message.append(badges, subject);
+    button.title = `${row.subject}\n${row.author} <${row.email}>\n${new Date(row.date).toLocaleString('zh-CN')}\n${row.hash}`;
+    button.append(graphSvg(row), message, author); entry.append(button); fragment.append(entry);
   }
+  $('content').append(detailRow);
   $('rows').replaceChildren(fragment);
+  positionDetail();
   $('empty').hidden = state.commits.length > 0;
   if (!state.commits.length) $('empty').replaceChildren(node('strong', '这个仓库还没有提交'), node('span', '创建提交后点击刷新。'));
   $('load-more').hidden = !state.hasMore;
-  $('history-status').textContent = `${state.commits.length} 条提交${state.hasMore ? ' · 可继续加载' : ' · 已加载全部'}${state.headName ? ` · 当前检出分支：${state.headName}` : state.head ? ` · 当前检出：分离的 HEAD（${state.head.slice(0, 7)}）` : ''}${state.historyNotice ? ` · ${state.historyNotice}` : ''}`;
   if (state.selected) renderCommitRefs();
   updateSearch();
 }
-function updateSearch() {
-  const query = $('search').value.trim().toLocaleLowerCase();
-  // ponytail: search covers loaded commits; load further pages to extend its scope without hiding graph ancestry.
-  state.matches = query ? state.commits.filter(commit => [commit.hash, commit.author, commit.email, commit.subject,
-    ...state.refs.filter(ref => ref.hash === commit.hash).map(refsLabel)].some(text => text.toLocaleLowerCase().includes(query))).map(commit => commit.hash) : [];
-  state.match = state.matches.indexOf(state.selected);
-  for (const row of $('rows').children) row.classList.toggle('is-match', state.matches.includes(row.dataset.hash));
-  $('search-count').textContent = query ? `${state.match < 0 ? 0 : state.match + 1}/${state.matches.length} · 已加载历史` : '';
+function positionDetail(reveal = false) {
+  for (const row of commitRows()) {
+    const open = row.dataset.hash === state.selected && !detailRow.hidden;
+    row.setAttribute('aria-expanded', String(open)); row.parentElement.classList.toggle('is-open', open);
+    if (!open) continue;
+    row.after(detailRow);
+    const graph = state.graphRows.get(state.selected), ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    const graphWidth = graph.width;
+    detailRow.style.setProperty('--graph-width', `${graphWidth}px`);
+    svg.setAttribute('width', graphWidth); svg.setAttribute('viewBox', `0 0 ${graphWidth} 1`);
+    svg.setAttribute('preserveAspectRatio', 'none');
+    for (const [lane, { color }] of graph.output.entries()) {
+      const path = document.createElementNS(ns, 'path');
+      path.setAttribute('d', `M${laneX(lane)} 0V1`); path.setAttribute('stroke', color);
+      path.setAttribute('stroke-width', lane === graph.column && graph.parents.length ? '3' : '1'); path.setAttribute('vector-effect', 'non-scaling-stroke'); svg.append(path);
+    }
+    $('detail-graph').replaceChildren(svg);
+    panels.render();
+    if (reveal) {
+      const viewport = $('history-scroll').getBoundingClientRect(), top = viewport.top;
+      if (row.getBoundingClientRect().top < top || detailRow.getBoundingClientRect().bottom > viewport.bottom) {
+        $('history-scroll').scrollTop += row.getBoundingClientRect().top - top;
+      }
+    }
+  }
+}
+function setSearchOpen(open) {
+  $('searchbar').hidden = !open;
+  $('toggle-search').setAttribute('aria-expanded', String(open));
+  if (open && $('history-pane').classList.contains('detail-maximized')) panels.setMaximized(false);
+  updateSearch();
+  $(open ? 'search' : 'toggle-search').focus();
+}
+function highlightSearch(element, pattern) {
+  const text = element.textContent, parts = [], marks = [];
+  let end = 0;
+  if (pattern) for (const match of text.matchAll(pattern)) {
+    parts.push(text.slice(end, match.index));
+    const mark = node('mark', match[0]); mark.dataset.searchMatch = '';
+    parts.push(mark); marks.push(mark); end = match.index + match[0].length;
+  }
+  element.replaceChildren(...parts, text.slice(end));
+  return marks;
+}
+function paintSearchMatch() {
+  for (const [index, match] of state.matches.entries()) match.element.toggleAttribute('data-active', index === state.match);
+  $('search-count').textContent = state.searchQuery ? `${state.match < 0 ? 0 : state.match + 1}/${state.matches.length} · 已加载历史` : '';
   $('prev-match').disabled = $('next-match').disabled = !state.matches.length;
+}
+function updateSearch() {
+  const query = $('searchbar').hidden ? '' : $('search').value.trim();
+  const previous = state.matches[state.match], sameQuery = query === state.searchQuery;
+  const selectionChanged = state.searchSelection !== state.selected;
+  const pattern = query ? new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'giu') : null;
+  // ponytail: search covers loaded commits; load further pages to extend its scope without hiding graph ancestry.
+  state.matches = [];
+  for (const row of commitRows()) {
+    const hash = row.dataset.hash;
+    row.querySelector('.search-context')?.remove();
+    const marks = [...row.querySelectorAll('.subject, .author, .ref-name')].flatMap(element => highlightSearch(element, pattern));
+    // Reveal a hidden field only when the visible title, author and refs do not explain the match.
+    if (pattern && !marks.length) {
+      const commit = state.graphRows.get(hash);
+      for (const [label, text] of [['SHA', hash], ['邮箱', commit.email],
+        ...state.refs.filter(ref => ref.hash === hash).map(ref => ['引用', refsLabel(ref)])]) {
+        const match = [...text.matchAll(pattern)][0];
+        if (!match) continue;
+        const start = Math.max(0, match.index - 6), end = Math.min(text.length, match.index + match[0].length + 6);
+        const context = node('span', null, 'search-context');
+        const value = node('span', `${start ? '…' : ''}${text.slice(start, end)}${end < text.length ? '…' : ''}`);
+        context.append(`${label} `, value);
+        context.title = `${label}: ${text}`;
+        row.querySelector('.message').append(context);
+        marks.push(...highlightSearch(value, pattern));
+        break;
+      }
+    }
+    row.classList.toggle('is-match', marks.length > 0);
+    marks.forEach((element, index) => state.matches.push({ hash, key: `${hash}:${index}`, element }));
+  }
+  state.match = sameQuery && previous ? state.matches.findIndex(match => match.key === previous.key) : -1;
+  if (selectionChanged) state.match = state.matches.findIndex(match => match.hash === state.selected);
+  if (state.match < 0 && state.matches.length) state.match = 0;
+  state.searchQuery = query; state.searchSelection = state.selected;
+  paintSearchMatch();
 }
 function stepMatch(direction) {
   if (!state.matches.length) return;
-  const index = state.match < 0 ? (direction > 0 ? 0 : state.matches.length - 1)
-    : (state.match + direction + state.matches.length) % state.matches.length;
-  activateCommit(state.matches[index], false, true);
+  state.match = (state.match + direction + state.matches.length) % state.matches.length;
+  const { hash } = state.matches[state.match];
+  state.searchSelection = hash;
+  if (hash !== state.selected || detailRow.hidden) selectCommit(hash);
+  paintSearchMatch();
+  state.matches[state.match]?.element.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 function closeDetail(resetSelection = true) {
   ++state.detailVersion; ++state.diffVersion;
-  if (resetSelection) state.selected = '';
-  state.detail = null; state.file = ''; state.compareHash = ''; state.compareArmed = false;
-  clearDiff(); $('content').classList.remove('detail-expanded');
-  $('expand-detail').setAttribute('aria-pressed', 'false'); $('expand-detail').textContent = '展开';
-  $('detail').hidden = true;
-  for (const row of $('rows').children) {
+  if (resetSelection) state.selected = state.focused = '';
+  state.detail = null; state.file = '';
+  clearDiff(); detailRow.hidden = true; $('content').append(detailRow); panels.render();
+  for (const row of commitRows()) {
     const selected = row.dataset.hash === state.selected;
-    row.classList.remove('compare-base');
-    row.setAttribute('aria-selected', String(selected)); row.tabIndex = selected ? 0 : -1;
-    if (selected) row.focus({ preventScroll: true });
+    row.setAttribute('aria-pressed', String(selected)); row.setAttribute('aria-expanded', 'false');
+    row.classList.toggle('is-focused', row.dataset.hash === state.focused);
+    row.parentElement.classList.remove('is-open'); row.tabIndex = selected ? 0 : -1;
+    if (selected) { row.focus({ preventScroll: true }); row.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
   }
-  if (!state.selected && $('rows').firstElementChild) $('rows').firstElementChild.tabIndex = 0;
+  if (!state.selected && commitRows()[0]) commitRows()[0].tabIndex = 0;
   updateSearch();
 }
-async function selectCommit(hash, parent = 0, focus = false, file = '', compareHash = '') {
+async function selectCommit(hash, parent = 0, focus = false, file = '') {
+  refreshCodeFontSize();
   const version = ++state.detailVersion; ++state.diffVersion;
   $('error').hidden = true;
   state.selected = hash; state.parent = parent; state.detail = null; state.file = file;
-  state.compareHash = compareHash; state.compareArmed = false;
-  $('compare').textContent = compareHash ? '结束比较' : '比较…'; $('compare').setAttribute('aria-pressed', 'false');
-  $('compare-hint').hidden = true; $('swap-comparison').hidden = !compareHash;
-  for (const row of $('rows').children) {
+  for (const row of commitRows()) {
     const selected = row.dataset.hash === hash;
-    row.setAttribute('aria-selected', String(selected || row.dataset.hash === compareHash)); row.tabIndex = selected ? 0 : -1;
-    row.classList.toggle('compare-base', row.dataset.hash === compareHash);
-    if (selected && focus) { row.scrollIntoView({ block: 'nearest' }); row.focus({ preventScroll: true }); }
+    row.setAttribute('aria-pressed', String(selected)); row.tabIndex = selected ? 0 : -1;
+    if (selected && focus) row.focus({ preventScroll: true });
   }
   updateSearch();
-  $('detail').hidden = false; $('detail-hash').textContent = compareHash ? `${compareHash.slice(0, 7)} → ${hash.slice(0, 7)}` : hash.slice(0, 12);
-  $('detail-hash').title = compareHash ? `基准：${compareHash}\n目标：${hash}` : hash;
+  detailRow.hidden = false; positionDetail(true); $('detail-hash').textContent = hash.slice(0, 12);
+  $('detail-hash').title = hash;
   renderCommitRefs();
   $('commit-message').textContent = '正在读取提交…'; $('commit-meta').textContent = '';
   $('files').replaceChildren(); clearDiff(); $('parent-label').hidden = true;
   $('open-file').disabled = true;
   $('diff-title').textContent = '选择文件查看差异'; $('files-label').textContent = '变更文件';
   try {
-    const detail = await call('git_graph_commit', { hash, parent, ...(compareHash ? { compareHash } : {}) });
+    const detail = await call('git_graph_commit', { hash, parent });
     if (version !== state.detailVersion) return;
     state.detail = detail;
     $('commit-message').textContent = detail.message || '（无提交说明）';
     $('commit-meta').replaceChildren(node('div', `${detail.author} <${detail.email}>`), node('div', new Date(detail.date).toLocaleString('zh-CN')));
-    $('parent-label').hidden = Boolean(compareHash) || detail.parents.length < 2;
-    $('parent').replaceChildren(...detail.parents.map((hash, i) => new Option(`${i + 1} · ${hash.slice(0, 12)}`, i)));
-    $('parent').value = String(parent);
-    $('files-label').textContent = `变更文件 · ${detail.files.length}${compareHash ? ' · 基准 → 目标' : detail.parents.length > 1 ? ` · 相对父提交 ${parent + 1}` : ''}`;
+    $('parent-label').hidden = detail.parents.length < 2;
+    setSelectOptions($('parent'), detail.parents.map((hash, i) => ({ label: `${i + 1} · ${hash.slice(0, 12)}`, value: i })), parent);
+    $('files-label').textContent = `变更文件 · ${detail.files.length}${detail.parents.length > 1 ? ` · 相对父提交 ${parent + 1}` : ''}`;
     for (const file of detail.files) {
       const button = node('button'); button.dataset.path = file.path; button.setAttribute('aria-pressed', 'false');
       button.title = file.oldPath ? `${file.oldPath} → ${file.path}` : file.path;
@@ -366,10 +406,10 @@ async function selectCommit(hash, parent = 0, focus = false, file = '', compareH
       button.append(node('span', file.status[0], `file-status ${file.status[0]}`)); $('files').append(button);
     }
     if (detail.files.length) await selectFile(detail.files.some(item => item.path === file) ? file : detail.files[0].path);
-    else clearDiff(compareHash ? '这两个提交之间没有文件变更。' : '相对所选父提交没有文件变更。');
+    else clearDiff('相对所选父提交没有文件变更。');
   } catch (e) {
     if (version !== state.detailVersion) return;
-    $('commit-message').textContent = '提交读取失败'; error(e.message, () => selectCommit(hash, parent, false, file, compareHash));
+    $('commit-message').textContent = '提交读取失败'; error(e.message, () => selectCommit(hash, parent, false, file));
   }
 }
 async function selectFile(path) {
@@ -395,11 +435,11 @@ async function selectFile(path) {
 }
 
 function detailArgs(detail) {
-  return { hash: detail.hash, parent: detail.parent, ...(detail.compareHash ? { compareHash: detail.compareHash } : {}) };
+  return { hash: detail.hash, parent: detail.parent };
 }
-function activateCommit(hash, compare = false, focus = false) {
-  const base = (compare || state.compareArmed) && !$('detail').hidden ? state.compareHash || state.selected : '';
-  selectCommit(hash, 0, focus, '', base && base !== hash ? base : '');
+function activateCommit(hash, focus = false) {
+  if (hash === state.selected && !detailRow.hidden) { closeDetail(false); return; }
+  selectCommit(hash, 0, focus);
 }
 
 async function openWorkspaceFile() {
@@ -419,51 +459,39 @@ async function openWorkspaceFile() {
 }
 
 $('branch').addEventListener('change', () => loadHistory());
+$('repository').addEventListener('change', () => loadHistory(false, '', $('repository').value));
+$('toggle-search').addEventListener('click', () => setSearchOpen($('searchbar').hidden || $('history-pane').classList.contains('detail-maximized')));
 $('refresh').addEventListener('click', () => loadHistory());
 $('load-more').addEventListener('click', () => { if (!state.loading) loadHistory(true); });
 $('search').addEventListener('input', updateSearch);
 $('search').addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); stepMatch(event.shiftKey ? -1 : 1); } });
 $('prev-match').addEventListener('click', () => stepMatch(-1));
 $('next-match').addEventListener('click', () => stepMatch(1));
+$('rows').addEventListener('focusin', event => {
+  const focused = event.target.closest('.commit-row'); if (!focused) return;
+  state.focused = focused.dataset.hash;
+  for (const row of commitRows()) row.classList.toggle('is-focused', row === focused);
+});
 $('rows').addEventListener('click', event => {
   const row = event.target.closest('.commit-row');
-  if (row) activateCommit(row.dataset.hash, event.metaKey || event.ctrlKey);
+  if (row) activateCommit(row.dataset.hash);
 });
 $('rows').addEventListener('keydown', event => {
   const row = event.target.closest('.commit-row'); if (!row) return;
-  if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); activateCommit(row.dataset.hash, true); return; }
+  const rows = commitRows(), index = rows.indexOf(row);
   let target = null;
-  if (event.key === 'ArrowDown') target = row.nextElementSibling;
-  if (event.key === 'ArrowUp') target = row.previousElementSibling;
-  if (event.key === 'Home') target = $('rows').firstElementChild;
-  if (event.key === 'End') target = $('rows').lastElementChild;
+  if (event.key === 'ArrowDown') target = rows[index + 1];
+  if (event.key === 'ArrowUp') target = rows[index - 1];
+  if (event.key === 'Home') target = rows[0];
+  if (event.key === 'End') target = rows.at(-1);
   if (target) {
     event.preventDefault();
-    if (state.compareArmed || event.metaKey || event.ctrlKey) {
-      row.tabIndex = -1; target.tabIndex = 0; target.focus();
-    } else selectCommit(target.dataset.hash, 0, true);
+    selectCommit(target.dataset.hash, 0, true);
   }
 });
 $('files').addEventListener('click', event => { const button = event.target.closest('button'); if (button) selectFile(button.dataset.path); });
 $('parent').addEventListener('change', () => selectCommit(state.selected, Number($('parent').value)));
 $('close-detail').addEventListener('click', () => closeDetail(false));
-$('compare').addEventListener('click', () => {
-  if (state.compareHash) { selectCommit(state.selected); return; }
-  state.compareArmed = !state.compareArmed;
-  $('compare').setAttribute('aria-pressed', String(state.compareArmed));
-  $('compare').textContent = state.compareArmed ? '取消比较' : '比较…';
-  $('compare-hint').hidden = !state.compareArmed;
-  if (state.compareArmed) {
-    $('content').classList.remove('detail-expanded');
-    $('expand-detail').setAttribute('aria-pressed', 'false'); $('expand-detail').textContent = '展开';
-    $('rows').querySelector(`[data-hash="${state.selected}"]`)?.focus();
-  }
-});
-$('swap-comparison').addEventListener('click', () => selectCommit(state.compareHash, 0, false, '', state.selected));
-$('expand-detail').addEventListener('click', () => {
-  const expanded = $('content').classList.toggle('detail-expanded');
-  $('expand-detail').setAttribute('aria-pressed', String(expanded)); $('expand-detail').textContent = expanded ? '收起' : '展开';
-});
 $('open-file').addEventListener('click', openWorkspaceFile);
 $('files').addEventListener('keydown', event => {
   const button = event.target.closest('button');
@@ -471,44 +499,48 @@ $('files').addEventListener('keydown', event => {
   const target = event.key === 'ArrowDown' ? button.nextElementSibling : event.key === 'ArrowUp' ? button.previousElementSibling : null;
   if (target) { event.preventDefault(); target.focus(); selectFile(target.dataset.path); }
 });
-$('copy-hash').addEventListener('click', async () => {
-  try { await navigator.clipboard.writeText(state.selected); $('copy-hash').textContent = '已复制'; setTimeout(() => $('copy-hash').textContent = '复制', 1200); }
-  catch { error(`当前窗口不允许访问剪贴板。完整 SHA：${state.selected}`, null); }
-});
 $('dismiss-error').addEventListener('click', () => { $('error').hidden = true; });
 $('retry').addEventListener('click', () => { $('error').hidden = true; retry?.(); });
 document.addEventListener('keydown', event => {
   if (event.target.closest('#diff-editor')) return;
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f' && state.repo) { event.preventDefault(); $('search').focus(); }
-  if (event.key === 'Escape' && !$('detail').hidden && !document.activeElement.closest('input, select')) closeDetail(false);
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f' && state.repo) { event.preventDefault(); setSearchOpen(true); }
+  if (event.key === 'Escape' && event.target.closest('#searchbar')) { event.preventDefault(); setSearchOpen(false); return; }
+  if (event.key === 'Escape' && !detailRow.hidden && !document.activeElement.closest('input, select')) closeDetail(false);
 });
 
 app.onhostcontextchanged = theme;
 app.ontoolresult = result => {
-  if (result.isError) { error(result.content?.find(item => item.type === 'text')?.text || '打开失败', null); return; }
+  if (result.isError) { $('history-pane').setAttribute('aria-busy', 'false'); error(result.content?.find(item => item.type === 'text')?.text || '打开失败', null); return; }
   const data = result.structuredContent;
   if (data?.repo && data.commits) {
     ++state.historyVersion; closeDetail(); acceptHistory(data);
+    $('history-pane').setAttribute('aria-busy', 'false');
     state.loading = false; $('load-more').disabled = false; $('history-table').hidden = false; $('searchbar').inert = false;
+    $('branch').disabled = false;
   } else if (data?.contextCwd) {
     ++state.historyVersion; closeDetail();
-    state.repo = ''; state.branch = ''; state.historyNotice = ''; state.commits = []; state.refs = []; state.tips = []; state.hasMore = false;
-    $('rows').replaceChildren(); $('toolbar').hidden = true; $('searchbar').hidden = true; $('columns').hidden = true;
+    state.repo = ''; state.repository = ''; state.repositories = []; state.branch = ''; state.commits = []; state.refs = []; state.tips = []; state.hasMore = false;
+    $('history-pane').setAttribute('aria-busy', 'false');
+    $('rows').replaceChildren(); $('toolbar').hidden = true; $('searchbar').hidden = true;
+    $('toggle-search').setAttribute('aria-expanded', 'false'); $('search').value = ''; updateSearch();
     $('load-more').hidden = true;
     $('repo-label').textContent = ''; $('repo-label').title = data.contextCwd;
     $('empty').hidden = false;
     $('empty').replaceChildren(node('strong', '当前任务目录不属于 Git 仓库'), node('span', data.contextCwd));
-    $('history-status').textContent = '当前任务没有可显示的 Git 历史';
   }
+  if (data?.repositoryNotice) error(data.repositoryNotice, null);
 };
 app.onteardown = async () => {
+  state.connected = false; clearInterval(fontTimer);
   ++state.historyVersion; ++state.detailVersion; ++state.diffVersion;
-  columnsObserver.disconnect(); disposeDiff(); await saveQueue; return {};
+  panels.dispose(); disposeDiff(); await saveQueue; return {};
 };
 app.connect().then(() => {
   state.connected = true; theme(app.getHostContext() || {});
   $('open-file').hidden = !app.getHostCapabilities()?.experimental?.['openai/files'];
-  loadColumnWidths();
+  loadLayout();
+  // MCP host styles omit code size; only visible details poll the cached configuration.
+  fontTimer = setInterval(() => { if (!document.hidden && !detailRow.hidden) refreshCodeFontSize(); }, 5000);
 }).catch(e => {
-  $('history-status').textContent = '连接失败'; error(e.message, null);
+  $('history-pane').setAttribute('aria-busy', 'false'); error(e.message, null);
 });

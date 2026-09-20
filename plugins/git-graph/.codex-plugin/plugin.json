@@ -1,18 +1,18 @@
 {
   "name": "git-graph",
-  "version": "0.2.1+codex.20260919130655",
-  "description": "\u5728 Codex \u4efb\u52a1\u4fa7\u9762\u677f\u4e2d\u6d4f\u89c8\u5f53\u524d\u4ed3\u5e93\u7684 Git \u5386\u53f2\u4e0e\u6587\u4ef6\u5dee\u5f02",
+  "version": "0.3.0+codex.20260921040707",
+  "description": "在 Codex 任务侧面板中浏览当前仓库的 Git 历史与文件差异",
   "author": {
     "name": "mossgowild"
   },
   "interface": {
     "displayName": "Git Graph",
-    "shortDescription": "\u67e5\u770b\u5f53\u524d\u4efb\u52a1\u7684 Git \u5386\u53f2\u4e0e\u6587\u4ef6\u5dee\u5f02",
-    "longDescription": "\u53ea\u8bfb Git \u5173\u7cfb\u56fe\uff0c\u652f\u6301\u5206\u652f\u7b5b\u9009\u3001\u641c\u7d22\u3001\u53cc\u63d0\u4ea4\u4e0e\u5408\u5e76\u7236\u8282\u70b9\u6bd4\u8f83\uff0c\u4f7f\u7528 Monaco \u5c55\u793a\u5386\u53f2\u5dee\u5f02\uff0c\u5e76\u8ddf\u968f Codex \u4e3b\u9898\u3002",
+    "shortDescription": "查看当前任务的 Git 历史与文件差异",
+    "longDescription": "只读 Git 关系图，支持分支筛选、搜索、提交详情与合并父节点比较，使用 Monaco 展示历史差异，并跟随 Codex 主题。",
     "developerName": "mossgowild",
     "category": "Productivity",
     "capabilities": [],
-    "defaultPrompt": "\u6253\u5f00\u5f53\u524d\u4efb\u52a1\u4ed3\u5e93\u7684 Git Graph",
+    "defaultPrompt": "打开当前任务仓库的 Git Graph",
     "composerIcon": "./assets/git-branch.svg",
     "logo": "./assets/git-branch.svg",
     "logoDark": "./assets/git-branch-dark.svg"

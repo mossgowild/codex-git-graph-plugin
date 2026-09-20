@@ -33683,10 +33683,10 @@ function G(B, Q, F, V, q) {
 }
 
 // server.mjs
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile as readFile2, rename, rm, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { homedir as homedir3 } from "node:os";
+import { basename, join as join3 } from "node:path";
 import { pathToFileURL } from "node:url";
 
 // git.mjs
@@ -33744,14 +33744,14 @@ async function history({ repoPath, branch = "", offset = 0, tips, limit = 250 })
   const repo = await repository(repoPath);
   const refText = await git(repo, [
     "for-each-ref",
-    "--format=%(refname)%00%(objectname)%00%(*objectname)%00%(symref)%00%(objecttype)%00%(*objecttype)",
+    "--format=%(refname)%00%(objectname)%00%(*objectname)%00%(symref)%00%(objecttype)%00%(*objecttype)%00%(upstream)",
     "refs/heads",
     "refs/remotes",
     "refs/tags"
   ]);
   const refs = refText.trimEnd().split("\n").filter(Boolean).map((line) => {
-    const [name, hash3, peeled, symbolic, type, peeledType] = line.split("\0");
-    return { name, hash: peeled || hash3, symbolic, type: peeledType || type };
+    const [name, hash3, peeled, symbolic, type, peeledType, upstream] = line.split("\0");
+    return { name, hash: peeled || hash3, symbolic, type: peeledType || type, upstream };
   }).filter((ref) => !ref.symbolic && ["commit", "tag"].includes(ref.type));
   const headRaw = await git(repo, ["rev-parse", "--verify", "--quiet", "HEAD"]).catch((error62) => {
     if (refs.length || error62.cause?.code !== 1) throw error62;
@@ -33810,7 +33810,7 @@ function parseFiles(raw) {
   }
   return files;
 }
-async function commit({ repoPath, hash: hash3, parent = 0, compareHash = "" }) {
+async function commit({ repoPath, hash: hash3, parent = 0 }) {
   const repo = await repository(repoPath);
   hash3 = await verifyCommit(repo, hash3);
   const raw = await git(repo, [
@@ -33824,11 +33824,10 @@ async function commit({ repoPath, hash: hash3, parent = 0, compareHash = "" }) {
   const [id, parentText, author, email3, date5, message] = raw.split("\0");
   const parents = parentText ? parentText.split(" ") : [];
   if (!Number.isInteger(parent) || parent < 0 || parent >= Math.max(parents.length, 1)) throw new Error("\u7236\u63D0\u4EA4\u9009\u62E9\u65E0\u6548\u3002");
-  if (compareHash && parent !== 0) throw new Error("\u4E0D\u80FD\u540C\u65F6\u9009\u62E9\u6BD4\u8F83\u63D0\u4EA4\u548C\u5408\u5E76\u7236\u8282\u70B9\u3002");
-  const base = compareHash ? await verifyCommit(repo, compareHash) : parents[parent] || null;
+  const base = parents[parent] || null;
   const args = base ? ["diff", "--name-status", "-z", "-M", base, hash3, "--"] : ["diff-tree", "--root", "--no-commit-id", "-r", "--name-status", "-z", "-M", hash3, "--"];
   const files = parseFiles(await git(repo, args));
-  return { repo, hash: id, parents, parent, base, compareHash, author, email: email3, date: date5, message: message.trimEnd(), files };
+  return { repo, hash: id, parents, parent, base, author, email: email3, date: date5, message: message.trimEnd(), files };
 }
 async function revisionFile(repo, hash3, path, exists) {
   const revision = { hash: hash3, path, exists, mode: null, content: "" };
@@ -33877,7 +33876,111 @@ async function workspaceFile(args) {
   return { path };
 }
 
-// column-layout.mjs
+// project.mjs
+import { readFile } from "node:fs/promises";
+import { homedir as homedir2 } from "node:os";
+import { join as join2 } from "node:path";
+
+// codex.mjs
+import { spawn } from "node:child_process";
+import { createInterface } from "node:readline";
+import { stat as stat2 } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
+async function withCodex(run) {
+  const child = spawn("codex", ["app-server", "--listen", "stdio://"], { stdio: ["pipe", "pipe", "pipe"] });
+  const pending = /* @__PURE__ */ new Map();
+  let nextId = 0, failure2;
+  const fail = (error62) => {
+    failure2 = error62;
+    for (const request2 of pending.values()) request2.reject(error62);
+    pending.clear();
+  };
+  child.on("error", fail);
+  child.on("exit", () => fail(new Error("Codex \u670D\u52A1\u5DF2\u9000\u51FA\u3002")));
+  child.stdin.on("error", fail);
+  child.stderr.resume();
+  const lines = createInterface({ input: child.stdout });
+  lines.on("line", (line) => {
+    try {
+      const message = JSON.parse(line), request2 = pending.get(message.id);
+      if (!request2) return;
+      pending.delete(message.id);
+      if (message.error) request2.reject(new Error(message.error.message));
+      else request2.resolve(message.result);
+    } catch (error62) {
+      fail(error62);
+    }
+  });
+  const request = (method, params) => new Promise((resolve2, reject) => {
+    if (failure2) {
+      reject(failure2);
+      return;
+    }
+    const id = ++nextId;
+    pending.set(id, { resolve: resolve2, reject });
+    child.stdin.write(JSON.stringify({ id, method, params }) + "\n");
+  });
+  const timeout = setTimeout(() => {
+    fail(new Error("\u8BFB\u53D6 Codex \u914D\u7F6E\u6216\u9879\u76EE\u8D85\u8FC7 15 \u79D2\uFF0C\u8BF7\u91CD\u8BD5\u3002"));
+    child.kill();
+  }, 15e3);
+  try {
+    await request("initialize", { clientInfo: { name: "git-graph", version: "0.3.0" }, capabilities: { experimentalApi: true } });
+    return await run(request);
+  } finally {
+    clearTimeout(timeout);
+    lines.close();
+    child.kill();
+  }
+}
+var codeFontSizeSchema = external_exports.number().min(8).max(24).default(12);
+function createCodeFontSizeReader({
+  configPath = join(process.env.CODEX_HOME || join(homedir(), ".codex"), "config.toml"),
+  readConfig = () => withCodex((request) => request("config/read", { includeLayers: false }))
+} = {}) {
+  let cached2;
+  return async () => {
+    const stamp = await stat2(configPath).then((file2) => `${file2.mtimeMs}:${file2.ctimeMs}:${file2.size}`, (error62) => {
+      if (error62.code === "ENOENT") return "missing";
+      throw error62;
+    });
+    if (cached2?.stamp === stamp) return cached2.value;
+    const { config: config2 } = await readConfig();
+    const value = { codeFontSize: codeFontSizeSchema.parse(config2.desktop?.codeFontSize) };
+    cached2 = { stamp, value };
+    return value;
+  };
+}
+
+// project.mjs
+var projectSchema = external_exports.object({ roots: external_exports.array(external_exports.object({ path: external_exports.string().min(1) })) });
+async function readProjectRoots(threadId) {
+  if (!threadId) return [];
+  const home = process.env.CODEX_HOME || join2(homedir2(), ".codex");
+  return withCodex(async (request) => {
+    const { thread } = await request("thread/read", { threadId, includeTurns: false });
+    let projectId = thread.projectId;
+    if (!projectId) {
+      let desktop;
+      try {
+        desktop = JSON.parse(await readFile(join2(home, ".codex-global-state.json"), "utf8"));
+      } catch (error62) {
+        if (error62.code !== "ENOENT") throw error62;
+      }
+      const assignment = desktop?.["thread-project-assignments"]?.[threadId];
+      if (assignment?.projectKind === "local") {
+        projectId = desktop["app-server-project-id-by-legacy-project-id-by-host"]?.[`local:${home}`]?.[assignment.projectId];
+        if (!projectId) throw new Error("\u5F53\u524D\u4EFB\u52A1\u7684\u9879\u76EE\u5173\u8054\u5C1A\u672A\u8FC1\u79FB\uFF0C\u8BF7\u5728 Codex \u4E2D\u91CD\u65B0\u5173\u8054\u9879\u76EE\u3002");
+      }
+    }
+    if (!projectId) return [];
+    const { project } = await request("project/read", { projectId });
+    return projectSchema.parse(project).roots.map((root) => root.path);
+  });
+}
+
+// layout.mjs
 var columns = [
   { id: "graph", label: "\u5173\u7CFB\u56FE", min: 20, initial: 20 },
   { id: "message", label: "\u63D0\u4EA4", min: 100, initial: 180 },
@@ -33887,55 +33990,71 @@ var columns = [
 ];
 var maxColumnWidth = 2400;
 var widthsSchema = external_exports.strictObject(Object.fromEntries(columns.map((column) => [column.id, external_exports.number().int().min(column.min).max(maxColumnWidth).optional()])));
+var panelsSchema = external_exports.strictObject({
+  detailHeight: external_exports.number().int().min(160).max(1e4).optional(),
+  summaryHeight: external_exports.number().int().min(64).max(1e4).optional(),
+  filesWidth: external_exports.number().int().min(96).max(1e4).optional(),
+  detailMaximized: external_exports.boolean().optional()
+});
+var storedPanelsSchema = panelsSchema.strip();
 
 // assets/git-branch.svg
-var git_branch_default = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="%231f2328" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">%0A  <path d="M5.5 6.75v6.5m9-6.5v.75a5 5 0 0 1-5 5h-4"/>%0A  <circle cx="5.5" cy="4.5" r="2.25"/>%0A  <circle cx="5.5" cy="15.5" r="2.25"/>%0A  <circle cx="14.5" cy="4.5" r="2.25"/>%0A</svg>%0A';
+var git_branch_default = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true" data-codex-icon="branch-light-20"><path fill-rule="evenodd" clip-rule="evenodd" d="M14.5837 2.45996C15.9863 2.46022 17.1238 3.59736 17.1238 5C17.1238 6.25397 16.2141 7.29306 15.0193 7.5H15.2488V7.66699C15.2486 9.3227 13.9055 10.6649 12.2498 10.665H7.74976C6.82862 10.6652 6.08196 11.4119 6.08179 12.333V12.5508C7.16167 12.8433 7.95679 13.8276 7.95679 15C7.95679 16.4028 6.81955 17.54 5.41675 17.54C4.01394 17.54 2.87671 16.4028 2.87671 15C2.87671 13.8276 3.67182 12.8433 4.75171 12.5508V7.44824C3.67195 7.15563 2.87671 6.17234 2.87671 5C2.87671 3.5972 4.01394 2.45996 5.41675 2.45996C6.81955 2.45996 7.95679 3.5972 7.95679 5C7.95679 6.17234 7.16155 7.15563 6.08179 7.44824V9.84082C6.55855 9.52113 7.13263 9.33503 7.74976 9.33496H12.2498C13.1709 9.33483 13.9185 8.58816 13.9187 7.66699V7.5H14.1472C12.9524 7.29306 12.0437 6.25397 12.0437 5C12.0437 3.5972 13.1809 2.45996 14.5837 2.45996ZM5.41675 13.79C4.74848 13.79 4.20679 14.3317 4.20679 15C4.20679 15.6683 4.74848 16.21 5.41675 16.21C6.08501 16.21 6.62671 15.6683 6.62671 15C6.62671 14.3317 6.08501 13.79 5.41675 13.79ZM5.41675 3.79004C4.74848 3.79004 4.20679 4.33174 4.20679 5C4.20679 5.66826 4.74848 6.20996 5.41675 6.20996C6.08501 6.20996 6.62671 5.66826 6.62671 5C6.62671 4.33174 6.08501 3.79004 5.41675 3.79004ZM14.5837 3.79004C13.9155 3.79004 13.3738 4.33174 13.3738 5C13.3738 5.66826 13.9155 6.20996 14.5837 6.20996C15.2518 6.2097 15.7937 5.6681 15.7937 5C15.7937 4.3319 15.2518 3.7903 14.5837 3.79004Z" fill="%231f2328"/></svg>%0A';
 
 // assets/git-branch-dark.svg
-var git_branch_dark_default = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="%23e6edf3" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">%0A  <path d="M5.5 6.75v6.5m9-6.5v.75a5 5 0 0 1-5 5h-4"/>%0A  <circle cx="5.5" cy="4.5" r="2.25"/>%0A  <circle cx="5.5" cy="15.5" r="2.25"/>%0A  <circle cx="14.5" cy="4.5" r="2.25"/>%0A</svg>%0A';
+var git_branch_dark_default = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true" data-codex-icon="branch-light-20"><path fill-rule="evenodd" clip-rule="evenodd" d="M14.5837 2.45996C15.9863 2.46022 17.1238 3.59736 17.1238 5C17.1238 6.25397 16.2141 7.29306 15.0193 7.5H15.2488V7.66699C15.2486 9.3227 13.9055 10.6649 12.2498 10.665H7.74976C6.82862 10.6652 6.08196 11.4119 6.08179 12.333V12.5508C7.16167 12.8433 7.95679 13.8276 7.95679 15C7.95679 16.4028 6.81955 17.54 5.41675 17.54C4.01394 17.54 2.87671 16.4028 2.87671 15C2.87671 13.8276 3.67182 12.8433 4.75171 12.5508V7.44824C3.67195 7.15563 2.87671 6.17234 2.87671 5C2.87671 3.5972 4.01394 2.45996 5.41675 2.45996C6.81955 2.45996 7.95679 3.5972 7.95679 5C7.95679 6.17234 7.16155 7.15563 6.08179 7.44824V9.84082C6.55855 9.52113 7.13263 9.33503 7.74976 9.33496H12.2498C13.1709 9.33483 13.9185 8.58816 13.9187 7.66699V7.5H14.1472C12.9524 7.29306 12.0437 6.25397 12.0437 5C12.0437 3.5972 13.1809 2.45996 14.5837 2.45996ZM5.41675 13.79C4.74848 13.79 4.20679 14.3317 4.20679 15C4.20679 15.6683 4.74848 16.21 5.41675 16.21C6.08501 16.21 6.62671 15.6683 6.62671 15C6.62671 14.3317 6.08501 13.79 5.41675 13.79ZM5.41675 3.79004C4.74848 3.79004 4.20679 4.33174 4.20679 5C4.20679 5.66826 4.74848 6.20996 5.41675 6.20996C6.08501 6.20996 6.62671 5.66826 6.62671 5C6.62671 4.33174 6.08501 3.79004 5.41675 3.79004ZM14.5837 3.79004C13.9155 3.79004 13.3738 4.33174 13.3738 5C13.3738 5.66826 13.9155 6.20996 14.5837 6.20996C15.2518 6.2097 15.7937 5.6681 15.7937 5C15.7937 4.3319 15.2518 3.7903 14.5837 3.79004Z" fill="%23e6edf3"/></svg>%0A';
 
 // server.mjs
-var html = await readFile(new URL("./window.html", import.meta.url), "utf8");
+var html = await readFile2(new URL("./window.html", import.meta.url), "utf8");
 var resourceUri = `ui://git-graph/window-${createHash("sha256").update(html).digest("hex").slice(0, 16)}.html`;
 var hash2 = external_exports.string().regex(/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/);
+var repositoryId = external_exports.string().regex(/^[0-9a-f]{64}$/).optional();
 var annotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
-var preferencesDirectory = join(
-  process.env.CODEX_HOME || join(homedir(), ".codex"),
+var preferencesDirectory = join3(
+  process.env.CODEX_HOME || join3(homedir3(), ".codex"),
   "plugins/data/git-graph-codex-git-graph"
 );
-async function readLayout({ preferencesDirectory: preferencesDirectory2 }) {
+async function readPreference(directory, file2, schema, label) {
   try {
-    return { widths: widthsSchema.parse(JSON.parse(await readFile(join(preferencesDirectory2, "column-widths.json"), "utf8"))) };
+    return schema.parse(JSON.parse(await readFile2(join3(directory, file2), "utf8")));
   } catch (error62) {
-    if (error62.code === "ENOENT") return { widths: {} };
-    throw new Error(`\u8BFB\u53D6\u5217\u5BBD\u5E03\u5C40\u5931\u8D25\uFF1A${error62.message}`);
+    if (error62.code === "ENOENT") return {};
+    throw new Error(`\u8BFB\u53D6${label}\u5931\u8D25\uFF1A${error62.message}`);
   }
 }
-async function saveLayout({ widths, preferencesDirectory: preferencesDirectory2 }) {
-  const temporary = join(preferencesDirectory2, `column-widths.${randomUUID()}.tmp`);
+async function writePreference(directory, file2, value, label) {
+  const temporary = join3(directory, `${file2}.${randomUUID()}.tmp`);
   try {
-    await mkdir(preferencesDirectory2, { recursive: true });
+    await mkdir(directory, { recursive: true });
     try {
-      await writeFile(temporary, JSON.stringify(widths) + "\n", { mode: 384, flag: "wx" });
-      await rename(temporary, join(preferencesDirectory2, "column-widths.json"));
+      await writeFile(temporary, JSON.stringify(value) + "\n", { mode: 384, flag: "wx" });
+      await rename(temporary, join3(directory, file2));
     } finally {
       await rm(temporary, { force: true });
     }
-    return { widths };
   } catch (error62) {
-    throw new Error(`\u4FDD\u5B58\u5217\u5BBD\u5E03\u5C40\u5931\u8D25\uFF1A${error62.message}`);
+    throw new Error(`\u4FDD\u5B58${label}\u5931\u8D25\uFF1A${error62.message}`);
   }
 }
-async function openGraph() {
+async function readLayout({ preferencesDirectory: directory }) {
+  return {
+    widths: await readPreference(directory, "column-widths.json", widthsSchema, "\u5217\u5BBD\u5E03\u5C40"),
+    panels: await readPreference(directory, "panel-layout.json", storedPanelsSchema, "\u9762\u677F\u5E03\u5C40")
+  };
+}
+async function saveLayout({ widths, panels, preferencesDirectory: directory }) {
+  await writePreference(directory, "column-widths.json", widths, "\u5217\u5BBD\u5E03\u5C40");
+  if (panels) await writePreference(directory, "panel-layout.json", panels, "\u9762\u677F\u5E03\u5C40");
+  return { widths, ...panels ? { panels } : {} };
+}
+async function openGraph({ repositories, repositoryNotice }) {
   const cwd = process.cwd();
-  try {
-    return { ...await history({ repoPath: cwd }), contextCwd: cwd };
-  } catch (error62) {
-    if (!/not a git repository/i.test(error62.cause?.stderr || "")) throw error62;
-    return { repo: null, contextCwd: cwd };
-  }
+  const result = repositories.length ? await history({ repoPath: repositories[0].path }) : { repo: null };
+  return { ...result, contextCwd: cwd, repositories, repositoryNotice };
 }
+var readCodeFontSize = createCodeFontSizeReader();
 var definitions = {
+  git_graph_appearance: { title: "\u8BFB\u53D6 Codex \u4EE3\u7801\u5B57\u53F7", schema: external_exports.strictObject({}), run: readCodeFontSize },
   git_graph: {
     title: "Git Graph",
     description: "Browse Git history for the current Codex task working directory. Read-only.",
@@ -33943,45 +34062,55 @@ var definitions = {
     run: openGraph
   },
   git_graph_history: { title: "\u8BFB\u53D6\u63D0\u4EA4\u5386\u53F2", schema: external_exports.strictObject({
+    repository: repositoryId,
     branch: external_exports.string().max(1024).optional(),
     offset: external_exports.number().int().min(0).max(1e6).optional(),
     tips: external_exports.array(hash2).max(1e4).optional(),
     limit: external_exports.number().int().min(1).max(500).optional()
   }), run: history },
-  git_graph_commit: { title: "\u67E5\u770B\u63D0\u4EA4", schema: external_exports.strictObject({ hash: hash2, compareHash: hash2.optional(), parent: external_exports.number().int().min(0).optional() }), run: commit },
+  git_graph_commit: { title: "\u67E5\u770B\u63D0\u4EA4", schema: external_exports.strictObject({ repository: repositoryId, hash: hash2, parent: external_exports.number().int().min(0).optional() }), run: commit },
   git_graph_diff: { title: "\u67E5\u770B\u6587\u4EF6\u5DEE\u5F02", schema: external_exports.strictObject({
+    repository: repositoryId,
     hash: hash2,
     parent: external_exports.number().int().min(0).optional(),
-    compareHash: hash2.optional(),
     path: external_exports.string().min(1).max(4096)
   }), run: diff },
   git_graph_workspace_file: { title: "\u5B9A\u4F4D\u5DE5\u4F5C\u533A\u6587\u4EF6", schema: external_exports.strictObject({
+    repository: repositoryId,
     hash: hash2,
     parent: external_exports.number().int().min(0).optional(),
-    compareHash: hash2.optional(),
     path: external_exports.string().min(1).max(4096)
   }), run: workspaceFile },
-  git_graph_layout: { title: "\u8BFB\u53D6\u5217\u5BBD\u5E03\u5C40", schema: external_exports.strictObject({}), run: readLayout },
+  git_graph_layout: { title: "\u8BFB\u53D6 Git Graph \u5E03\u5C40", schema: external_exports.strictObject({}), run: readLayout },
   git_graph_save_layout: {
-    title: "\u4FDD\u5B58\u5217\u5BBD\u5E03\u5C40",
-    description: "Save global Git Graph column widths in plugin data. Does not modify Git repositories.",
-    schema: external_exports.strictObject({ widths: widthsSchema }),
+    title: "\u4FDD\u5B58 Git Graph \u5E03\u5C40",
+    description: "Save global Git Graph column widths and panel layout in plugin data. Does not modify Git repositories.",
+    schema: external_exports.strictObject({ widths: widthsSchema, panels: panelsSchema.optional() }),
     run: saveLayout,
     annotations: { ...annotations, readOnlyHint: false }
   }
 };
-async function call(name, args, directory = preferencesDirectory) {
+async function call(name, args, directory = preferencesDirectory, context = {}) {
   try {
     const definition = definitions[name];
     if (!definition) throw new Error("\u672A\u77E5\u7684 Git Graph \u64CD\u4F5C\u3002");
-    const data = await definition.run({ ...definition.schema.parse(args), repoPath: process.cwd(), preferencesDirectory: directory });
+    const input2 = definition.schema.parse(args);
+    let repoPath = process.cwd();
+    if (input2.repository) {
+      const selected = context.repositories?.find((repo) => repo.id === input2.repository);
+      if (!selected) throw new Error("\u6240\u9009\u4ED3\u5E93\u4E0D\u5C5E\u4E8E\u5F53\u524D\u4EFB\u52A1\u7684\u9879\u76EE\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00 Git Graph\u3002");
+      repoPath = await repository(selected.path);
+      if (repoPath !== selected.path) throw new Error("\u6240\u9009\u4ED3\u5E93\u8DEF\u5F84\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00 Git Graph\u3002");
+    }
+    const data = await definition.run({ ...input2, ...context, repoPath, preferencesDirectory: directory });
     return { content: [{ type: "text", text: "Git Graph \u64CD\u4F5C\u5B8C\u6210\u3002" }], structuredContent: data };
   } catch (error62) {
     return { isError: true, content: [{ type: "text", text: error62.message }] };
   }
 }
-function createServer({ preferencesDirectory: directory = preferencesDirectory } = {}) {
-  const server = new McpServer({ name: "git-graph", title: "Git Graph", version: "0.2.1", icons: [
+function createServer({ preferencesDirectory: directory = preferencesDirectory, projectRoots = readProjectRoots } = {}) {
+  const contexts = /* @__PURE__ */ new Map();
+  const server = new McpServer({ name: "git-graph", title: "Git Graph", version: "0.3.0", icons: [
     { src: git_branch_default, mimeType: "image/svg+xml", sizes: ["any"], theme: "light" },
     { src: git_branch_dark_default, mimeType: "image/svg+xml", sizes: ["any"], theme: "dark" }
   ] });
@@ -33996,7 +34125,34 @@ function createServer({ preferencesDirectory: directory = preferencesDirectory }
         // Codex Desktop 26.908 supports these window entrypoints; keep standard MCP UI metadata too.
         "openai/ui": { entrypoints: [{ type: "thread" }], preferredModelDisplayMode: "fullscreen" }
       } : { ui: { visibility: ["app"] } }
-    }, (args) => call(name, args, directory));
+    }, async (args, request) => {
+      const threadId = request.mcpReq._meta?.threadId;
+      let context = contexts.get(threadId);
+      if (name === "git_graph") {
+        const repositories = [], notices = [];
+        let roots = [];
+        try {
+          roots = await projectRoots(threadId);
+        } catch (error62) {
+          notices.push(`\u65E0\u6CD5\u8BFB\u53D6\u9879\u76EE\u76EE\u5F55\uFF1A${error62.message}`);
+        }
+        for (const path of /* @__PURE__ */ new Set([process.cwd(), ...roots])) {
+          try {
+            const root = await repository(path);
+            if (!repositories.some((repo) => repo.path === root)) repositories.push({
+              id: createHash("sha256").update(root).digest("hex"),
+              name: basename(root),
+              path: root
+            });
+          } catch (error62) {
+            if (!/not a git repository/i.test(error62.cause?.stderr || "")) notices.push(`${path}\uFF1A${error62.message}`);
+          }
+        }
+        context = { repositories, repositoryNotice: notices.join("\n") };
+        contexts.set(threadId, context);
+      }
+      return call(name, args, directory, context);
+    });
   }
   G(server, "Git Graph", resourceUri, { mimeType: L }, async () => ({ contents: [{
     uri: resourceUri,

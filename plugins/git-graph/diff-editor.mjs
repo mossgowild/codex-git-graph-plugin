@@ -15,7 +15,7 @@ import 'monaco-editor/languages/definitions/shell/register.js';
 import 'monaco-editor/languages/definitions/dart/register.js';
 
 const $ = id => document.getElementById(id);
-let diffEditor, models = [], workerUrl, sourceEqual = false;
+let diffEditor, models = [], workerUrl, sourceEqual = false, codeFontSize;
 globalThis.MonacoEnvironment = { getWorker() {
   workerUrl ||= URL.createObjectURL(new Blob([__DIFF_WORKER__], { type: 'text/javascript' }));
   return new Worker(workerUrl, { name: 'git-graph-diff' });
@@ -23,7 +23,7 @@ globalThis.MonacoEnvironment = { getWorker() {
 
 export function themeDiff(theme) {
   const probe = document.createElement('span');
-  probe.hidden = true; document.body.append(probe);
+  probe.hidden = true; $('detail').append(probe);
   const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1;
   const context = canvas.getContext('2d', { willReadFrequently: true });
   const color = value => {
@@ -31,30 +31,71 @@ export function themeDiff(theme) {
     context.clearRect(0, 0, 1, 1); context.fillStyle = getComputedStyle(probe).color; context.fillRect(0, 0, 1, 1);
     return '#' + [...context.getImageData(0, 0, 1, 1).data].map(n => n.toString(16).padStart(2, '0')).join('');
   };
-  editor.defineTheme('codex', { base: theme === 'dark' ? 'vs-dark' : 'vs', inherit: true, rules: [], colors: {
+  probe.style.boxShadow = 'var(--shadow-lg)';
+  const shadow = getComputedStyle(probe).boxShadow;
+  const shadowColor = shadow === 'none' ? 'transparent' : shadow.match(/(?:rgba?|color|oklch|oklab|lch|lab|hsla?)\([^)]*\)/)?.[0];
+  if (!shadowColor) throw new Error('无法解析 Codex 浮层阴影颜色');
+  // Codex Desktop 26.915 default code palettes; MCP supplies chrome colors, not TextMate themes.
+  const dark = theme === 'dark';
+  const syntax = dark
+    ? { comment: '999999', string: '85df7b', number: '6dcbf4', keyword: 'f67576', identifier: 'fa994c', type: 'b06dff' }
+    : { comment: '666666', string: '008809', number: '0071ea', keyword: 'd53538', identifier: 'bd5800', type: '751ed9' };
+  const rules = [{ token: '', foreground: color('var(--fg)').slice(1, 7) },
+    ...Object.entries(syntax).map(([token, foreground]) => ({ token, foreground })),
+    ...['delimiter', 'operator'].map(token => ({ token, foreground: syntax.comment })),
+    ...['function', 'type.identifier', 'tag'].map(token => ({ token, foreground: syntax.type })),
+    { token: 'attribute.name', foreground: syntax.identifier },
+    { token: 'attribute.value', foreground: syntax.string },
+    { token: 'regexp', foreground: syntax.string },
+    { token: 'invalid', foreground: color('var(--danger)').slice(1, 7) }];
+  const lineBackground = tone => color(`color-mix(in lab, var(--bg) ${dark ? 80 : 88}%, var(${tone}))`);
+  const wordBackground = tone => color(`rgb(from var(${tone}) r g b / ${dark ? .2 : .15})`);
+  editor.defineTheme('codex', { base: dark ? 'vs-dark' : 'vs', inherit: false, rules, colors: {
     'editor.background': color('var(--bg)'), 'editor.foreground': color('var(--fg)'),
     'editorGutter.background': color('var(--bg)'), 'editorLineNumber.foreground': color('var(--muted)'),
     'editorLineNumber.activeForeground': color('var(--fg)'), 'editorCursor.foreground': color('var(--fg)'),
-    'editor.selectionBackground': color('var(--selected)'), 'editor.inactiveSelectionBackground': color('var(--hover)'),
+    'editor.selectionBackground': color('var(--color-background-info, var(--selected))'), 'editor.inactiveSelectionBackground': color('var(--hover)'),
     'editor.lineHighlightBackground': '#00000000', 'editorWidget.background': color('var(--bg)'),
     'editorWidget.border': color('var(--border)'), 'editorWidget.foreground': color('var(--fg)'),
     'input.background': color('var(--surface)'), 'input.foreground': color('var(--fg)'),
     'input.border': color('var(--border)'), 'focusBorder': color('var(--accent)'),
     'diffEditor.border': color('var(--border)'),
-    'diffEditor.insertedLineBackground': color('color-mix(in srgb, var(--success) 10%, transparent)'),
-    'diffEditor.removedLineBackground': color('color-mix(in srgb, var(--danger) 10%, transparent)'),
-    'diffEditor.insertedTextBackground': color('color-mix(in srgb, var(--success) 22%, transparent)'),
-    'diffEditor.removedTextBackground': color('color-mix(in srgb, var(--danger) 22%, transparent)'),
+    'widget.border': color('var(--border)'), 'widget.shadow': color(shadowColor),
+    'editor.findMatchBackground': color('var(--color-background-info, var(--selected))'),
+    'editor.findMatchHighlightBackground': color('var(--hover)'),
+    'editor.findMatchBorder': color('var(--accent)'),
+    'editor.findMatchHighlightBorder': color('var(--border)'),
+    'inputOption.activeBackground': color('var(--selected)'),
+    'inputOption.activeBorder': color('var(--border)'), 'inputOption.activeForeground': color('var(--fg)'),
+    'inputOption.hoverBackground': color('var(--hover)'), 'input.placeholderForeground': color('var(--muted)'),
+    'inputValidation.errorBackground': color('var(--color-background-danger, var(--bg))'),
+    'inputValidation.errorBorder': color('var(--danger)'), 'inputValidation.errorForeground': color('var(--fg)'),
+    'button.background': color('var(--surface)'), 'button.foreground': color('var(--fg)'),
+    'button.hoverBackground': color('var(--hover)'),
+    'scrollbarSlider.background': color('color-mix(in oklab, var(--fg) 15%, transparent)'),
+    'scrollbarSlider.hoverBackground': color('color-mix(in oklab, var(--fg) 25%, transparent)'),
+    'scrollbarSlider.activeBackground': color('color-mix(in oklab, var(--fg) 35%, transparent)'),
+    'scrollbar.shadow': '#00000000',
+    'diffEditorGutter.insertedLineBackground': lineBackground('--success'),
+    'diffEditorGutter.removedLineBackground': lineBackground('--danger'),
+    'diffEditor.insertedLineBackground': lineBackground('--success'),
+    'diffEditor.removedLineBackground': lineBackground('--danger'),
+    'diffEditor.insertedTextBackground': wordBackground('--success'),
+    'diffEditor.removedTextBackground': wordBackground('--danger'),
     'diffEditor.unchangedRegionBackground': color('var(--surface)'),
     'diffEditor.unchangedRegionForeground': color('var(--muted)'),
   } });
   probe.remove(); editor.setTheme('codex');
-  if (diffEditor) diffEditor.updateOptions(viewOptions());
+  diffEditor?.updateOptions(viewOptions());
+  document.fonts.ready.then(() => editor.remeasureFonts());
+}
+export function setCodeFontSize(size) {
+  codeFontSize = size;
+  diffEditor?.updateOptions(viewOptions());
 }
 function viewOptions() {
-  const style = getComputedStyle($('diff-editor'));
-  return { fontFamily: style.fontFamily, fontSize: parseFloat(style.fontSize), lineHeight: 20,
-    renderSideBySide: $('diff-mode').value === 'split',
+  return { ...(codeFontSize == null ? {} : { fontSize: codeFontSize }), fontFamily: getComputedStyle($('detail-hash')).fontFamily,
+    renderSideBySide: $('diff-mode').dataset.mode === 'split',
     originalAriaLabel: '基准版本，只读', modifiedAriaLabel: '目标版本，只读' };
 }
 
@@ -116,6 +157,12 @@ export function disposeDiff() {
   clearDiff(); diffEditor?.dispose(); diffEditor = null;
   if (workerUrl) URL.revokeObjectURL(workerUrl);
 }
-$('diff-mode').addEventListener('change', () => diffEditor?.updateOptions(viewOptions()));
+$('diff-mode').addEventListener('click', () => {
+  const button = $('diff-mode'), split = button.dataset.mode !== 'split';
+  button.dataset.mode = split ? 'split' : 'inline';
+  button.title = split ? '切换为行内差异' : '切换为并排差异';
+  button.setAttribute('aria-label', button.title);
+  diffEditor?.updateOptions(viewOptions());
+});
 $('prev-change').addEventListener('click', () => diffEditor?.goToDiff('previous'));
 $('next-change').addEventListener('click', () => diffEditor?.goToDiff('next'));
