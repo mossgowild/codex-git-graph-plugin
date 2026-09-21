@@ -68,6 +68,7 @@ export async function history({ repoPath, branch = '', offset = 0, tips, limit =
   })).trim();
   const missingBranch = branch && !refs.some(ref => ref.name === branch) ? branch : '';
   if (missingBranch) { branch = ''; offset = 0; tips = undefined; }
+  if (!branch && refs.length === 1) branch = refs[0].name;
   const selected = branch ? refs.filter(ref => ref.name === branch) : refs;
   const resolved = [];
   if (!tips) {

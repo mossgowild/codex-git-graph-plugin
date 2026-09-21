@@ -130,34 +130,37 @@ function acceptHistory(data, append = false) {
   state.repository = state.repositories.find(repo => repo.path === data.repo)?.id || '';
   state.commits = append ? [...state.commits, ...data.commits] : data.commits;
   state.refs = data.refs;
-  state.branch = data.branch;
-  if (data.missingBranch) error(`所选分支或标签“${refsLabel({ name: data.missingBranch })}”已不存在，已显示所有分支与标签`, null);
   state.refCounts = new Map();
   for (const ref of state.refs) {
     const label = refsLabel(ref);
     state.refCounts.set(label, (state.refCounts.get(label) || 0) + 1);
+  }
+  const singleRef = state.refs.length === 1 ? state.refs[0] : null;
+  state.branch = singleRef?.name || data.branch;
+  if (data.missingBranch) {
+    const fallback = singleRef ? `已切换到“${refDisplayName(singleRef)}”` : '已显示所有分支与标签';
+    error(`所选分支或标签“${refsLabel({ name: data.missingBranch })}”已不存在，${fallback}`, null);
   }
   state.tips = data.tips;
   state.hasMore = data.hasMore;
   state.head = data.head;
   state.headName = data.headName;
   const currentRepository = state.repositories.find(repo => repo.path === data.repo);
-  $('repo-label').textContent = currentRepository?.name || data.repo.split('/').at(-1);
-  $('repo-label').title = currentRepository?.displayPath || data.repo;
-  $('repo-label').hidden = state.repositories.length > 1;
-  $('repository').hidden = state.repositories.length < 2;
   setSelectOptions($('repository'), state.repositories.map(repo => ({
     label: state.repositories.some(other => other.id !== repo.id && other.name === repo.name) ? (repo.displayPath || repo.path) : repo.name,
     value: repo.id, title: repo.displayPath || repo.path,
   })), state.repository, 'folder-light-16');
   $('repository').title = currentRepository?.displayPath || data.repo;
+  $('repository').hidden = false;
+  $('repository').disabled = state.repositories.length < 2;
   $('toolbar').hidden = false;
   const groups = [['本地分支', 'refs/heads/'], ['远程分支', 'refs/remotes/'], ['标签', 'refs/tags/']];
-  setSelectOptions($('branch'), [{ label: '所有分支与标签', value: '' },
-    ...groups.map(([label, prefix]) => ({ label,
+  const branchGroups = groups.map(([label, prefix]) => ({ label,
       options: data.refs.filter(ref => ref.name.startsWith(prefix)).map(ref => ({ label: refDisplayName(ref), value: ref.name })),
-    })).filter(group => group.options.length),
-  ], state.branch, 'branch-light-16');
+    })).filter(group => group.options.length);
+  setSelectOptions($('branch'), singleRef ? branchGroups.flatMap(group => group.options)
+    : [{ label: '所有分支与标签', value: '' }, ...branchGroups], state.branch, 'branch-light-16');
+  $('branch').disabled = state.refs.length < 2;
   renderHistory();
   if (state.selected && !state.commits.some(commit => commit.hash === state.selected)) closeDetail();
 }
@@ -172,7 +175,7 @@ async function loadHistory(append = false, branch = $('branch').value, repositor
   state.loading = true;
   $('branch').value = branch;
   $('repository').value = repository;
-  $('branch').disabled = changingRepository;
+  $('branch').disabled = changingRepository || state.refs.length < 2;
   $('history-table').hidden = switching;
   $('searchbar').inert = switching;
   $('empty').hidden = true;
@@ -204,7 +207,7 @@ async function loadHistory(append = false, branch = $('branch').value, repositor
     if (version === state.historyVersion) {
       $('history-pane').setAttribute('aria-busy', 'false');
       state.loading = false; $('load-more').disabled = false; $('history-table').hidden = false; $('searchbar').inert = false;
-      $('branch').disabled = false;
+      $('branch').disabled = state.refs.length < 2;
     }
   }
 }
@@ -520,7 +523,7 @@ app.ontoolresult = result => {
     ++state.historyVersion; closeDetail(); acceptHistory(data);
     $('history-pane').setAttribute('aria-busy', 'false');
     state.loading = false; $('load-more').disabled = false; $('history-table').hidden = false; $('searchbar').inert = false;
-    $('branch').disabled = false;
+    $('branch').disabled = state.refs.length < 2;
   } else if (data?.contextCwd) {
     ++state.historyVersion; closeDetail();
     state.repo = ''; state.repository = ''; state.repositories = []; state.branch = ''; state.commits = []; state.refs = []; state.tips = []; state.hasMore = false;
@@ -528,7 +531,6 @@ app.ontoolresult = result => {
     $('rows').replaceChildren(); $('toolbar').hidden = true; $('searchbar').hidden = true;
     $('toggle-search').setAttribute('aria-expanded', 'false'); $('search').value = ''; updateSearch();
     $('load-more').hidden = true;
-    $('repo-label').textContent = ''; $('repo-label').title = data.contextCwd;
     $('empty').hidden = false;
     $('empty').replaceChildren(node('strong', '当前任务目录不属于 Git 仓库'), node('span', data.contextCwd));
   }

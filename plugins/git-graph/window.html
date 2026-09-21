@@ -22,15 +22,15 @@
   --graph-4: var(--color-text-secondary, var(--fg));
   --graph-5: var(--fg);
   --radius-control: var(--border-radius-lg);
-  --radius-card: var(--border-radius-xl);
+  --shape-control: var(--codex-corner-shape, superellipse(1.5));
+  --radius-card: calc(var(--border-radius-xl) + var(--border-radius-xs));
   --radius-badge: var(--border-radius-sm);
+  --border-subtle: color-mix(in srgb, var(--color-border-secondary) 62.5%, transparent);
   --resize-highlight: color-mix(in oklab, var(--fg) 25%, transparent);
   --danger: var(--color-text-danger, CanvasText);
   --success: var(--color-text-success, CanvasText);
   --warning: var(--color-text-warning, CanvasText);
-  --detail-bg: var(--color-surface-elevated-secondary,
-    var(--color-background-control-opaque,
-      var(--color-background-secondary)));
+  --detail-bg: color-mix(in srgb, var(--color-background-secondary) 70%, var(--color-background-primary));
   font-family: var(--font-sans);
   font-size: var(--font-text-sm-size);
   font-weight: var(--font-weight-normal);
@@ -50,29 +50,23 @@ body { margin: 0 }
 button, input { font: inherit; color: inherit; min-width: 0 }
 button { cursor: var(--interaction-cursor, default) }
 button, input { border: 0; border-radius: var(--radius-control); min-height: 28px; padding: 4px 8px; background: transparent }
-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px }
+button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; corner-shape: var(--shape-control) }
 button:hover { background: var(--hover) }
 button:disabled { opacity: .35; cursor: default }
 button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
 input { background: var(--surface); border: 1px solid transparent }
 input::placeholder { color: var(--muted); opacity: 1 }
 }
-/* Codex desktop pairs its medium-and-larger radius tokens with this corner shape. */
-@supports (corner-shape: superellipse(1.5)) {
-  button, input, #search-field, .commit-row::before, #detail, .codex-select::picker(select) {
-    corner-shape: superellipse(1.5);
-  }
-}
 button svg { width: 16px; height: 16px; flex: none }
 .spacer { flex: 1 }
 #app { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; background: var(--bg) }
+#header { flex: none; border-bottom: 1px solid var(--border) }
 #toolbar { display: flex; align-items: center; gap: 4px; min-height: 40px; padding: 6px 10px }
-#repo-label { max-width: 34%; padding-inline: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg) }
 #repository { max-width: 34% }
 #branch { max-width: 50% }
 #refresh, #toggle-search { color: var(--muted); flex: none }
 #toggle-search[aria-expanded=true] { color: var(--fg); background: var(--selected) }
-#searchbar { display: flex; align-items: center; gap: 4px; padding: 0 12px 8px; border-bottom: 1px solid var(--border) }
+#searchbar { display: flex; align-items: center; gap: 4px; padding: 0 12px 8px }
 #search-field { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; background: var(--surface); border-radius: var(--border-radius-md); padding-left: 8px; color: var(--muted) }
 #search-field > svg { width: 16px; height: 16px; flex: none }
 #search { flex: 1; width: 100%; background: transparent; border: 0; outline: none; border-radius: 0; padding-left: 0; color: var(--fg) }
@@ -86,7 +80,7 @@ button svg { width: 16px; height: 16px; flex: none }
 #history-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0 }
 #history-table { width: 100% }
 #load-more { display: flex; margin: 8px auto; color: var(--muted) }
-#history-scroll { flex: 1; overflow: auto; overflow-x: hidden; position: relative; overflow-anchor: none }
+#history-scroll { flex: 1; overflow: auto; overflow-x: hidden; position: relative; overflow-anchor: none; padding-block: 2px }
 #rows { width: 100% }
 .commit-entry { min-width: 0 }
 #detail-row { position: relative; padding: 6px 8px 6px calc(var(--graph-width, 22px) + 8px) }
@@ -121,7 +115,7 @@ code, pre { font-family: var(--font-mono) }
 .ref-name { min-width: 0; overflow: hidden; text-overflow: ellipsis }
 .empty { color: var(--muted); text-align: center; padding: 48px 20px; line-height: 1.8; overflow-wrap: anywhere }
 .empty strong { display: block; color: var(--fg); font-weight: var(--font-weight-medium); margin-bottom: 4px }
-#detail { --bg: var(--detail-bg); position: sticky; left: 0; width: calc(var(--history-viewport-width, 100vw) - var(--graph-width, 20px) - 16px); height: var(--detail-height, 420px); display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--bg) }
+#detail { --bg: var(--detail-bg); position: sticky; left: 0; width: calc(var(--history-viewport-width, 100vw) - var(--graph-width, 20px) - 16px); height: var(--detail-height, 420px); display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 4px; border: 0; border-radius: var(--radius-card); background: var(--bg); box-shadow: inset 0 0 0 1px var(--border-subtle) }
 #detail-header { display: flex; align-items: center; flex-wrap: wrap; flex: none; gap: 4px; min-height: 36px; padding: 4px 0 }
 #detail-header button { font-size: var(--font-text-xs-size); color: var(--muted) }
 #detail-identity { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; flex: 1; min-width: 0; padding: 4px 6px }
@@ -135,7 +129,7 @@ code, pre { font-family: var(--font-mono) }
 #commit-message { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; margin: 0 0 8px }
 #commit-meta { font-size: var(--font-text-xs-size); line-height: 1.7; color: var(--muted); overflow-wrap: anywhere }
 #parent-label { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: var(--muted) }
-#files { min-height: 0; flex: 1; overflow: auto; padding: 0 6px 4px 2px }
+#files { min-height: 0; flex: 1; overflow: auto; padding: 0 6px 4px 3px }
 #files button { border-radius: var(--radius-control); display: flex; justify-content: flex-start; width: 100%; gap: 8px; text-align: left; padding: 4px 6px; font-size: var(--font-text-sm-size) }
 #files button[aria-pressed=true] { background: var(--selected) }
 .file-status { flex: none; margin-left: auto; color: var(--muted); font-family: var(--font-mono); font-size: var(--font-text-xs-size) }
@@ -166,13 +160,14 @@ code, pre { font-family: var(--font-mono) }
 #changes-heading span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 #history-pane.detail-maximized #searchbar,
 #history-pane.detail-maximized .commit-entry:not(.is-open), #history-pane.detail-maximized #load-more { display: none }
+#history-pane.detail-maximized #history-scroll { padding-bottom: 0 }
 #history-pane.detail-maximized :is(#history-table, #rows, .commit-entry.is-open) { height: 100% }
 #history-pane.detail-maximized .commit-entry.is-open { display: flex; flex-direction: column; min-height: 0 }
 #history-pane.detail-maximized .commit-row { flex: none }
 #history-pane.detail-maximized #detail-row { flex: 1; min-height: 0 }
 #history-pane.detail-maximized #detail { height: 100% }
 .panel-resize { position: relative; flex: 0 0 1px; background: var(--border); cursor: row-resize; touch-action: none; user-select: none; z-index: 2; outline: none }
-#detail-resize { position: absolute; bottom: -1px; left: var(--radius-card); right: var(--radius-card); height: 1px; background: transparent }
+#detail-resize { position: absolute; bottom: 0; left: var(--radius-card); right: var(--radius-card); height: 1px; background: transparent }
 #detail-resize::before { content: none }
 .panel-resize::before { content: ''; position: absolute; inset: 0; background: linear-gradient(to right in oklab, transparent, var(--resize-highlight), transparent); opacity: 0; pointer-events: none }
 .panel-resize::after { content: ''; position: absolute; left: 0; right: 0; top: -7.5px; height: 16px }
@@ -194,24 +189,26 @@ code, pre { font-family: var(--font-mono) }
 </head>
 <body>
 <main id="app">
+  <header id="header">
   <div id="toolbar" hidden>
-    <span id="repo-label" aria-label="当前任务仓库"></span>
     <select id="repository" aria-label="切换项目内仓库" hidden></select>
     <select id="branch" aria-label="筛选分支"></select><span class="spacer"></span>
     <button id="toggle-search" class="step" title="搜索提交" aria-label="搜索提交" aria-controls="searchbar" aria-expanded="false"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" data-codex-icon="magnifying-glass-lg-light-16"><path fill-rule="evenodd" clip-rule="evenodd" d="M7.32849 1.91016C10.2877 1.91016 12.6867 4.30938 12.6869 7.26855C12.6869 8.57363 12.2192 9.7688 11.4437 10.6982L14.0433 13.2979C14.2481 13.5028 14.2481 13.8351 14.0433 14.04C13.8384 14.245 13.5062 14.2449 13.3011 14.04L10.6957 11.4346C9.77536 12.1793 8.60462 12.627 7.32849 12.627C4.36931 12.6268 1.97009 10.2278 1.97009 7.26855C1.97027 4.30949 4.36942 1.91033 7.32849 1.91016ZM7.32849 2.96094C4.94932 2.96111 3.02105 4.88939 3.02087 7.26855C3.02087 9.64787 4.94921 11.577 7.32849 11.5771C9.70792 11.5771 11.6371 9.64798 11.6371 7.26855C11.6369 4.88928 9.70781 2.96094 7.32849 2.96094Z" fill="currentColor"/></svg></button>
     <button id="refresh" class="step" title="重新读取仓库" aria-label="刷新"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" data-codex-icon="arrows-clockwise-rotate-lg-light-16"><path d="M14.0219 8.22363C14.3094 8.25975 14.5128 8.52209 14.477 8.80957C14.0729 12.0322 11.311 14.5222 7.96723 14.5225C6.11053 14.5225 4.40157 13.752 3.19184 12.5146V13.9961C3.19184 14.286 2.9564 14.5215 2.66645 14.5215C2.37668 14.5213 2.14106 14.2859 2.14106 13.9961V11.4961C2.14122 10.9303 2.60064 10.4709 3.16645 10.4707H5.66645C5.9563 10.4707 6.19167 10.7063 6.19184 10.9961C6.19184 11.286 5.9564 11.5215 5.66645 11.5215H3.70356C4.72588 12.7119 6.27317 13.4717 7.96723 13.4717C10.7796 13.4715 13.0975 11.3782 13.436 8.67871C13.4724 8.39145 13.7345 8.18763 14.0219 8.22363Z" fill="currentColor"/> <path d="M13.3334 1.47461C13.6234 1.47461 13.8588 1.71005 13.8588 2V4.5C13.8588 5.06609 13.3995 5.52539 12.8334 5.52539H10.3334C10.0435 5.52534 9.80805 5.28992 9.80805 5C9.80805 4.71008 10.0435 4.47466 10.3334 4.47461H12.2905C11.2691 3.28567 9.72356 2.52743 8.03168 2.52734C5.22176 2.52746 2.90507 4.61922 2.56684 7.31738C2.53053 7.60481 2.26843 7.80851 1.9809 7.77246C1.69351 7.73623 1.48997 7.47397 1.52582 7.18652C1.9297 3.96546 4.69011 1.47668 8.03168 1.47656C9.88918 1.47665 11.5991 2.24798 12.8081 3.4873V2C12.8081 1.71008 13.0435 1.47466 13.3334 1.47461Z" fill="currentColor"/></svg></button>
   </div>
-  <div id="error" class="error" role="alert" hidden><span></span><button id="retry">重试</button><button id="dismiss-error" class="step" aria-label="关闭错误"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" data-codex-icon="xmark-lg-light-16"><path d="M11.8786 3.37864C12.0835 3.17377 12.4158 3.17407 12.6208 3.37864C12.8259 3.58367 12.8259 3.9158 12.6208 4.12083L8.74192 7.99974L12.6208 11.8786C12.8259 12.0837 12.8259 12.4158 12.6208 12.6208C12.4158 12.8259 12.0837 12.8259 11.8786 12.6208L7.99974 8.74192L4.12083 12.6208C3.9158 12.8258 3.58366 12.8259 3.37864 12.6208C3.17408 12.4158 3.17378 12.0835 3.37864 11.8786L7.25755 7.99974L3.37864 4.12083C3.17407 3.91577 3.17377 3.58352 3.37864 3.37864C3.58352 3.17377 3.91577 3.17407 4.12083 3.37864L7.99974 7.25755L11.8786 3.37864Z" fill="currentColor"/></svg></button></div>
-  <div id="layout-error" class="error" role="alert" hidden><span></span><button id="layout-retry">重试</button></div>
-  <div id="content">
-    <section id="history-pane" aria-label="提交历史" aria-busy="true">
-      <div id="history-body">
   <div id="searchbar" hidden>
     <label id="search-field"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" data-codex-icon="magnifying-glass-lg-light-16"><path fill-rule="evenodd" clip-rule="evenodd" d="M7.32849 1.91016C10.2877 1.91016 12.6867 4.30938 12.6869 7.26855C12.6869 8.57363 12.2192 9.7688 11.4437 10.6982L14.0433 13.2979C14.2481 13.5028 14.2481 13.8351 14.0433 14.04C13.8384 14.245 13.5062 14.2449 13.3011 14.04L10.6957 11.4346C9.77536 12.1793 8.60462 12.627 7.32849 12.627C4.36931 12.6268 1.97009 10.2278 1.97009 7.26855C1.97027 4.30949 4.36942 1.91033 7.32849 1.91016ZM7.32849 2.96094C4.94932 2.96111 3.02105 4.88939 3.02087 7.26855C3.02087 9.64787 4.94921 11.577 7.32849 11.5771C9.70792 11.5771 11.6371 9.64798 11.6371 7.26855C11.6369 4.88928 9.70781 2.96094 7.32849 2.96094Z" fill="currentColor"/></svg><input id="search" type="search" aria-label="搜索已加载的提交" placeholder="搜索提交、作者或 SHA"></label>
     <span id="search-count" role="status"></span>
     <button class="step" id="prev-match" title="上一个匹配" aria-label="上一个匹配"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" data-codex-icon="arrow-up-lg-light-16"><path d="M7.45819 2.4721C7.77271 2.21556 8.22656 2.2158 8.5412 2.4721L8.60663 2.53069L13.0373 6.96233C13.2423 7.16736 13.2423 7.49949 13.0373 7.70452C12.8322 7.90905 12.5 7.90938 12.2951 7.70452L8.52557 3.93401V13.3334C8.5254 13.6232 8.29002 13.8578 8.00018 13.8578C7.71034 13.8578 7.47497 13.6232 7.47479 13.3334V3.93206L3.70429 7.70452C3.49929 7.90915 3.16702 7.90927 2.9621 7.70452C2.75738 7.49959 2.75747 7.16732 2.9621 6.96233L7.39276 2.53069L7.45819 2.4721Z" fill="currentColor"/></svg></button>
     <button class="step" id="next-match" title="下一个匹配" aria-label="下一个匹配"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" data-codex-icon="arrow-down-lg-light-16"><path d="M8.00022 2.1416C8.29017 2.1416 8.52562 2.37704 8.52562 2.66699V12.0645L12.2951 8.2959C12.5 8.091 12.8323 8.09124 13.0373 8.2959C13.2424 8.50092 13.2424 8.83306 13.0373 9.03809L8.60667 13.4688C8.27145 13.8037 7.72792 13.8039 7.3928 13.4688L2.96214 9.03809C2.7574 8.83313 2.75743 8.50087 2.96214 8.2959C3.1671 8.09094 3.49928 8.09108 3.70433 8.2959L7.47483 12.0664V2.66699C7.47483 2.37708 7.71033 2.14167 8.00022 2.1416Z" fill="currentColor"/></svg></button>
   </div>
+  </header>
+  <div id="error" class="error" role="alert" hidden><span></span><button id="retry">重试</button><button id="dismiss-error" class="step" aria-label="关闭错误"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true" data-codex-icon="xmark-lg-light-16"><path d="M11.8786 3.37864C12.0835 3.17377 12.4158 3.17407 12.6208 3.37864C12.8259 3.58367 12.8259 3.9158 12.6208 4.12083L8.74192 7.99974L12.6208 11.8786C12.8259 12.0837 12.8259 12.4158 12.6208 12.6208C12.4158 12.8259 12.0837 12.8259 11.8786 12.6208L7.99974 8.74192L4.12083 12.6208C3.9158 12.8258 3.58366 12.8259 3.37864 12.6208C3.17408 12.4158 3.17378 12.0835 3.37864 11.8786L7.25755 7.99974L3.37864 4.12083C3.17407 3.91577 3.17377 3.58352 3.37864 3.37864C3.58352 3.17377 3.91577 3.17407 4.12083 3.37864L7.99974 7.25755L11.8786 3.37864Z" fill="currentColor"/></svg></button></div>
+  <div id="layout-error" class="error" role="alert" hidden><span></span><button id="layout-retry">重试</button></div>
+  <div id="content">
+    <section id="history-pane" aria-label="提交历史" aria-busy="true">
+      <div id="history-body">
+
 
       <div id="history-scroll"><div id="history-table"><div id="rows" role="list" aria-label="Git 提交列表" title="选择提交查看差异"></div></div><button id="load-more" hidden>加载更多</button><div id="empty" class="empty"><strong>正在读取当前任务的 Git 仓库</strong>浏览分支关系，选择提交查看文件差异。</div></div>
       </div>

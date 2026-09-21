@@ -83,8 +83,12 @@ try {
   };
   let frame=await open();
   assert.equal(await frame.locator('#searchbar').isVisible(),false,'search starts hidden');
+  assert.equal(await frame.locator('#searchbar').evaluate(el=>el.parentElement?.id),'header','search expands the shared header');
+  assert.equal(await frame.locator('#header').evaluate(el=>getComputedStyle(el).borderBottomWidth),'1px','header divider remains visible when search is closed');
+  assert.equal(await frame.locator('#searchbar').evaluate(el=>getComputedStyle(el).borderBottomWidth),'0px','search does not own the header divider');
   assert.equal(await frame.locator('#toggle-search').getAttribute('aria-expanded'),'false');
   await frame.locator('#toggle-search').click();
+  assert.equal(await frame.locator('#header').evaluate(el=>getComputedStyle(el).borderBottomWidth),'1px','opening search only increases header height');
   await frame.locator('#search').fill('main');
   assert.equal(await frame.locator('#search').evaluate(el=>el===document.activeElement),true);
   await frame.locator('#refresh').click();
@@ -100,23 +104,30 @@ try {
   assert.equal(await frame.locator('#toggle-search').getAttribute('aria-expanded'),'false');
   assert.equal(await frame.locator('#toggle-search').evaluate(el=>el===document.activeElement),true);
 
-  assert.equal(await frame.locator('#repository').isVisible(),false,'single repositories retain a plain label');
-  await frame.locator('#repo-label').click();
-  assert.equal(await frame.locator('#repository').isVisible(),false,'a single repository cannot open the picker');
+  assert.equal(await frame.locator('#repo-label').count(),0,'repositories always use the shared select component');
+  assert.equal(await frame.locator('#repository').isVisible(),true);
+  assert.equal(await frame.locator('#repository').isDisabled(),true,'a single repository cannot open the picker');
+  assert.equal(await frame.locator('#repository option').count(),1);
   const selectAppearance = selector => frame.locator(selector).evaluate(el => {
     const icon = el.querySelector('.codex-select-icon'), selected = el.querySelector('selectedcontent');
     const probe = document.createElement('span'); probe.style.color = 'var(--muted)'; document.body.append(probe);
-    const iconBounds = icon?.getBoundingClientRect(), selectedStyle = getComputedStyle(selected);
+    const iconBounds = icon?.getBoundingClientRect(), selectedStyle = getComputedStyle(selected), pickerStyle = getComputedStyle(el,'::picker-icon');
     const result = { icon: icon?.dataset.codexIcon || '', width: iconBounds?.width || 0, height: iconBounds?.height || 0,
       iconColor: icon ? getComputedStyle(icon).backgroundColor : '', muted: getComputedStyle(probe).color,
       weight: selectedStyle.fontWeight, normalWeight: getComputedStyle(document.documentElement).fontWeight,
-      selectedBackground: selectedStyle.backgroundColor,
-      triggerBackground: getComputedStyle(el).backgroundColor };
+      selectedBackground: selectedStyle.backgroundColor, opacity: getComputedStyle(el).opacity,
+      triggerBackground: getComputedStyle(el).backgroundColor,
+      pickerDisplay: pickerStyle.display, pickerWidth: pickerStyle.width, pickerHeight: pickerStyle.height };
     probe.remove(); return result;
   });
   await page.mouse.move(500,700);
+  const singleRepositoryAppearance = await selectAppearance('#repository');
+  assert.deepEqual([singleRepositoryAppearance.icon,singleRepositoryAppearance.width,singleRepositoryAppearance.height],['folder-light-16',16,16]);
+  assert.equal(singleRepositoryAppearance.opacity,'1','disabled selects retain the normal component appearance');
+  assert.equal(singleRepositoryAppearance.pickerDisplay,'none','disabled selects do not advertise a picker');
   const branchAppearance = await selectAppearance('#branch');
   assert.deepEqual([branchAppearance.icon,branchAppearance.width,branchAppearance.height],['branch-light-16',16,16]);
+  assert.deepEqual([branchAppearance.pickerWidth,branchAppearance.pickerHeight],['12px','12px'],'enabled selects keep the picker icon');
   assert.equal(branchAppearance.iconColor,branchAppearance.muted,'branch icon follows the host secondary text color');
   assert.equal(branchAppearance.weight,branchAppearance.normalWeight,'selected branch keeps the host normal weight');
   assert.equal(branchAppearance.weight,'430');
@@ -144,10 +155,15 @@ try {
     {hash:'a1'+'a'.repeat(38),parents:[],subject:'Fix [UI] & <img> Fix',author:'Alice',email:'alice@example.invalid',date:'2026-09-20T00:00:00Z'},
     {hash:'b2'+'b'.repeat(38),parents:[],subject:'Other change',author:'Fix',email:'hidden@example.invalid',date:'2026-09-20T00:00:00Z'},
   ];
+  searchCommits[0].parents = [searchCommits[1].hash];
   historyFixture={repo:root,branch:'',head:searchCommits[0].hash,headName:'feature/fix',hasMore:false,
-    tips:searchCommits.map(commit=>commit.hash),commits:searchCommits,
+    tips:[searchCommits[0].hash],commits:searchCommits,
     refs:[{name:'refs/heads/feature/fix',hash:searchCommits[0].hash,type:'commit',symbolic:''}]};
-  frame=await open();await frame.locator('#toggle-search').click();await frame.locator('#search').fill('fix');
+  frame=await open();
+  assert.equal(await frame.locator('#branch').isDisabled(),true);
+  assert.deepEqual(await frame.locator('#branch option').allTextContents(),['feature/fix']);
+  assert.equal(await frame.locator('#branch').inputValue(),'refs/heads/feature/fix');
+  await frame.locator('#toggle-search').click();await frame.locator('#search').fill('fix');
   assert.equal(await frame.locator('.commit-row mark[data-search-match]').count(),4,'literal matches in titles, badges and authors');
   assert.equal(await frame.locator('mark[data-active]').count(),1,'only one active occurrence');
   assert.equal(await frame.locator('#search-count').innerText(),'1/4 · 已加载历史');
@@ -157,10 +173,14 @@ try {
     return {active:el.hasAttribute('data-active'),pixel:[...context.getImageData(0,0,1,1).data],radius:getComputedStyle(el).borderRadius};
   }));
   const accentMarks=async color=>{
-    const marks=await markColors();
-    assert.ok(marks.every(mark=>
-      mark.pixel.slice(0,3).every((channel,index)=>Math.abs(channel-color[index])<=3)
-      && mark.pixel[3]===(mark.active?82:51) && mark.radius==='2px'),JSON.stringify(marks));
+    let marks;
+    for (let attempt=0;attempt<50;attempt++) {
+      marks=await markColors();
+      if (marks.every(mark=>mark.pixel.slice(0,3).every((channel,index)=>Math.abs(channel-color[index])<=3)
+        && mark.pixel[3]===(mark.active?82:51) && mark.radius==='2px')) return;
+      await page.waitForTimeout(20);
+    }
+    assert.fail(JSON.stringify(marks));
   };
   await accentMarks([118,167,243]);
   assert.equal(await frame.locator('.subject').first().evaluate(el=>getComputedStyle(el).color), 'rgb(230, 237, 243)','titles keep their normal color');
@@ -276,11 +296,13 @@ try {
   await page.mouse.move(0,0);
   assert.notEqual((await nodeFills())[0].fill,(await nodeFills())[1].fill,'leaving hover keeps HEAD identity');
   const restingHead=await nodePixels(headRow);assert.deepEqual(restingHead.center,restingHead.background,'resting HEAD has an opaque hollow center');
-  await page.evaluate(()=>window.codeFont({'--border-radius-sm':'3px','--border-radius-md':'4px','--border-radius-lg':'5px','--border-radius-xl':'6px'}));
-  assert.equal(await frame.locator('#detail').evaluate(el=>getComputedStyle(el).borderRadius),'6px','card follows the host radius without enlargement');
+  await page.evaluate(()=>window.codeFont({'--border-radius-xs':'2px','--border-radius-sm':'3px','--border-radius-md':'4px','--border-radius-lg':'5px','--border-radius-xl':'6px'}));
+  assert.equal(await frame.locator('#detail').evaluate(el=>getComputedStyle(el).borderRadius),'8px','card derives Codex 2xl from host radius tokens');
   assert.equal(await frame.locator('#refresh').evaluate(el=>getComputedStyle(el).borderRadius),'5px');
+  assert.equal(await frame.locator('#refresh').evaluate(el=>getComputedStyle(el).cornerShape),'superellipse(1.5)','toolbar buttons use the Codex squircle without changing card geometry');
+  assert.notEqual(await frame.locator('#detail').evaluate(el=>getComputedStyle(el).cornerShape),'superellipse(1.5)');
   assert.equal(await groupedRow.locator('.ref').first().evaluate(el=>getComputedStyle(el).borderRadius),'3px');
-  await page.evaluate(()=>window.codeFont({'--border-radius-sm':'6px','--border-radius-md':'8px','--border-radius-lg':'10px','--border-radius-xl':'12px'}));
+  await page.evaluate(()=>window.codeFont({'--border-radius-xs':'4px','--border-radius-sm':'6px','--border-radius-md':'8px','--border-radius-lg':'10px','--border-radius-xl':'12px'}));
   const badge=groupedRow.locator('.ref').first();
   const darkBadge=await badge.evaluate(el=>getComputedStyle(el).backgroundColor);
   const box=await groupedRow.boundingBox();await page.mouse.move(box.x+20,box.y+11);
@@ -481,17 +503,22 @@ try {
     assert.match((await frame.locator('#diff-editor .view-lines').allTextContents()).join(' ').replaceAll('\u00a0',' '),/\+\+new/);
     assert.ok(await frame.locator('#diff-editor .char-insert').count()>0);
     assert.ok(await frame.locator('#diff-editor .char-delete').count()>0);
+    const surfacePixel=locator=>locator.evaluate(el=>{
+      const canvas=document.createElement('canvas'),context=canvas.getContext('2d');
+      context.fillStyle=getComputedStyle(el).backgroundColor;context.fillRect(0,0,1,1);
+      return [...context.getImageData(0,0,1,1).data].slice(0,3);
+    });
     const detailSurface=async expected=>{
-      assert.equal(await frame.locator('#detail').evaluate(el=>getComputedStyle(el).backgroundColor),expected);
-      assert.equal(await frame.locator('#diff-editor .monaco-editor').first().evaluate(el=>getComputedStyle(el).backgroundColor),expected);
-      assert.notEqual(await frame.locator('#history-pane').evaluate(el=>getComputedStyle(document.documentElement).backgroundColor),expected);
+      assert.deepEqual(await surfacePixel(frame.locator('#detail')),expected);
+      assert.deepEqual(await surfacePixel(frame.locator('#diff-editor .monaco-editor').first()),expected);
+      assert.notDeepEqual(await surfacePixel(frame.locator('#history-pane')),expected);
     };
-    await detailSurface('rgb(41, 45, 51)');
-    await page.evaluate(()=>window.codeFont({'--color-background-secondary':'#243546'}));
+    await detailSurface([33,37,43]);
+    await page.evaluate(()=>window.codeFont({'--color-background-primary':'#182736'}));
     await frame.locator('#detail').evaluate(el=>new Promise(resolve=>requestAnimationFrame(resolve)));
-    await detailSurface('rgb(36, 53, 70)');
-    assert.equal(await page.locator('html').evaluate(el=>getComputedStyle(el).getPropertyValue('--color-background-secondary').trim()), '#243546');
-    await page.evaluate(()=>window.codeFont({'--color-background-secondary':'#292d33'}));
+    await detailSurface([36,43,52]);
+    assert.equal(await page.locator('html').evaluate(el=>getComputedStyle(el).getPropertyValue('--color-background-primary').trim()), '#182736');
+    await page.evaluate(()=>window.codeFont({'--color-background-primary':'#0d1117'}));
 
     const nativeEditorInput=frame.locator('#diff-editor .editor.modified').getByRole('textbox',{name:'目标版本，只读'});
     await nativeEditorInput.press(process.platform==='darwin'?'Meta+f':'Control+f');
@@ -577,7 +604,7 @@ try {
     }
     await page.evaluate(()=>window.light());
     await page.waitForTimeout(50);
-    await detailSurface('rgb(245, 245, 245)');
+    await detailSurface([248,248,248]);
     if (process.env.UI_TEST_ARTIFACTS) await page.screenshot({path:join(process.env.UI_TEST_ARTIFACTS,'diff-light.png')});
     await frame.locator('#expand-detail').click();
     assert.equal(await expandIcon.isVisible(),true);
@@ -854,7 +881,7 @@ try {
     }
   };
   frame=await open();await page.setViewportSize({width:639,height:863});
-  assert.equal(await frame.locator('#repo-label').isVisible(),false);
+  assert.equal(await frame.locator('#repository').isDisabled(),false);
   assert.deepEqual(await frame.locator('#repository option').allTextContents(),['web','app']);
   await page.mouse.move(500,700);
   const repositoryAppearance = await selectAppearance('#repository');
@@ -863,7 +890,8 @@ try {
   assert.equal(repositoryAppearance.weight,repositoryAppearance.normalWeight,'selected repository keeps the host normal weight');
   assert.deepEqual([repositoryAppearance.selectedBackground,repositoryAppearance.triggerBackground],['rgba(0, 0, 0, 0)','rgba(0, 0, 0, 0)']);
   await codexRows();
-  await frame.locator('#branch').selectOption('refs/heads/main');
+  assert.equal(await frame.locator('#branch').isDisabled(),true);
+  assert.equal(await frame.locator('#branch').inputValue(),'refs/heads/main');
   await frame.locator('#toggle-search').click();
   await frame.locator('#search').fill('web');await frame.locator('.commit-row').click();
   await frame.locator('#commit-message').getByText('web',{exact:true}).waitFor();
@@ -874,7 +902,7 @@ try {
   failRepository=false;await frame.locator('#retry').click();
   await frame.locator(`[data-hash="${fixtures[1].head}"]`).waitFor();
   assert.equal(await frame.locator('#search').inputValue(),'');
-  assert.equal(await frame.locator('#branch').inputValue(),'');
+  assert.equal(await frame.locator('#branch').inputValue(),'refs/heads/main');
   assert.equal(await frame.locator('#detail-row').isVisible(),false);
   await codexRows();
   await frame.locator('.commit-row').click();await frame.locator('#commit-message').getByText('app',{exact:true}).waitFor();

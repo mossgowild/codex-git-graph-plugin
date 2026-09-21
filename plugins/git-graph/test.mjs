@@ -79,6 +79,10 @@ test('real Git history, merge parents, renames, paths, pagination, read-only sta
     await writeFile(join(repo, 'alpha.txt'), 'one\ntwo\nthree\n');
     await git(repo, ['add', '--', 'alpha.txt']); await git(repo, ['commit', '-m', 'Initial commit']);
     const root = (await git(repo, ['rev-parse', 'HEAD'])).trim();
+    const singleBranch = await history({ repoPath: repo });
+    assert.equal(singleBranch.refs.length, 1);
+    assert.equal(singleBranch.branch, 'refs/heads/main');
+    assert.deepEqual(singleBranch.tips, [root]);
     await git(repo, ['checkout', '-b', 'feature']);
     await writeFile(join(repo, 'feature.txt'), 'feature\n');
     await git(repo, ['add', '--', 'feature.txt']); await git(repo, ['commit', '-m', '<img src=x onerror=alert(1)> feature']);
