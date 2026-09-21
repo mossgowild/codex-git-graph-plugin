@@ -28,6 +28,15 @@ export async function repository(repoPath) {
   return await realpath(root);
 }
 
+export async function repositoryInfo(repoPath) {
+  const root = await repository(repoPath);
+  const commonDir = await realpath((await git(root, ['rev-parse', '--path-format=absolute', '--git-common-dir'])).trim());
+  const main = (await git(root, ['worktree', 'list', '--porcelain', '-z']))
+    .split('\0').find(field => field.startsWith('worktree '));
+  if (!main) throw new Error('Git 未返回主工作树。');
+  return { root, commonDir, mainRoot: await realpath(main.slice('worktree '.length)) };
+}
+
 function parseCommits(raw) {
   if (!raw) return [];
   const fields = raw.replace(/\0$/, '').split('\0');

@@ -183,6 +183,8 @@ test('real Git history, merge parents, renames, paths, pagination, read-only sta
       args: [join(import.meta.dirname, 'dist/server.mjs')], cwd: worktree }));
     const linked = await linkedClient.callTool({ name: 'git_graph', arguments: {} });
     assert.equal(linked.structuredContent.repo, await repository(worktree));
+    assert.equal(linked.structuredContent.repositories.length, 1);
+    assert.equal(linked.structuredContent.repositories[0].displayPath, await repository(repo));
     assert.equal(linked.structuredContent.head, feature);
     assert.equal((await client.callTool({ name: 'git_graph', arguments: {} })).structuredContent.head, latest);
     await emptyClient.connect(new StdioClientTransport({ command: process.execPath,
@@ -363,6 +365,8 @@ test('project repositories route every Git operation and isolate task scopes', a
   const first = await mkdtemp(join(directory, 'web-'));
   const second = await mkdtemp(join(directory, 'app-'));
   const empty = await mkdtemp(join(directory, 'documents-'));
+  const outside = await mkdtemp(join(directory, 'outside-'));
+  const linked = join(directory, 'web-linked');
   const runner = join(directory, 'server.mjs');
   const client = new Client({ name: 'project-test', version: '1.0.0' });
   try {
@@ -375,13 +379,17 @@ test('project repositories route every Git operation and isolate task scopes', a
       await git(repo, ['add', '.']); await git(repo, ['commit', '-m', contents]);
       heads.push((await git(repo, ['rev-parse', 'HEAD'])).trim());
     }
+    await git(outside, ['init', '-b', 'main']);
+    await git(first, ['worktree', 'add', '--detach', linked, heads[0]]);
     await writeFile(runner, `import { createServer } from ${JSON.stringify(new URL('./dist/server.mjs', import.meta.url).href)};
 import { StdioServerTransport } from ${JSON.stringify(import.meta.resolve('@modelcontextprotocol/server/stdio'))};
-await createServer({ projectRoots: async threadId => threadId === 'multi' ? ${JSON.stringify([first, second, first, empty])} : [] }).connect(new StdioServerTransport());`);
-    await client.connect(new StdioClientTransport({ command: process.execPath, args: [runner], cwd: first }));
+await createServer({ projectRoots: async threadId => threadId === 'multi' ? ${JSON.stringify([first, linked, second, first, empty])} : [] }).connect(new StdioServerTransport());`);
+    await client.connect(new StdioClientTransport({ command: process.execPath, args: [runner], cwd: outside }));
     const call = (name, args = {}, threadId = 'multi') => client.callTool({ name, arguments: args, _meta: { threadId } });
     const opened = (await call('git_graph')).structuredContent;
-    assert.equal(opened.repositories.length, 2, 'deduplicate roots and omit non-Git folders');
+    assert.equal(opened.repositories.length, 2, 'use project roots, merge worktrees and omit non-Git folders');
+    assert.deepEqual(opened.repositories.map(repo => repo.displayPath), [await realpath(first), await realpath(second)]);
+    assert.ok(opened.repositories.every(repo => repo.path !== outside), 'ignore an unrelated process cwd');
     const selected = opened.repositories[1].id;
     const selectedArgs = { repository: selected, hash: heads[1] };
     assert.equal((await call('git_graph_history', { repository: selected })).structuredContent.head, heads[1]);

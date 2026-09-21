@@ -34,15 +34,19 @@ async function callTool(request) {
   return client.callTool(request);
 }
 const script = `import {AppBridge,PostMessageTransport} from '@modelcontextprotocol/ext-apps/app-bridge';
+import {injectPreviewTheme,observePreviewTheme} from './preview-theme.mjs';
 const frame=document.querySelector('iframe');
 const variables={'--color-background-primary':'#0d1117','--color-background-secondary':'#292d33','--color-text-primary':'#e6edf3','--color-text-secondary':'#7d838b','--color-border-secondary':'#23282f','--color-ring-primary':'#76a7f3','--color-text-info':'#64a4e0','--color-text-success':'#3fb950','--color-text-danger':'#f85149','--font-sans':'system-ui','--font-mono':'ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace','--font-text-sm-size':'13px','--font-text-xs-size':'12px','--font-weight-normal':'430','--border-radius-xs':'4px','--border-radius-sm':'6px','--border-radius-md':'8px','--border-radius-lg':'10px','--border-radius-xl':'12px','--shadow-lg':'0px 4px 8px -2px #0000001a','--color-background-disabled':'rgba(230,237,243,.09)','--color-background-info':'rgba(100,164,224,.15)'};
 const bridge=new AppBridge(null,{name:'UI test host',version:'1.0.0'},{serverTools:{}},{hostContext:{theme:'dark',styles:{variables},displayMode:'fullscreen',containerDimensions:{maxHeight:2000}}});
 async function call(params){return(await fetch('/call',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(params)})).json();}
 bridge.oncalltool=call;
 bridge.oninitialized=async()=>{await bridge.sendToolInput({arguments:{}});await bridge.sendToolResult(await call({name:'git_graph',arguments:{}}));};
-window.codeFont=variables=>bridge.sendHostContextChange({styles:{variables}});
-window.light=()=>bridge.sendHostContextChange({theme:'light',styles:{variables:{...variables,'--color-background-primary':'#ffffff','--color-background-secondary':'#f5f5f5','--color-text-primary':'#202020','--color-text-secondary':'#777777','--color-border-secondary':'#dddddd'}}});
-await bridge.connect(new PostMessageTransport(frame.contentWindow,frame.contentWindow));frame.src='/frame.html';`;
+let previewContext={theme:'dark',styles:{variables}};
+injectPreviewTheme(previewContext);
+window.codeFont=values=>{previewContext={...previewContext,styles:{variables:{...previewContext.styles.variables,...values}}};injectPreviewTheme(previewContext);};
+window.light=()=>{previewContext={theme:'light',styles:{variables:{...variables,'--color-background-primary':'#ffffff','--color-background-secondary':'#f5f5f5','--color-text-primary':'#202020','--color-text-secondary':'#777777','--color-border-secondary':'#dddddd'}}};injectPreviewTheme(previewContext);};
+await bridge.connect(new PostMessageTransport(frame.contentWindow,frame.contentWindow));
+observePreviewTheme(context=>bridge.sendHostContextChange(context),missing=>{throw new Error('Missing preview theme: '+missing.join(','));});frame.src='/frame.html';`;
 const built = await build({ stdin: { contents: script, resolveDir: root, sourcefile: 'host.js' }, bundle:true,format:'esm',write:false });
 const server = createServer(async (req,res)=>{
   try {
@@ -97,6 +101,8 @@ try {
   assert.equal(await frame.locator('#toggle-search').evaluate(el=>el===document.activeElement),true);
 
   assert.equal(await frame.locator('#repository').isVisible(),false,'single repositories retain a plain label');
+  await frame.locator('#repo-label').click();
+  assert.equal(await frame.locator('#repository').isVisible(),false,'a single repository cannot open the picker');
   const selectAppearance = selector => frame.locator(selector).evaluate(el => {
     const icon = el.querySelector('.codex-select-icon'), selected = el.querySelector('selectedcontent');
     const probe = document.createElement('span'); probe.style.color = 'var(--muted)'; document.body.append(probe);
@@ -145,8 +151,18 @@ try {
   assert.equal(await frame.locator('.commit-row mark[data-search-match]').count(),4,'literal matches in titles, badges and authors');
   assert.equal(await frame.locator('mark[data-active]').count(),1,'only one active occurrence');
   assert.equal(await frame.locator('#search-count').innerText(),'1/4 · 已加载历史');
-  const markColors=()=>frame.locator('mark').evaluateAll(els=>els.map(el=>({active:el.hasAttribute('data-active'),color:getComputedStyle(el).backgroundColor,radius:getComputedStyle(el).borderRadius})));
-  assert.ok((await markColors()).every(mark=>mark.color===(mark.active?'rgb(251, 106, 34)':'rgb(255, 210, 64)')&&mark.radius==='2px'));
+  const markColors=()=>frame.locator('mark').evaluateAll(els=>els.map(el=>{
+    const canvas=document.createElement('canvas'),context=canvas.getContext('2d');
+    context.fillStyle=getComputedStyle(el).backgroundColor;context.fillRect(0,0,1,1);
+    return {active:el.hasAttribute('data-active'),pixel:[...context.getImageData(0,0,1,1).data],radius:getComputedStyle(el).borderRadius};
+  }));
+  const accentMarks=async color=>{
+    const marks=await markColors();
+    assert.ok(marks.every(mark=>
+      mark.pixel.slice(0,3).every((channel,index)=>Math.abs(channel-color[index])<=3)
+      && mark.pixel[3]===(mark.active?82:51) && mark.radius==='2px'),JSON.stringify(marks));
+  };
+  await accentMarks([118,167,243]);
   assert.equal(await frame.locator('.subject').first().evaluate(el=>getComputedStyle(el).color), 'rgb(230, 237, 243)','titles keep their normal color');
   await frame.locator('#search').press('Enter');await frame.locator('#commit-message').getByText('Fix [UI] & <img> Fix',{exact:true}).waitFor();
   const selected=await frame.locator('.commit-row[aria-pressed=true]').getAttribute('data-hash');
@@ -156,7 +172,9 @@ try {
   assert.equal(await frame.locator('#search-count').innerText(),'3/4 · 已加载历史');
   await frame.locator('#search').press('Shift+Enter');assert.equal(await frame.locator('#search-count').innerText(),'2/4 · 已加载历史');
   await page.evaluate(()=>window.light());
-  assert.ok((await markColors()).every(mark=>mark.color===(mark.active?'rgb(226, 85, 7)':'rgb(255, 195, 0)')));
+  await accentMarks([118,167,243]);
+  await page.evaluate(()=>window.codeFont({'--color-ring-primary':'#ba55d3'}));
+  await accentMarks([186,85,211]);
   for (const query of ['[UI]','<img>','&']) {
     await frame.locator('#search').fill(query);
     assert.deepEqual(await frame.locator('.subject mark').allTextContents(),[query]);
@@ -258,11 +276,11 @@ try {
   await page.mouse.move(0,0);
   assert.notEqual((await nodeFills())[0].fill,(await nodeFills())[1].fill,'leaving hover keeps HEAD identity');
   const restingHead=await nodePixels(headRow);assert.deepEqual(restingHead.center,restingHead.background,'resting HEAD has an opaque hollow center');
-  await page.evaluate(()=>window.codeFont({'--border-radius-sm':'3px','--border-radius-lg':'5px','--border-radius-xl':'6px'}));
-  assert.equal(await frame.locator('#detail').evaluate(el=>getComputedStyle(el).borderRadius),'8px','card scales with host radii');
+  await page.evaluate(()=>window.codeFont({'--border-radius-sm':'3px','--border-radius-md':'4px','--border-radius-lg':'5px','--border-radius-xl':'6px'}));
+  assert.equal(await frame.locator('#detail').evaluate(el=>getComputedStyle(el).borderRadius),'6px','card follows the host radius without enlargement');
   assert.equal(await frame.locator('#refresh').evaluate(el=>getComputedStyle(el).borderRadius),'5px');
   assert.equal(await groupedRow.locator('.ref').first().evaluate(el=>getComputedStyle(el).borderRadius),'3px');
-  await page.evaluate(()=>window.codeFont({'--border-radius-sm':'6px','--border-radius-lg':'10px','--border-radius-xl':'12px'}));
+  await page.evaluate(()=>window.codeFont({'--border-radius-sm':'6px','--border-radius-md':'8px','--border-radius-lg':'10px','--border-radius-xl':'12px'}));
   const badge=groupedRow.locator('.ref').first();
   const darkBadge=await badge.evaluate(el=>getComputedStyle(el).backgroundColor);
   const box=await groupedRow.boundingBox();await page.mouse.move(box.x+20,box.y+11);
@@ -469,6 +487,12 @@ try {
       assert.notEqual(await frame.locator('#history-pane').evaluate(el=>getComputedStyle(document.documentElement).backgroundColor),expected);
     };
     await detailSurface('rgb(41, 45, 51)');
+    await page.evaluate(()=>window.codeFont({'--color-background-secondary':'#243546'}));
+    await frame.locator('#detail').evaluate(el=>new Promise(resolve=>requestAnimationFrame(resolve)));
+    await detailSurface('rgb(36, 53, 70)');
+    assert.equal(await page.locator('html').evaluate(el=>getComputedStyle(el).getPropertyValue('--color-background-secondary').trim()), '#243546');
+    await page.evaluate(()=>window.codeFont({'--color-background-secondary':'#292d33'}));
+
     const nativeEditorInput=frame.locator('#diff-editor .editor.modified').getByRole('textbox',{name:'目标版本，只读'});
     await nativeEditorInput.press(process.platform==='darwin'?'Meta+f':'Control+f');
     const nativeFind=frame.locator('#diff-editor .find-widget.visible');await nativeFind.waitFor();
@@ -748,8 +772,9 @@ try {
     await frame.locator('#next-change').click();await page.waitForTimeout(50);
     await frame.locator('#prev-change').click();
     const input=frame.locator('#diff-editor .editor.modified').getByRole('textbox',{name:'目标版本，只读'});
+    const visibleLinesBeforeInput=(await frame.locator('#diff-editor .view-lines').allTextContents()).join(' ');
     await input.press('x');
-    assert.equal((await frame.locator('#diff-editor .view-lines').allTextContents()).join(' '),linesBefore,'historical models remain read-only');
+    assert.equal((await frame.locator('#diff-editor .view-lines').allTextContents()).join(' '),visibleLinesBeforeInput,'historical models remain read-only');
     await input.press(process.platform==='darwin'?'Meta+f':'Control+f');
     await frame.locator('#diff-editor .find-widget.visible').waitFor();
     await input.press('Escape');

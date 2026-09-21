@@ -35,11 +35,11 @@ export function themeDiff(theme) {
   const shadow = getComputedStyle(probe).boxShadow;
   const shadowColor = shadow === 'none' ? 'transparent' : shadow.match(/(?:rgba?|color|oklch|oklab|lch|lab|hsla?)\([^)]*\)/)?.[0];
   if (!shadowColor) throw new Error('无法解析 Codex 浮层阴影颜色');
-  // Codex Desktop 26.915 default code palettes; MCP supplies chrome colors, not TextMate themes.
   const dark = theme === 'dark';
-  const syntax = dark
-    ? { comment: '999999', string: '85df7b', number: '6dcbf4', keyword: 'f67576', identifier: 'fa994c', type: 'b06dff' }
-    : { comment: '666666', string: '008809', number: '0071ea', keyword: 'd53538', identifier: 'bd5800', type: '751ed9' };
+  const syntax = Object.fromEntries(Object.entries({
+    comment: '--muted', string: '--success', number: '--accent',
+    keyword: '--danger', identifier: '--fg', type: '--graph-remote',
+  }).map(([token, variable]) => [token, color(`var(${variable})`).slice(1, 7)]));
   const rules = [{ token: '', foreground: color('var(--fg)').slice(1, 7) },
     ...Object.entries(syntax).map(([token, foreground]) => ({ token, foreground })),
     ...['delimiter', 'operator'].map(token => ({ token, foreground: syntax.comment })),
@@ -55,7 +55,7 @@ export function themeDiff(theme) {
     'editorGutter.background': color('var(--bg)'), 'editorLineNumber.foreground': color('var(--muted)'),
     'editorLineNumber.activeForeground': color('var(--fg)'), 'editorCursor.foreground': color('var(--fg)'),
     'editor.selectionBackground': color('var(--color-background-info, var(--selected))'), 'editor.inactiveSelectionBackground': color('var(--hover)'),
-    'editor.lineHighlightBackground': '#00000000', 'editorWidget.background': color('var(--bg)'),
+    'editor.lineHighlightBackground': color('transparent'), 'editorWidget.background': color('var(--bg)'),
     'editorWidget.border': color('var(--border)'), 'editorWidget.foreground': color('var(--fg)'),
     'input.background': color('var(--surface)'), 'input.foreground': color('var(--fg)'),
     'input.border': color('var(--border)'), 'focusBorder': color('var(--accent)'),
@@ -75,7 +75,7 @@ export function themeDiff(theme) {
     'scrollbarSlider.background': color('color-mix(in oklab, var(--fg) 15%, transparent)'),
     'scrollbarSlider.hoverBackground': color('color-mix(in oklab, var(--fg) 25%, transparent)'),
     'scrollbarSlider.activeBackground': color('color-mix(in oklab, var(--fg) 35%, transparent)'),
-    'scrollbar.shadow': '#00000000',
+    'scrollbar.shadow': color('transparent'),
     'diffEditorGutter.insertedLineBackground': lineBackground('--success'),
     'diffEditorGutter.removedLineBackground': lineBackground('--danger'),
     'diffEditor.insertedLineBackground': lineBackground('--success'),

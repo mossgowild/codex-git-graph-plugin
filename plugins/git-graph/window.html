@@ -21,17 +21,19 @@
   --graph-3: var(--color-text-info, var(--fg));
   --graph-4: var(--color-text-secondary, var(--fg));
   --graph-5: var(--fg);
-  --radius-control: var(--border-radius-lg, 10px);
-  --radius-card: calc(var(--border-radius-xl, 12px) * 4 / 3);
-  --radius-badge: var(--border-radius-sm, 6px);
+  --radius-control: var(--border-radius-lg);
+  --radius-card: var(--border-radius-xl);
+  --radius-badge: var(--border-radius-sm);
   --resize-highlight: color-mix(in oklab, var(--fg) 25%, transparent);
   --danger: var(--color-text-danger, CanvasText);
   --success: var(--color-text-success, CanvasText);
   --warning: var(--color-text-warning, CanvasText);
-  --detail-bg: var(--color-background-secondary, var(--surface));
-  font-family: var(--font-sans, system-ui);
-  font-size: var(--font-text-sm-size, 13px);
-  font-weight: var(--font-weight-normal, 400);
+  --detail-bg: var(--color-surface-elevated-secondary,
+    var(--color-background-control-opaque,
+      var(--color-background-secondary)));
+  font-family: var(--font-sans);
+  font-size: var(--font-text-sm-size);
+  font-weight: var(--font-weight-normal);
   line-height: 1.4;
   background: var(--bg); color: var(--fg);
 }
@@ -55,6 +57,12 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
 input { background: var(--surface); border: 1px solid transparent }
 input::placeholder { color: var(--muted); opacity: 1 }
 }
+/* Codex desktop pairs its medium-and-larger radius tokens with this corner shape. */
+@supports (corner-shape: superellipse(1.5)) {
+  button, input, #search-field, .commit-row::before, #detail, .codex-select::picker(select) {
+    corner-shape: superellipse(1.5);
+  }
+}
 button svg { width: 16px; height: 16px; flex: none }
 .spacer { flex: 1 }
 #app { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; background: var(--bg) }
@@ -65,11 +73,11 @@ button svg { width: 16px; height: 16px; flex: none }
 #refresh, #toggle-search { color: var(--muted); flex: none }
 #toggle-search[aria-expanded=true] { color: var(--fg); background: var(--selected) }
 #searchbar { display: flex; align-items: center; gap: 4px; padding: 0 12px 8px; border-bottom: 1px solid var(--border) }
-#search-field { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; background: var(--surface); border-radius: var(--radius-control); padding-left: 8px; color: var(--muted) }
+#search-field { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; background: var(--surface); border-radius: var(--border-radius-md); padding-left: 8px; color: var(--muted) }
 #search-field > svg { width: 16px; height: 16px; flex: none }
 #search { flex: 1; width: 100%; background: transparent; border: 0; outline: none; border-radius: 0; padding-left: 0; color: var(--fg) }
 #search::-webkit-search-cancel-button { appearance: none; width: 16px; height: 16px; background: var(--muted); mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%20fill%3D%22none%22%20aria-hidden%3D%22true%22%20data-codex-icon%3D%22xmark-md-light-16%22%3E%3Cpath%20d%3D%22M10.962%204.29539C11.1669%204.09057%2011.4992%204.09076%2011.7042%204.29539C11.9092%204.50039%2011.9091%204.83255%2011.7042%205.03758L8.74229%207.99949L11.7052%2010.9624C11.9097%2011.1673%2011.9097%2011.4996%2011.7052%2011.7046C11.5003%2011.9095%2011.168%2011.9093%2010.963%2011.7046L8.0001%208.74168L5.03721%2011.7046C4.83216%2011.9093%204.49994%2011.9095%204.29502%2011.7046C4.09047%2011.4996%204.09045%2011.1673%204.29502%2010.9624L7.25791%207.99949L4.296%205.03758C4.09101%204.83255%204.09099%204.5004%204.296%204.29539C4.50105%204.09079%204.8333%204.09054%205.03819%204.29539L8.0001%207.2573L10.962%204.29539Z%22%20fill%3D%22currentColor%22%2F%3E%3C%2Fsvg%3E") center / contain no-repeat }
-#search-count { font-variant-numeric: tabular-nums; color: var(--muted); font-size: var(--font-text-xs-size, 12px); white-space: nowrap }
+#search-count { font-variant-numeric: tabular-nums; color: var(--muted); font-size: var(--font-text-xs-size); white-space: nowrap }
 #search-count:empty { display: none }
 .step { width: 28px; flex: none; padding: 4px; color: var(--muted) }
 .error { padding: 8px 12px; background: var(--color-background-danger, color-mix(in srgb, var(--danger) 12%, var(--bg))); border-bottom: 1px solid var(--border); color: var(--danger); display: flex; gap: 8px; align-items: center }
@@ -91,10 +99,9 @@ button svg { width: 16px; height: 16px; flex: none }
 .commit-row[aria-pressed=true]::before { background: var(--row-bg) }
 .commit-row:focus-visible { outline: none }
 .commit-row:focus-visible::before { outline: 2px solid var(--accent); outline-offset: -2px }
-/* Codex 26.915 content-find tokens; MCP does not forward chart colors. */
-.commit-row mark[data-search-match] { background: var(--color-chart-yellow, light-dark(#ffc300, #ffd240)); color: var(--fg); border-radius: calc(var(--border-radius-xs, 4px) / 2); padding: 0 }
-.commit-row mark[data-search-match][data-active] { background: var(--color-chart-orange, light-dark(#e25507, #fb6a22)) }
-.search-context { flex: 0 1 auto; min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: var(--font-text-xs-size, 12px) }
+.commit-row mark[data-search-match] { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--fg); border-radius: calc(var(--border-radius-xs) / 2); padding: 0 }
+.commit-row mark[data-search-match][data-active] { background: color-mix(in srgb, var(--accent) 32%, transparent) }
+.search-context { flex: 0 1 auto; min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: var(--font-text-xs-size) }
 .commit-row > .graph { display: block; flex: none; align-self: stretch; height: 28px }
 .commit-row[aria-expanded=true] > .graph .node-edge { stroke-width: 3px }
 .graph circle { stroke: var(--bg) }
@@ -105,49 +112,49 @@ button svg { width: 16px; height: 16px; flex: none }
 .commit-row.current:hover .graph circle:last-of-type { fill: var(--hover) }
 .commit-row .message { display: flex; align-items: center; flex: 1; min-width: 0; gap: 8px; overflow: hidden }
 .subject { overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto }
-.author { flex: 0 1 auto; max-width: 20%; margin-left: 12px; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: var(--font-text-xs-size, 12px) }
-code, pre { font-family: var(--font-mono, 'SFMono-Regular', Consolas, monospace) }
+.author { flex: 0 1 auto; max-width: 20%; margin-left: 12px; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: var(--font-text-xs-size) }
+code, pre { font-family: var(--font-mono) }
 .badges { display: flex; flex: 0 1 auto; min-width: 0; max-width: 50%; align-items: center; gap: 4px; overflow: hidden }
 .badges:empty { display: none }
-.ref { --ref-color: var(--fg); display: inline-flex; align-items: center; gap: 4px; flex: none; min-width: 0; font-size: var(--font-text-xs-size, 12px); line-height: 18px; height: 20px; border: 1px solid var(--border); border-radius: var(--radius-badge); padding: 0 6px; background: var(--surface); color: var(--ref-color) }
+.ref { --ref-color: var(--fg); display: inline-flex; align-items: center; gap: 4px; flex: none; min-width: 0; font-size: var(--font-text-xs-size); line-height: 18px; height: 20px; border: 1px solid var(--border); border-radius: var(--radius-badge); padding: 0 6px; background: var(--surface); color: var(--ref-color) }
 .badges .ref { flex: 0 1 auto; overflow: hidden }
 .ref-name { min-width: 0; overflow: hidden; text-overflow: ellipsis }
 .empty { color: var(--muted); text-align: center; padding: 48px 20px; line-height: 1.8; overflow-wrap: anywhere }
-.empty strong { display: block; color: var(--fg); font-weight: var(--font-weight-medium, 500); margin-bottom: 4px }
+.empty strong { display: block; color: var(--fg); font-weight: var(--font-weight-medium); margin-bottom: 4px }
 #detail { --bg: var(--detail-bg); position: sticky; left: 0; width: calc(var(--history-viewport-width, 100vw) - var(--graph-width, 20px) - 16px); height: var(--detail-height, 420px); display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--bg) }
 #detail-header { display: flex; align-items: center; flex-wrap: wrap; flex: none; gap: 4px; min-height: 36px; padding: 4px 0 }
-#detail-header button { font-size: var(--font-text-xs-size, 12px); color: var(--muted) }
+#detail-header button { font-size: var(--font-text-xs-size); color: var(--muted) }
 #detail-identity { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; flex: 1; min-width: 0; padding: 4px 6px }
-#detail-hash { flex: none; max-width: 100%; font-size: var(--font-text-xs-size, 12px); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+#detail-hash { flex: none; max-width: 100%; font-size: var(--font-text-xs-size); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 #detail-header .step { width: 28px; height: 28px }
 #detail-summary { padding: 4px 6px 6px; overflow: auto; flex: 1; min-height: 0 }
-#commit-refs { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; min-width: 0; font-size: var(--font-text-xs-size, 12px); color: var(--muted) }
+#commit-refs { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; min-width: 0; font-size: var(--font-text-xs-size); color: var(--muted) }
 #commit-refs:empty { display: none }
 #commit-refs .ref { flex: 0 1 auto; max-width: 100%; height: auto }
 #commit-refs .ref-name { white-space: normal; overflow-wrap: anywhere }
 #commit-message { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; margin: 0 0 8px }
-#commit-meta { font-size: var(--font-text-xs-size, 12px); line-height: 1.7; color: var(--muted); overflow-wrap: anywhere }
+#commit-meta { font-size: var(--font-text-xs-size); line-height: 1.7; color: var(--muted); overflow-wrap: anywhere }
 #parent-label { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: var(--muted) }
 #files { min-height: 0; flex: 1; overflow: auto; padding: 0 6px 4px 2px }
-#files button { border-radius: var(--radius-control); display: flex; justify-content: flex-start; width: 100%; gap: 8px; text-align: left; padding: 4px 6px; font-size: var(--font-text-sm-size, 13px) }
+#files button { border-radius: var(--radius-control); display: flex; justify-content: flex-start; width: 100%; gap: 8px; text-align: left; padding: 4px 6px; font-size: var(--font-text-sm-size) }
 #files button[aria-pressed=true] { background: var(--selected) }
-.file-status { flex: none; margin-left: auto; color: var(--muted); font-family: var(--font-mono, monospace); font-size: var(--font-text-xs-size, 12px) }
+.file-status { flex: none; margin-left: auto; color: var(--muted); font-family: var(--font-mono); font-size: var(--font-text-xs-size) }
 .file-status.A { color: var(--success) }
 .file-status.D { color: var(--danger) }
 .file-path, .file-directory { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-.file-directory { color: var(--muted); max-width: 45%; font-size: var(--font-text-xs-size, 12px) }
+.file-directory { color: var(--muted); max-width: 45%; font-size: var(--font-text-xs-size) }
 #changes-header { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; min-height: 36px; padding: 4px 2px; flex: none }
 #files-label { flex: 0 1 auto; max-width: 50%; min-width: 0 }
-#diff-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-text-xs-size, 12px); color: var(--muted) }
+#diff-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-text-xs-size); color: var(--muted) }
 #open-file { flex: none; color: var(--muted) }
 #expand-detail[aria-pressed=false] .restore-icon, #expand-detail[aria-pressed=true] .expand-icon { display: none }
 #diff-mode[data-mode=inline] .diff-icon-inline, #diff-mode[data-mode=split] .diff-icon-split { display: none }
-#diff-revisions { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 4px 6px; color: var(--muted); font-size: var(--font-text-xs-size, 12px) }
+#diff-revisions { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 4px 6px; color: var(--muted); font-size: var(--font-text-xs-size) }
 #diff-revisions span { overflow-wrap: anywhere }
 #diff-body { flex: 1; position: relative; min-height: 80px }
 #diff-editor { position: absolute; inset: 0 }
 #diff-notice { white-space: pre-wrap; color: var(--muted); padding: 8px; overflow: auto; height: 100% }
-#diff-status { min-height: 22px; flex-shrink: 0; padding: 3px 6px; color: var(--muted); font-size: var(--font-text-xs-size, 12px) }
+#diff-status { min-height: 22px; flex-shrink: 0; padding: 3px 6px; color: var(--muted); font-size: var(--font-text-xs-size) }
 #history-body, #detail-content, #changes-pane, #diff-content { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0 }
 #detail-content { overflow: hidden }
 #detail-body { display: flex; flex: 1; min-height: 0; min-width: 0 }
@@ -181,7 +188,7 @@ code, pre { font-family: var(--font-mono, 'SFMono-Regular', Consolas, monospace)
 }
 @media (max-width: 540px) {
   #search::-webkit-search-cancel-button { appearance: none; width: 16px; height: 16px; background: var(--muted); mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%20fill%3D%22none%22%20aria-hidden%3D%22true%22%20data-codex-icon%3D%22xmark-md-light-16%22%3E%3Cpath%20d%3D%22M10.962%204.29539C11.1669%204.09057%2011.4992%204.09076%2011.7042%204.29539C11.9092%204.50039%2011.9091%204.83255%2011.7042%205.03758L8.74229%207.99949L11.7052%2010.9624C11.9097%2011.1673%2011.9097%2011.4996%2011.7052%2011.7046C11.5003%2011.9095%2011.168%2011.9093%2010.963%2011.7046L8.0001%208.74168L5.03721%2011.7046C4.83216%2011.9093%204.49994%2011.9095%204.29502%2011.7046C4.09047%2011.4996%204.09045%2011.1673%204.29502%2010.9624L7.25791%207.99949L4.296%205.03758C4.09101%204.83255%204.09099%204.5004%204.296%204.29539C4.50105%204.09079%204.8333%204.09054%205.03819%204.29539L8.0001%207.2573L10.962%204.29539Z%22%20fill%3D%22currentColor%22%2F%3E%3C%2Fsvg%3E") center / contain no-repeat }
-#search-count { font-size: var(--font-text-xs-size, 12px) }
+#search-count { font-size: var(--font-text-xs-size) }
 }
 </style>
 </head>

@@ -7,7 +7,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { history, commit, diff, workspaceFile, repository } from './git.mjs';
+import { history, commit, diff, workspaceFile, repository, repositoryInfo } from './git.mjs';
 import { readProjectRoots } from './project.mjs';
 import { createCodeFontSizeReader } from './codex.mjs';
 import { widthsSchema, panelsSchema, storedPanelsSchema } from './layout.mjs';
@@ -79,7 +79,7 @@ export async function call(name, args, directory = preferencesDirectory, context
     const definition = definitions[name];
     if (!definition) throw new Error('未知的 Git Graph 操作。');
     const input = definition.schema.parse(args);
-    let repoPath = process.cwd();
+    let repoPath = context.repositories?.[0]?.path || process.cwd();
     if (input.repository) {
       const selected = context.repositories?.find(repo => repo.id === input.repository);
       if (!selected) throw new Error('所选仓库不属于当前任务的项目，请重新打开 Git Graph。');
@@ -111,20 +111,31 @@ export function createServer({ preferencesDirectory: directory = preferencesDire
       const threadId = request.mcpReq._meta?.threadId;
       let context = contexts.get(threadId);
       if (name === 'git_graph') {
-        const repositories = [], notices = [];
+        const notices = [];
         let roots = [];
         try { roots = await projectRoots(threadId); }
         catch (error) { notices.push(`无法读取项目目录：${error.message}`); }
-        for (const path of new Set([process.cwd(), ...roots])) {
+        const identities = new Map();
+        for (const path of new Set(roots.length ? roots : [process.cwd()])) {
           try {
-            const root = await repository(path);
-            if (!repositories.some(repo => repo.path === root)) repositories.push({
-              id: createHash('sha256').update(root).digest('hex'), name: basename(root), path: root,
-            });
+            const info = await repositoryInfo(path);
+            if (!identities.has(info.commonDir)) identities.set(info.commonDir, info);
           } catch (error) {
             if (!/not a git repository/i.test(error.cause?.stderr || '')) notices.push(`${path}：${error.message}`);
           }
         }
+        if (roots.length) {
+          try {
+            const current = await repositoryInfo(process.cwd());
+            if (identities.has(current.commonDir)) identities.set(current.commonDir, current);
+          } catch {}
+        }
+        const repositories = [...identities.values()].map(({ root, commonDir, mainRoot }) => ({
+          id: createHash('sha256').update(commonDir).digest('hex'),
+          name: basename(mainRoot),
+          path: root,
+          displayPath: mainRoot,
+        }));
         context = { repositories, repositoryNotice: notices.join('\n') };
         contexts.set(threadId, context);
       }

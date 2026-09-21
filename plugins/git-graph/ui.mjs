@@ -82,7 +82,10 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) refr
 
 function theme(context) {
   if (context.theme) applyDocumentTheme(context.theme);
-  if (context.styles?.css?.fonts) applyHostFonts(context.styles.css.fonts);
+  if (context.styles?.css?.fonts != null) {
+    applyHostFonts(context.styles.css.fonts);
+    document.getElementById('__mcp-host-fonts').textContent = context.styles.css.fonts;
+  }
   if (context.styles?.variables) applyHostStyleVariables(context.styles.variables);
   if (context['openai/interactionCursor']) document.documentElement.style.setProperty('--interaction-cursor', context['openai/interactionCursor']);
   const probe = document.createElement('span'); probe.hidden = true; document.body.append(probe);
@@ -138,15 +141,16 @@ function acceptHistory(data, append = false) {
   state.hasMore = data.hasMore;
   state.head = data.head;
   state.headName = data.headName;
-  $('repo-label').textContent = data.repo.split('/').at(-1);
-  $('repo-label').title = data.repo;
+  const currentRepository = state.repositories.find(repo => repo.path === data.repo);
+  $('repo-label').textContent = currentRepository?.name || data.repo.split('/').at(-1);
+  $('repo-label').title = currentRepository?.displayPath || data.repo;
   $('repo-label').hidden = state.repositories.length > 1;
   $('repository').hidden = state.repositories.length < 2;
   setSelectOptions($('repository'), state.repositories.map(repo => ({
-    label: state.repositories.some(other => other.id !== repo.id && other.name === repo.name) ? repo.path : repo.name,
-    value: repo.id, title: repo.path,
+    label: state.repositories.some(other => other.id !== repo.id && other.name === repo.name) ? (repo.displayPath || repo.path) : repo.name,
+    value: repo.id, title: repo.displayPath || repo.path,
   })), state.repository, 'folder-light-16');
-  $('repository').title = data.repo;
+  $('repository').title = currentRepository?.displayPath || data.repo;
   $('toolbar').hidden = false;
   const groups = [['本地分支', 'refs/heads/'], ['远程分支', 'refs/remotes/'], ['标签', 'refs/tags/']];
   setSelectOptions($('branch'), [{ label: '所有分支与标签', value: '' },
