@@ -1,6 +1,6 @@
 {
   "name": "git-graph",
-  "version": "0.3.0+codex.20260921100718",
+  "version": "0.3.0+codex.20260922010307",
   "description": "\u5728 Codex \u4efb\u52a1\u4fa7\u9762\u677f\u4e2d\u6d4f\u89c8\u5f53\u524d\u4ed3\u5e93\u7684 Git \u5386\u53f2\u4e0e\u6587\u4ef6\u5dee\u5f02",
   "author": {
     "name": "mossgowild"

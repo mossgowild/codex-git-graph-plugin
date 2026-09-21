@@ -29,14 +29,14 @@ async function callTool(request) {
     ? {name:'git_graph_history',arguments:{...request.arguments,limit:2}} : request);
   const commit=historyFixture?.commits.find(commit=>commit.hash===request.arguments?.hash);
   if (historyFixture&&['git_graph','git_graph_history'].includes(request.name)) return {content:[],structuredContent:historyFixture};
-  if (commit&&request.name==='git_graph_commit') return {content:[],structuredContent:{...commit,message:commit.subject,files:[],parent:0}};
+  if (commit&&request.name==='git_graph_commit') return {content:[],structuredContent:{...commit,message:commit.message??commit.subject,files:[],parent:0}};
   if (failSave&&request.name==='git_graph_save_layout') return {isError:true,content:[{type:'text',text:'模拟存储不可写'}]};
   return client.callTool(request);
 }
 const script = `import {AppBridge,PostMessageTransport} from '@modelcontextprotocol/ext-apps/app-bridge';
 import {injectPreviewTheme,observePreviewTheme} from './preview-theme.mjs';
 const frame=document.querySelector('iframe');
-const variables={'--color-background-primary':'#0d1117','--color-background-secondary':'#292d33','--color-text-primary':'#e6edf3','--color-text-secondary':'#7d838b','--color-border-secondary':'#23282f','--color-ring-primary':'#76a7f3','--color-text-info':'#64a4e0','--color-text-success':'#3fb950','--color-text-danger':'#f85149','--font-sans':'system-ui','--font-mono':'ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace','--font-text-sm-size':'13px','--font-text-xs-size':'12px','--font-weight-normal':'430','--border-radius-xs':'4px','--border-radius-sm':'6px','--border-radius-md':'8px','--border-radius-lg':'10px','--border-radius-xl':'12px','--shadow-lg':'0px 4px 8px -2px #0000001a','--color-background-disabled':'rgba(230,237,243,.09)','--color-background-info':'rgba(100,164,224,.15)'};
+const variables={'--color-background-primary':'#0d1117','--color-background-secondary':'#292d33','--color-text-primary':'#e6edf3','--color-text-secondary':'#7d838b','--color-text-disabled':'rgba(230,237,243,.498)','--color-border-primary':'#3a424d','--color-border-secondary':'#23282f','--color-ring-primary':'#76a7f3','--color-text-info':'#64a4e0','--color-text-success':'#3fb950','--color-text-danger':'#f85149','--font-sans':'system-ui','--font-mono':'ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace','--font-text-sm-size':'13px','--font-text-xs-size':'12px','--font-weight-normal':'430','--border-radius-xs':'4px','--border-radius-sm':'6px','--border-radius-md':'8px','--border-radius-lg':'10px','--border-radius-xl':'12px','--shadow-lg':'0px 4px 8px -2px #0000001a','--color-background-disabled':'rgba(230,237,243,.09)','--color-background-info':'rgba(100,164,224,.15)'};
 const bridge=new AppBridge(null,{name:'UI test host',version:'1.0.0'},{serverTools:{}},{hostContext:{theme:'dark',styles:{variables},displayMode:'fullscreen',containerDimensions:{maxHeight:2000}}});
 async function call(params){return(await fetch('/call',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(params)})).json();}
 bridge.oncalltool=call;
@@ -44,7 +44,7 @@ bridge.oninitialized=async()=>{await bridge.sendToolInput({arguments:{}});await 
 let previewContext={theme:'dark',styles:{variables}};
 injectPreviewTheme(previewContext);
 window.codeFont=values=>{previewContext={...previewContext,styles:{variables:{...previewContext.styles.variables,...values}}};injectPreviewTheme(previewContext);};
-window.light=()=>{previewContext={theme:'light',styles:{variables:{...variables,'--color-background-primary':'#ffffff','--color-background-secondary':'#f5f5f5','--color-text-primary':'#202020','--color-text-secondary':'#777777','--color-border-secondary':'#dddddd'}}};injectPreviewTheme(previewContext);};
+window.light=()=>{previewContext={theme:'light',styles:{variables:{...variables,'--color-background-primary':'#ffffff','--color-background-secondary':'#f5f5f5','--color-text-primary':'#202020','--color-text-secondary':'#777777','--color-border-primary':'#c9c9c9','--color-border-secondary':'#dddddd'}}};injectPreviewTheme(previewContext);};
 await bridge.connect(new PostMessageTransport(frame.contentWindow,frame.contentWindow));
 observePreviewTheme(context=>bridge.sendHostContextChange(context),missing=>{throw new Error('Missing preview theme: '+missing.join(','));});frame.src='/frame.html';`;
 const built = await build({ stdin: { contents: script, resolveDir: root, sourcefile: 'host.js' }, bundle:true,format:'esm',write:false });
@@ -82,6 +82,18 @@ try {
     await f.locator('#expand-detail:not([disabled])').waitFor({state:'attached'});return f;
   };
   let frame=await open();
+  const scrollbarStyles=()=>frame.locator('#history-scroll, #detail-summary, #files, #diff-notice').evaluateAll(elements=>elements.map(element=>{
+    const style=getComputedStyle(element);return {width:style.scrollbarWidth,color:style.scrollbarColor};
+  }));
+  assert.deepEqual(await scrollbarStyles(),Array(4).fill({width:'thin',color:'rgb(35, 40, 47) rgba(0, 0, 0, 0)'}),
+    'plugin scroll areas use the Codex thin scrollbar and secondary border color');
+  assert.deepEqual(await frame.locator('#branch').evaluate(element=>{
+    const style=getComputedStyle(element,'::picker(select)');return {width:style.scrollbarWidth,color:style.scrollbarColor};
+  }),{width:'thin',color:'rgb(35, 40, 47) rgba(0, 0, 0, 0)'},'select menus share the Codex scrollbar');
+  await frame.locator('#history-scroll').hover();
+  assert.equal((await scrollbarStyles())[0].color,'rgb(58, 66, 77) rgba(0, 0, 0, 0)',
+    'hovered scroll areas use the host primary border color');
+  assert.equal(await frame.locator('.commit-row[aria-pressed]').count(),0,'commit disclosure buttons do not expose checkbox semantics');
   assert.equal(await frame.locator('#searchbar').isVisible(),false,'search starts hidden');
   assert.equal(await frame.locator('#searchbar').evaluate(el=>el.parentElement?.id),'header','search expands the shared header');
   assert.equal(await frame.locator('#header').evaluate(el=>getComputedStyle(el).borderBottomWidth),'1px','header divider remains visible when search is closed');
@@ -89,6 +101,12 @@ try {
   assert.equal(await frame.locator('#toggle-search').getAttribute('aria-expanded'),'false');
   await frame.locator('#toggle-search').click();
   assert.equal(await frame.locator('#header').evaluate(el=>getComputedStyle(el).borderBottomWidth),'1px','opening search only increases header height');
+  const headerControlEdges=await frame.locator('#app').evaluate(()=>{
+    const refresh=document.getElementById('refresh').getBoundingClientRect();
+    const next=document.getElementById('next-match').getBoundingClientRect();
+    return [refresh.right,next.right];
+  });
+  assert.equal(headerControlEdges[0],headerControlEdges[1],'toolbar and search controls share the same right edge');
   await frame.locator('#search').fill('main');
   assert.equal(await frame.locator('#search').evaluate(el=>el===document.activeElement),true);
   await frame.locator('#refresh').click();
@@ -116,7 +134,8 @@ try {
       iconColor: icon ? getComputedStyle(icon).backgroundColor : '', muted: getComputedStyle(probe).color,
       weight: selectedStyle.fontWeight, normalWeight: getComputedStyle(document.documentElement).fontWeight,
       selectedBackground: selectedStyle.backgroundColor, opacity: getComputedStyle(el).opacity,
-      triggerBackground: getComputedStyle(el).backgroundColor,
+      triggerBackground: getComputedStyle(el).backgroundColor, radius: getComputedStyle(el).borderRadius,
+      cornerShape: getComputedStyle(el).cornerShape,
       pickerDisplay: pickerStyle.display, pickerWidth: pickerStyle.width, pickerHeight: pickerStyle.height };
     probe.remove(); return result;
   });
@@ -141,19 +160,42 @@ try {
       height: row.getBoundingClientRect().height, width: row.getBoundingClientRect().width,
       contents: [...row.children].map(child => child.classList.value),
     })));
-    assert.ok(rows.every(row => row.height === 28));
+    assert.ok(rows.every(row => row.height === 30));
     assert.ok(rows.every(row => row.contents.join('|') === 'graph|message|author'));
     assert.equal(await frame.locator('.commit-row').evaluateAll(rows=>rows.every(row=>{
       const graph=row.querySelector('.graph').getBoundingClientRect(), message=row.querySelector('.message');
       return graph.left===8 && message.children[0].className==='badges' && message.children[1].className==='subject';
     })),true,'graph stays at the left edge and badges lead the commit message');
+    assert.equal(await frame.locator('.step').evaluateAll(elements=>elements.every(element=>{
+      const style=getComputedStyle(element);return style.width==='28px'&&style.height==='28px';
+    })),true,'plugin icon buttons share the Codex 28px action surface');
+    assert.equal(await frame.locator('.step svg').evaluateAll(elements=>elements.every(element=>{
+      const style=getComputedStyle(element);return style.width==='16px'&&style.height==='16px';
+    })),true,'plugin action icons share the Codex 16px size');
+    assert.equal(await frame.locator('.commit-row').first().evaluate(el=>
+      getComputedStyle(el,'::before').borderRadius===getComputedStyle(document.documentElement).getPropertyValue('--border-radius-md').trim()
+    ),true,'commit hover surfaces use the Codex list-item radius');
     assert.equal(await frame.locator('#history-scroll').evaluate(el => el.scrollWidth <= el.clientWidth), true);
   };
   if (!process.argv.includes('--projects-only')) {
   await codexRows();
+  const historySurfaceGaps=await frame.locator('#history-scroll').evaluate(scroll=>{
+    const rows=[...scroll.querySelectorAll('.commit-row')];
+    const bounds=rows.map(row=>row.getBoundingClientRect());
+    const adjacent=bounds.slice(1).map((current,index)=>[bounds[index],current])
+      .find(([previous,current])=>Math.abs(current.top-previous.bottom)<.1);
+    const container=document.getElementById('rows').getBoundingClientRect(),style=getComputedStyle(scroll);
+    const first=bounds[0],last=bounds.at(-1);
+    return {
+      top:first.top+2-(container.top-parseFloat(style.paddingBlockStart)),
+      between:adjacent[1].top+2-(adjacent[0].bottom-2),
+      bottom:container.bottom+parseFloat(style.paddingBlockEnd)-(last.bottom-2),
+    };
+  });
+  assert.deepEqual(historySurfaceGaps,{top:4,between:4,bottom:4},'history surfaces use the same visual gap at both edges and between rows');
   const searchCommits=[
     {hash:'a1'+'a'.repeat(38),parents:[],subject:'Fix [UI] & <img> Fix',author:'Alice',email:'alice@example.invalid',date:'2026-09-20T00:00:00Z'},
-    {hash:'b2'+'b'.repeat(38),parents:[],subject:'Other change',author:'Fix',email:'hidden@example.invalid',date:'2026-09-20T00:00:00Z'},
+    {hash:'b2'+'b'.repeat(38),parents:[],subject:'Other change',message:'Other change\\n\\nFormatted body',author:'Fix',email:'hidden@example.invalid',date:'2026-09-20T00:00:00Z'},
   ];
   searchCommits[0].parents = [searchCommits[1].hash];
   historyFixture={repo:root,branch:'',head:searchCommits[0].hash,headName:'feature/fix',hasMore:false,
@@ -185,13 +227,14 @@ try {
   await accentMarks([118,167,243]);
   assert.equal(await frame.locator('.subject').first().evaluate(el=>getComputedStyle(el).color), 'rgb(230, 237, 243)','titles keep their normal color');
   await frame.locator('#search').press('Enter');await frame.locator('#commit-message').getByText('Fix [UI] & <img> Fix',{exact:true}).waitFor();
-  const selected=await frame.locator('.commit-row[aria-pressed=true]').getAttribute('data-hash');
+  const selected=await frame.locator('.commit-row[data-selected]').getAttribute('data-hash');
   await frame.locator('#search').press('Enter');
   assert.equal(await frame.locator('#detail').isVisible(),true,'next occurrence in the same commit keeps details open');
-  assert.equal(await frame.locator('.commit-row[aria-pressed=true]').getAttribute('data-hash'),selected);
+  assert.equal(await frame.locator('.commit-row[data-selected]').getAttribute('data-hash'),selected);
   assert.equal(await frame.locator('#search-count').innerText(),'3/4 · 已加载历史');
   await frame.locator('#search').press('Shift+Enter');assert.equal(await frame.locator('#search-count').innerText(),'2/4 · 已加载历史');
   await page.evaluate(()=>window.light());
+  assert.equal((await scrollbarStyles())[0].color,'rgb(221, 221, 221) rgba(0, 0, 0, 0)','scrollbars follow a light host theme');
   await accentMarks([118,167,243]);
   await page.evaluate(()=>window.codeFont({'--color-ring-primary':'#ba55d3'}));
   await accentMarks([186,85,211]);
@@ -208,7 +251,21 @@ try {
   assert.equal(await frame.locator('#search-count').innerText(),'0/0 · 已加载历史');
   await frame.locator('#search').fill('fix');await frame.locator('#toggle-search').click();
   assert.equal(await frame.locator('mark, .search-context').count(),0,'closing search restores unmarked text');
-  console.log(JSON.stringify({passed:true,checks:['native yellow/orange text matches','single active occurrence','literal text safety','hidden metadata context','same-commit navigation','dark/light search colors','search cleanup']}));
+  await frame.locator(`[data-hash="${searchCommits[1].hash}"]`).click();
+  await frame.locator('#commit-message').filter({hasText:'Formatted body'}).waitFor();
+  assert.equal(await frame.locator('#commit-message').textContent(),'Other change\n\nFormatted body','escaped newlines render as paragraphs');
+  const detailSpacing=await frame.locator('#detail').evaluate(detail=>{
+    const header=detail.querySelector('#detail-header'),identity=detail.querySelector('#detail-identity');
+    return {headerTop:header.getBoundingClientRect().top-detail.getBoundingClientRect().top,
+      centerOffset:Math.abs((identity.getBoundingClientRect().top+identity.getBoundingClientRect().height/2)
+        -(header.getBoundingClientRect().top+header.getBoundingClientRect().height/2)),
+      headerHeight:header.getBoundingClientRect().height};
+  });
+  assert.deepEqual([detailSpacing.headerTop,detailSpacing.headerHeight],[4,28],'detail content uses the card inset without stacked top padding');
+  assert.ok(detailSpacing.centerOffset<.1,'detail identity stays centered in the toolbar');
+  const metaTops=await frame.locator('#commit-meta span').evaluateAll(elements=>elements.map(element=>element.getBoundingClientRect().top));
+  assert.equal(metaTops.length,2);assert.ok(Math.abs(metaTops[0]-metaTops[1])<1,'author and commit time share one line');
+  console.log(JSON.stringify({passed:true,checks:['theme accent text matches','single active occurrence','literal text safety','hidden metadata context','same-commit navigation','dark/light search colors','search cleanup']}));
   const branchNames=['codex/web-formily-before-dev-20260918','codex/web-formily-schema'];
   const commits=branchNames.map((name,index)=>({hash:String(index+1).repeat(40),parents:[],author:'Graph Test',
     email:'graph@example.invalid',date:'2026-09-19T00:00:00Z',subject:'refactor: align project structure with current conventions'}));
@@ -298,10 +355,33 @@ try {
   const restingHead=await nodePixels(headRow);assert.deepEqual(restingHead.center,restingHead.background,'resting HEAD has an opaque hollow center');
   await page.evaluate(()=>window.codeFont({'--border-radius-xs':'2px','--border-radius-sm':'3px','--border-radius-md':'4px','--border-radius-lg':'5px','--border-radius-xl':'6px'}));
   assert.equal(await frame.locator('#detail').evaluate(el=>getComputedStyle(el).borderRadius),'8px','card derives Codex 2xl from host radius tokens');
-  assert.equal(await frame.locator('#refresh').evaluate(el=>getComputedStyle(el).borderRadius),'5px');
-  assert.equal(await frame.locator('#refresh').evaluate(el=>getComputedStyle(el).cornerShape),'superellipse(1.5)','toolbar buttons use the Codex squircle without changing card geometry');
-  assert.notEqual(await frame.locator('#detail').evaluate(el=>getComputedStyle(el).cornerShape),'superellipse(1.5)');
+  const toolbarButton=await frame.locator('#refresh').evaluate(el=>{
+    const bounds=el.getBoundingClientRect(),style=getComputedStyle(el);
+    return {width:bounds.width,height:bounds.height,radius:style.borderRadius,cornerShape:style.cornerShape};
+  });
+  assert.deepEqual(toolbarButton,{width:28,height:28,radius:'5px',cornerShape:'superellipse(1.5)'},
+    'toolbar buttons use the full 28px Codex interaction surface');
+  const buttonInteraction=await frame.locator('#next-change').evaluate(el=>{
+    const style=getComputedStyle(el);
+    return {opacity:style.opacity,pointerEvents:style.pointerEvents,transition:style.transitionProperty};
+  });
+  assert.deepEqual(buttonInteraction,{opacity:'0.4',pointerEvents:'none',transition:'background-color, color, opacity'},
+    'disabled icon buttons dim the complete Codex button');
+  assert.ok((await frame.locator('#refresh').evaluate(el=>getComputedStyle(el).transitionProperty)).includes('color'));
+  assert.ok((await frame.locator('#branch').evaluate(el=>getComputedStyle(el).transitionProperty)).includes('background-color'));
+  await frame.locator('#toggle-search').focus();await page.keyboard.press('Tab');
+  assert.deepEqual(await frame.locator('#refresh').evaluate(el=>{const style=getComputedStyle(el);return {
+    active:document.activeElement===el,focusVisible:el.matches(':focus-visible'),outline:[style.outlineStyle,style.outlineWidth]};
+  }),{active:true,focusVisible:true,outline:['solid','2px']},'keyboard focus uses the full Codex button ring');
+  const refreshBounds=await frame.locator('#refresh').boundingBox();
+  await page.mouse.move(refreshBounds.x+refreshBounds.width/2,refreshBounds.y+refreshBounds.height/2);await page.mouse.down();await page.waitForTimeout(180);
+  assert.equal(await frame.locator('#refresh').evaluate(el=>getComputedStyle(el).transform),'none','pressed icon buttons do not scale');
+  await page.mouse.up();
+  assert.equal(await frame.locator('#branch').evaluate(el=>getComputedStyle(el).borderRadius),'5px','select triggers use the Codex action radius');
+  assert.equal(await frame.locator('#detail').evaluate(el=>getComputedStyle(el).cornerShape),'superellipse(1.5)');
+  assert.equal(await frame.locator('#search-field').evaluate(el=>getComputedStyle(el).cornerShape),'superellipse(1.5)');
   assert.equal(await groupedRow.locator('.ref').first().evaluate(el=>getComputedStyle(el).borderRadius),'3px');
+  assert.equal(await groupedRow.locator('.ref').first().evaluate(el=>getComputedStyle(el).cornerShape),'superellipse(1.5)');
   await page.evaluate(()=>window.codeFont({'--border-radius-xs':'4px','--border-radius-sm':'6px','--border-radius-md':'8px','--border-radius-lg':'10px','--border-radius-xl':'12px'}));
   const badge=groupedRow.locator('.ref').first();
   const darkBadge=await badge.evaluate(el=>getComputedStyle(el).backgroundColor);
@@ -382,7 +462,7 @@ try {
   assert.equal((await strokes(graphRow('f')))[0],'rgba(0, 0, 0, 0)');
   if (process.argv.includes('--graph-only')) {
     assert.deepEqual(errors, []);
-    console.log(JSON.stringify({passed:true,checks:['Codex 28px rows and named inline badges','responsive row bounds','reference identities','detail references','HEAD references refresh','opaque host graph colors and clipped row seams','node and edge ownership','SVG circle geometry and paint order','hover, focus and selection cutouts']}));
+    console.log(JSON.stringify({passed:true,checks:['30px rows and named inline badges','responsive row bounds','reference identities','detail references','HEAD references refresh','opaque host graph colors and clipped row seams','node and edge ownership','SVG circle geometry and paint order','hover, focus and selection cutouts']}));
     process.exitCode=0;
   } else {
   // Exercise history transitions against a real, isolated repository via the bundled MCP server.
@@ -466,11 +546,25 @@ try {
     await frame.locator(`[data-hash="${base}"]`).click();await frame.locator('#files button[data-path="extra.txt"]').click();
     await frame.locator('#refresh').click();await settled();
     await frame.locator('#diff-status').getByText('1 处差异',{exact:true}).waitFor();
-    assert.equal(await frame.locator('#files button[aria-pressed="true"]').getAttribute('data-path'),'extra.txt');
+    assert.equal(await frame.locator('#files button[aria-selected="true"]').getAttribute('data-path'),'extra.txt');
+    assert.equal(await frame.locator('#files').getAttribute('role'),'listbox');
+    assert.equal(await frame.locator('#files button[role="option"][aria-pressed]').count(),0,'file options do not expose checkbox semantics');
+    assert.equal(await frame.locator('#files button[role="option"][tabindex="0"]').count(),1,'file list keeps one keyboard target');
     const closeButton=frame.locator('#close-detail');
     const closeBounds=await closeButton.boundingBox();
     assert.equal(closeBounds.width,28);assert.equal(closeBounds.height,28);
     assert.equal(await closeButton.locator('svg').count(),1);
+    const detailAlignment=await frame.locator('#detail').evaluate(detail=>{
+      const right=detail.getBoundingClientRect().right;
+      const edge=id=>right-document.getElementById(id).getBoundingClientRect().right;
+      return {
+        close:edge('close-detail'),next:edge('next-change'),
+        summaryLeft:document.getElementById('commit-message').getBoundingClientRect().left,
+        changesLeft:document.getElementById('files-label').getBoundingClientRect().left,
+      };
+    });
+    assert.equal(detailAlignment.close,detailAlignment.next,'detail toolbars share the same right edge');
+    assert.equal(detailAlignment.summaryLeft,detailAlignment.changesLeft,'detail summary and changes heading share the same content inset');
     await closeButton.click();await frame.locator('#refresh').click();await settled();
     assert.equal(await frame.locator('#detail').isVisible(),false);
 
@@ -503,6 +597,15 @@ try {
     assert.match((await frame.locator('#diff-editor .view-lines').allTextContents()).join(' ').replaceAll('\u00a0',' '),/\+\+new/);
     assert.ok(await frame.locator('#diff-editor .char-insert').count()>0);
     assert.ok(await frame.locator('#diff-editor .char-delete').count()>0);
+    const editorScrollbarColors=()=>frame.locator('#diff-editor .monaco-editor').first().evaluate(element=>{
+      const style=getComputedStyle(element),canvas=document.createElement('canvas'),context=canvas.getContext('2d');
+      return ['background','hoverBackground','activeBackground'].map(state=>{
+        context.fillStyle=style.getPropertyValue(`--vscode-scrollbarSlider-${state}`);context.fillRect(0,0,1,1);
+        return [...context.getImageData(0,0,1,1).data];
+      });
+    });
+    assert.deepEqual(await editorScrollbarColors(),[[35,40,47,255],[58,66,77,255],[58,66,77,255]],
+      'Monaco reuses the Codex normal and strong scrollbar theme colors');
     const surfacePixel=locator=>locator.evaluate(el=>{
       const canvas=document.createElement('canvas'),context=canvas.getContext('2d');
       context.fillStyle=getComputedStyle(el).backgroundColor;context.fillRect(0,0,1,1);
@@ -605,6 +708,8 @@ try {
     await page.evaluate(()=>window.light());
     await page.waitForTimeout(50);
     await detailSurface([248,248,248]);
+    assert.deepEqual(await editorScrollbarColors(),[[221,221,221,255],[201,201,201,255],[201,201,201,255]],
+      'Monaco scrollbar colors update with the Codex host theme');
     if (process.env.UI_TEST_ARTIFACTS) await page.screenshot({path:join(process.env.UI_TEST_ARTIFACTS,'diff-light.png')});
     await frame.locator('#expand-detail').click();
     assert.equal(await expandIcon.isVisible(),true);
@@ -649,9 +754,10 @@ try {
     assert.equal(await frame.locator('#files').isVisible(),true);
     const selected=frame.locator(`[data-hash="${main}"]`);
     const selectedStyle=await selected.evaluate(el=>{
-      const style=getComputedStyle(el,'::before');return {inset:style.inset,radius:style.borderRadius,background:style.backgroundColor};
+      const style=getComputedStyle(el,'::before');return {inset:style.inset,radius:style.borderRadius,
+        expectedRadius:getComputedStyle(document.documentElement).getPropertyValue('--border-radius-md').trim(),background:style.backgroundColor};
     });
-    assert.equal(selectedStyle.inset,'2px 4px');assert.equal(selectedStyle.radius,'10px');
+    assert.equal(selectedStyle.inset,'2px 4px');assert.equal(selectedStyle.radius,selectedStyle.expectedRadius);
     assert.notEqual(selectedStyle.background,'rgba(0, 0, 0, 0)');
     await selected.click();assert.equal(await frame.locator('#detail').isVisible(),false,'click selected commit to close');
     await selected.click();await frame.locator('#diff-status').getByText('1 处差异',{exact:true}).waitFor();

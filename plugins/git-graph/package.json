@@ -18,7 +18,8 @@
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "^2.0.0",
-    "esbuild": "0.28.2"
+    "esbuild": "0.28.2",
+    "playwright": "1.63.0"
   },
   "overrides": {
     "monaco-editor": {

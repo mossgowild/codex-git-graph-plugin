@@ -7,7 +7,7 @@ import { setSelectOptions } from './select.mjs';
 import { clearDiff, showDiff, themeDiff, disposeDiff, setCodeFontSize } from './diff-editor.mjs';
 
 const $ = id => document.getElementById(id);
-const rowHeight = 28;
+const rowHeight = 30;
 const detailRow = $('detail-row');
 const commitRows = () => [...$('rows').querySelectorAll('.commit-row')];
 const app = new App({ name: 'Git Graph', version: '0.3.0' });
@@ -53,6 +53,7 @@ function node(tag, text, className) {
   if (className) element.className = className;
   return element;
 }
+function formatCommitMessage(message) { return message.replace(/\\r\\n|\\[nr]/g, '\n'); }
 function error(message, action) {
   $('error').hidden = false;
   $('error').querySelector('span').textContent = message;
@@ -243,7 +244,7 @@ function renderHistory() {
     button.dataset.hash = row.hash;
     button.classList.toggle('current', row.kind === 'HEAD');
     button.classList.toggle('is-focused', row.hash === state.focused);
-    button.setAttribute('aria-pressed', String(row.hash === state.selected));
+    button.toggleAttribute('data-selected', row.hash === state.selected);
     button.setAttribute('aria-expanded', 'false'); button.setAttribute('aria-controls', 'detail-row');
     button.setAttribute('aria-label', `${row.subject}，${row.author}，${row.hash.slice(0, 8)}${row.references.length ? `，${row.references.map(refDisplayName).join('，')}` : ''}`);
     button.tabIndex = row.hash === state.selected || (!state.selected && fragment.childNodes.length === 0) ? 0 : -1;
@@ -368,7 +369,7 @@ function closeDetail(resetSelection = true) {
   clearDiff(); detailRow.hidden = true; $('content').append(detailRow); panels.render();
   for (const row of commitRows()) {
     const selected = row.dataset.hash === state.selected;
-    row.setAttribute('aria-pressed', String(selected)); row.setAttribute('aria-expanded', 'false');
+    row.toggleAttribute('data-selected', selected); row.setAttribute('aria-expanded', 'false');
     row.classList.toggle('is-focused', row.dataset.hash === state.focused);
     row.parentElement.classList.remove('is-open'); row.tabIndex = selected ? 0 : -1;
     if (selected) { row.focus({ preventScroll: true }); row.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
@@ -383,7 +384,7 @@ async function selectCommit(hash, parent = 0, focus = false, file = '') {
   state.selected = hash; state.parent = parent; state.detail = null; state.file = file;
   for (const row of commitRows()) {
     const selected = row.dataset.hash === hash;
-    row.setAttribute('aria-pressed', String(selected)); row.tabIndex = selected ? 0 : -1;
+    row.toggleAttribute('data-selected', selected); row.tabIndex = selected ? 0 : -1;
     if (selected && focus) row.focus({ preventScroll: true });
   }
   updateSearch();
@@ -398,13 +399,14 @@ async function selectCommit(hash, parent = 0, focus = false, file = '') {
     const detail = await call('git_graph_commit', { hash, parent });
     if (version !== state.detailVersion) return;
     state.detail = detail;
-    $('commit-message').textContent = detail.message || '（无提交说明）';
-    $('commit-meta').replaceChildren(node('div', `${detail.author} <${detail.email}>`), node('div', new Date(detail.date).toLocaleString('zh-CN')));
+    $('commit-message').textContent = detail.message ? formatCommitMessage(detail.message) : '（无提交说明）';
+    $('commit-meta').replaceChildren(node('span', `${detail.author} <${detail.email}>`), node('span', new Date(detail.date).toLocaleString('zh-CN')));
     $('parent-label').hidden = detail.parents.length < 2;
     setSelectOptions($('parent'), detail.parents.map((hash, i) => ({ label: `${i + 1} · ${hash.slice(0, 12)}`, value: i })), parent);
     $('files-label').textContent = `变更文件 · ${detail.files.length}${detail.parents.length > 1 ? ` · 相对父提交 ${parent + 1}` : ''}`;
     for (const file of detail.files) {
-      const button = node('button'); button.dataset.path = file.path; button.setAttribute('aria-pressed', 'false');
+      const button = node('button'); button.dataset.path = file.path; button.role = 'option';
+      button.setAttribute('aria-selected', 'false'); button.tabIndex = -1;
       button.title = file.oldPath ? `${file.oldPath} → ${file.path}` : file.path;
       button.setAttribute('aria-label', `${file.status[0]} ${button.title}`);
       const slash = file.path.lastIndexOf('/');
@@ -426,7 +428,10 @@ async function selectFile(path) {
   $('error').hidden = true;
   state.file = path;
   $('open-file').disabled = false;
-  for (const button of $('files').children) button.setAttribute('aria-pressed', String(button.dataset.path === path));
+  for (const button of $('files').children) {
+    const selected = button.dataset.path === path;
+    button.setAttribute('aria-selected', String(selected)); button.tabIndex = selected ? 0 : -1;
+  }
   const file = detail.files.find(file => file.path === path);
   $('diff-title').textContent = file.oldPath ? `${file.oldPath} → ${path}` : path;
   $('diff-title').title = $('diff-title').textContent;
