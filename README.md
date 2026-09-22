@@ -85,6 +85,6 @@ npm test
 
 浏览器回归检查使用 `npm run test:ui`；Playwright 已作为开发依赖声明，首次运行前执行 `npm install` 并安装其 Chromium。也可通过 `PLAYWRIGHT_MODULE` 指向现有 Playwright 的模块入口，通过 `PLAYWRIGHT_CHROMIUM` 指向现有浏览器可执行文件。检查会在临时数据目录中覆盖详情原位展开、分支线连续、文件与 diff 左右布局、Codex 行布局与分区拖动、键盘调整、取消、详情放大恢复、宽窄屏切换、跨会话布局恢复和错误重试，不修改个人布局。另使用临时 Git 仓库覆盖筛选失败与重试、删除筛选引用后的恢复、分页期间引用变化、刷新时父节点与文件选择保留、引用重名、diff 内容着色及乱序响应。
 
-在本机已安装当前清单版本后，运行 `npm run test:installed` 可额外检查实际缓存中的启动程序，确认它保留任务仓库及非 Git 目录；该检查不会安装插件或修改 Codex 配置。
+在本机已安装当前清单版本后，运行 `npm run test:installed` 可额外检查实际缓存中的启动程序，确认没有本地项目时回退到 Home；该检查不会安装插件或修改 Codex 配置。
 
 图形布局、连线和节点渲染适配自 Microsoft VS Code 内置 SCM Graph 的 MIT 源码，参考版本固定为 `7debcd0e2acdea1c52de81bf9ee1620444407dda`。保留插件的 Codex 主题样式及行内文件/diff 详情，不包含 VS Code 的同步命令、incoming/outgoing 虚拟行或编辑器打开流程。与原实现不同，多条无共同祖先的历史同时出现时，根提交仍保留旁路轨道，节点颜色沿用自身入线，展开时只加粗节点自身的连线。历史 diff 使用 MIT 许可的 Monaco Editor。DOMPurify 固定至 3.4.15。依赖及参考源码许可见 [THIRD-PARTY-LICENSES.txt](plugins/git-graph/THIRD-PARTY-LICENSES.txt)。
