@@ -51,10 +51,9 @@ async function saveLayout({ widths, panels, preferencesDirectory: directory }) {
   if (panels) await writePreference(directory, 'panel-layout.json', panels, '面板布局');
   return { widths, ...(panels ? { panels } : {}) };
 }
-async function openGraph({ repositories, repositoryNotice }) {
-  const cwd = process.cwd();
+async function openGraph({ repositories, repositoryNotice, contextCwd = process.cwd() }) {
   const result = repositories.length ? await history({ repoPath: repositories[0].path }) : { repo: null };
-  return { ...result, contextCwd: cwd, repositories, repositoryNotice };
+  return { ...result, contextCwd, repositories, repositoryNotice };
 }
 const readCodeFontSize = createCodeFontSizeReader();
 export const definitions = {
@@ -136,7 +135,7 @@ export function createServer({ preferencesDirectory: directory = preferencesDire
           path: root,
           displayPath: mainRoot,
         }));
-        context = { repositories, repositoryNotice: notices.join('\n') };
+        context = { repositories, repositoryNotice: notices.join('\n'), contextCwd: roots[0] || process.cwd() };
         contexts.set(threadId, context);
       }
       return call(name, args, directory, context);

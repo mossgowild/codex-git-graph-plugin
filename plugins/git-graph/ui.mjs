@@ -537,7 +537,7 @@ app.ontoolresult = result => {
     $('toggle-search').setAttribute('aria-expanded', 'false'); $('search').value = ''; updateSearch();
     $('load-more').hidden = true;
     $('empty').hidden = false;
-    $('empty').replaceChildren(node('strong', '当前任务目录不属于 Git 仓库'), node('span', data.contextCwd));
+    $('empty').replaceChildren(node('strong', '当前目录不属于 Git 仓库'), node('span', data.contextCwd));
   }
   if (data?.repositoryNotice) error(data.repositoryNotice, null);
 };

@@ -17,7 +17,7 @@ const data = join(temporary, 'data');
 const runner = join(temporary, 'server.mjs');
 await writeFile(runner, `import { createServer } from ${JSON.stringify(pathToFileURL(`${root}/dist/server.mjs`).href)};
 import { StdioServerTransport } from ${JSON.stringify(pathToFileURL(require.resolve('@modelcontextprotocol/server/stdio')).href)};
-await createServer({preferencesDirectory:${JSON.stringify(data)}}).connect(new StdioServerTransport());`);
+await createServer({preferencesDirectory:${JSON.stringify(data)},projectRoots:async()=>[]}).connect(new StdioServerTransport());`);
 const client = new Client({ name: 'layout-ui-check', version: '1.0.0' });
 await client.connect(new StdioClientTransport({ command: process.execPath, args: [runner], cwd: root }));
 let failSave = false, codeFontSize = 15;

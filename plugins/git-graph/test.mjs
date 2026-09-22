@@ -8,6 +8,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { git, history, commit, diff, repository, workspaceFile } from './git.mjs';
 import { createCodeFontSizeReader } from './codex.mjs';
 import { layout, graphPaths, colors } from './graph.mjs';
+import { readProjectRoots } from './project.mjs';
 
 function checkGraph(commits) {
   const graph = layout(commits);
@@ -68,10 +69,14 @@ test('real Git history, merge parents, renames, paths, pagination, read-only sta
   const repo = await mkdtemp(join(tmpdir(), 'git graph 测试-'));
   const worktree = `${repo}-linked`;
   const noGit = await mkdtemp(join(tmpdir(), 'git graph empty-'));
+  const runner = join(noGit, 'server.mjs');
   const client = new Client({ name: 'git-graph-test', version: '1.0.0' });
   const linkedClient = new Client({ name: 'git-graph-linked-test', version: '1.0.0' });
   const emptyClient = new Client({ name: 'git-graph-empty-test', version: '1.0.0' });
   try {
+    await writeFile(runner, `import { createServer } from ${JSON.stringify(new URL('./dist/server.mjs', import.meta.url).href)};
+import { StdioServerTransport } from ${JSON.stringify(import.meta.resolve('@modelcontextprotocol/server/stdio'))};
+await createServer({ projectRoots: async () => [] }).connect(new StdioServerTransport());`);
     await git(repo, ['init', '-b', 'main']);
     await git(repo, ['config', 'user.name', 'Graph Test']);
     await git(repo, ['config', 'user.email', 'graph@example.invalid']);
@@ -140,7 +145,7 @@ test('real Git history, merge parents, renames, paths, pagination, read-only sta
     assert.equal(await git(repo, ['status', '--porcelain=v1', '-z']), before);
     assert.deepEqual(await readFile(join(repo, '.git/index')), indexBefore);
     assert.deepEqual(await readFile(join(repo, '.git/logs/HEAD')), logBefore);
-    await client.connect(new StdioClientTransport({ command: process.execPath, args: [join(import.meta.dirname, 'dist/server.mjs')], cwd: repo }));
+    await client.connect(new StdioClientTransport({ command: process.execPath, args: [runner], cwd: repo }));
     const icons = client.getServerVersion().icons;
     assert.deepEqual(icons.map(icon => icon.theme), ['light', 'dark']);
     for (const icon of icons) {
@@ -184,7 +189,7 @@ test('real Git history, merge parents, renames, paths, pagination, read-only sta
     await rm(join(repo, strange)); await rename(join(repo, 'saved.txt'), join(repo, strange));
     await git(repo, ['worktree', 'add', '--detach', worktree, feature]);
     await linkedClient.connect(new StdioClientTransport({ command: process.execPath,
-      args: [join(import.meta.dirname, 'dist/server.mjs')], cwd: worktree }));
+      args: [runner], cwd: worktree }));
     const linked = await linkedClient.callTool({ name: 'git_graph', arguments: {} });
     assert.equal(linked.structuredContent.repo, await repository(worktree));
     assert.equal(linked.structuredContent.repositories.length, 1);
@@ -192,7 +197,7 @@ test('real Git history, merge parents, renames, paths, pagination, read-only sta
     assert.equal(linked.structuredContent.head, feature);
     assert.equal((await client.callTool({ name: 'git_graph', arguments: {} })).structuredContent.head, latest);
     await emptyClient.connect(new StdioClientTransport({ command: process.execPath,
-      args: [join(import.meta.dirname, 'dist/server.mjs')], cwd: noGit }));
+      args: [runner], cwd: noGit }));
     const empty = await emptyClient.callTool({ name: 'git_graph', arguments: {} });
     assert.equal(empty.isError, undefined);
     assert.equal(empty.structuredContent.repo, null);
@@ -387,7 +392,7 @@ test('project repositories route every Git operation and isolate task scopes', a
     await git(first, ['worktree', 'add', '--detach', linked, heads[0]]);
     await writeFile(runner, `import { createServer } from ${JSON.stringify(new URL('./dist/server.mjs', import.meta.url).href)};
 import { StdioServerTransport } from ${JSON.stringify(import.meta.resolve('@modelcontextprotocol/server/stdio'))};
-await createServer({ projectRoots: async threadId => threadId === 'multi' ? ${JSON.stringify([first, linked, second, first, empty])} : [] }).connect(new StdioServerTransport());`);
+await createServer({ projectRoots: async threadId => threadId === 'multi' ? ${JSON.stringify([first, linked, second, first, empty])} : threadId === 'home' ? [${JSON.stringify(directory)}] : [] }).connect(new StdioServerTransport());`);
     await client.connect(new StdioClientTransport({ command: process.execPath, args: [runner], cwd: outside }));
     const call = (name, args = {}, threadId = 'multi') => client.callTool({ name, arguments: args, _meta: { threadId } });
     const opened = (await call('git_graph')).structuredContent;
@@ -401,11 +406,49 @@ await createServer({ projectRoots: async threadId => threadId === 'multi' ? ${JS
     assert.equal((await call('git_graph_diff', { ...selectedArgs, path: 'file.txt' })).structuredContent.modified.content, 'app');
     assert.equal((await call('git_graph_workspace_file', { ...selectedArgs, path: 'file.txt' })).structuredContent.path, await realpath(join(second, 'file.txt')));
     assert.equal((await call('git_graph_history')).structuredContent.head, heads[0], 'selection never changes process cwd');
+    const home = (await call('git_graph', {}, 'home')).structuredContent;
+    assert.equal(home.repo, null);
+    assert.equal(home.contextCwd, directory);
     await call('git_graph', {}, 'single');
     assert.equal((await call('git_graph_history', { repository: selected }, 'single')).isError, true);
     assert.equal((await call('git_graph_history', { repository: 'f'.repeat(64) })).isError, true);
     assert.equal((await call('git_graph_history', { repoPath: second })).isError, true);
   } finally { await client.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('project roots use the selected project before falling back to Home', async () => {
+  const codexHome = '/codex-home', home = '/Users/tester';
+  const selectedProject = 'desktop-project', mappedProject = 'app-server-project';
+  const desktop = {
+    'selected-project': { type: 'local', projectId: selectedProject },
+    'app-server-project-id-by-legacy-project-id-by-host': {
+      [`local:${codexHome}`]: { [selectedProject]: mappedProject },
+    },
+  };
+  const requests = [];
+  const runWithCodex = run => run(async (method, params) => {
+    requests.push({ method, params });
+    if (method === 'thread/read') throw new Error('thread not loaded: fresh');
+    if (method === 'project/read') return { project: { roots: [{ path: '/repo/web' }, { path: '/repo/app' }] } };
+    throw new Error(`unexpected method: ${method}`);
+  });
+
+  assert.deepEqual(await readProjectRoots('fresh', {
+    codexHome, home, readState: async () => desktop, runWithCodex,
+  }), ['/repo/web', '/repo/app']);
+  assert.deepEqual(requests, [
+    { method: 'thread/read', params: { threadId: 'fresh', includeTurns: false } },
+    { method: 'project/read', params: { projectId: mappedProject } },
+  ]);
+  requests.length = 0;
+  assert.deepEqual(await readProjectRoots(undefined, {
+    codexHome, home, readState: async () => desktop, runWithCodex,
+  }), ['/repo/web', '/repo/app']);
+  assert.deepEqual(requests, [{ method: 'project/read', params: { projectId: mappedProject } }]);
+  assert.deepEqual(await readProjectRoots(undefined, {
+    codexHome, home, readState: async () => ({}),
+    runWithCodex: async () => { throw new Error('app-server should not start'); },
+  }), [home]);
 });
 
 
