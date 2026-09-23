@@ -34108,6 +34108,10 @@ var definitions = {
     path: external_exports.string().min(1).max(4096)
   }), run: workspaceFile },
   git_graph_layout: { title: "\u8BFB\u53D6 Git Graph \u5E03\u5C40", schema: external_exports.strictObject({}), run: readLayout },
+  git_graph_editor: { title: "\u52A0\u8F7D\u5386\u53F2\u5DEE\u5F02\u7F16\u8F91\u5668", schema: external_exports.strictObject({}), run: async () => {
+    const [script, style] = await Promise.all(["editor.js", "editor.css"].map((file2) => readFile2(new URL(`./${file2}`, import.meta.url), "utf8")));
+    return { script, style };
+  } },
   git_graph_save_layout: {
     title: "\u4FDD\u5B58 Git Graph \u5E03\u5C40",
     description: "Save global Git Graph column widths and panel layout in plugin data. Does not modify Git repositories.",

@@ -4,7 +4,6 @@ import { layout, graphPaths, laneX } from './graph.mjs';
 import { widthsSchema, panelsSchema } from './layout.mjs';
 import { createPanels } from './panels.mjs';
 import { setSelectOptions } from './select.mjs';
-import { clearDiff, showDiff, themeDiff, disposeDiff, setCodeFontSize } from './diff-editor.mjs';
 
 const $ = id => document.getElementById(id);
 const rowHeight = 30;
@@ -16,7 +15,29 @@ const state = { repo: '', repository: '', repositories: [], branch: '', parent: 
 let retry = null, fontRefresh = null, fontTimer;
 let columnWidths = {}, layoutReady = false, layoutRetry = null;
 let saveQueue = Promise.resolve(), saveVersion = 0;
+let editor, editorPromise, codeFontSize;
 const panels = createPanels({ ready: () => layoutReady, save: saveLayout });
+
+function clearDiff(message = '') {
+  $('diff-skeleton').hidden = true;
+  if (editor) { editor.clearDiff(message); return; }
+  $('diff-editor').hidden = true;
+  $('diff-notice').textContent = message; $('diff-notice').hidden = !message;
+  $('diff-revisions').hidden = true; $('diff-status').textContent = '';
+  $('diff-mode').disabled = $('prev-change').disabled = $('next-change').disabled = true;
+}
+async function loadEditor() {
+  editorPromise ||= call('git_graph_editor', {}).then(({ script, style }) => {
+    const sheet = document.createElement('style'); sheet.textContent = style; document.head.append(sheet);
+    const element = document.createElement('script'); element.textContent = script; document.head.append(element); element.remove();
+    editor = globalThis.GitGraphEditor;
+    if (!editor?.showDiff) throw new Error('差异编辑器加载失败。');
+    editor.themeDiff(document.documentElement.style.colorScheme || document.documentElement.dataset.theme);
+    if (codeFontSize != null) editor.setCodeFontSize(codeFontSize);
+    return editor;
+  }).catch(e => { editorPromise = null; throw e; });
+  return editorPromise;
+}
 
 function layoutError(message, action) {
   $('layout-error').hidden = false;
@@ -54,11 +75,18 @@ function node(tag, text, className) {
   return element;
 }
 function formatCommitMessage(message) { return message.replace(/\\r\\n|\\[nr]/g, '\n'); }
-function error(message, action) {
+function error(message, action, tone = 'error') {
   $('error').hidden = false;
+  $('error').dataset.tone = tone;
+  $('error').setAttribute('role', tone === 'error' ? 'alert' : 'status');
   $('error').querySelector('span').textContent = message;
   retry = action;
   $('retry').hidden = !action;
+}
+function showLoading(visible) {
+  $('history-skeleton').hidden = !visible;
+  $('toolbar-skeleton').hidden = !visible || !!state.repo;
+  if (visible) $('empty').hidden = true;
 }
 async function call(name, args) {
   if (!state.connected) throw new Error('尚未连接到 Codex，请重新打开 Git Graph 窗口。');
@@ -73,7 +101,7 @@ async function call(name, args) {
 function refreshCodeFontSize() {
   if (!state.connected || fontRefresh) return fontRefresh;
   fontRefresh = call('git_graph_appearance', {}).then(data => {
-    if (state.connected) setCodeFontSize(z.number().min(8).max(24).parse(data.codeFontSize));
+    if (state.connected) { codeFontSize = z.number().min(8).max(24).parse(data.codeFontSize); editor?.setCodeFontSize(codeFontSize); }
   }).catch(e => error(`无法读取 Codex 代码字号：${e.message}`, refreshCodeFontSize))
     .finally(() => { fontRefresh = null; });
   return fontRefresh;
@@ -102,7 +130,7 @@ function theme(context) {
     document.documentElement.style.setProperty(`--${name}`, `rgb(${[...painter.getImageData(0, 0, 1, 1).data].slice(0, 3).join(',')})`);
   }
   probe.remove();
-  themeDiff(document.documentElement.style.colorScheme || context.theme);
+  editor?.themeDiff(document.documentElement.style.colorScheme || context.theme);
   refreshCodeFontSize();
 }
 function refsLabel(ref) { return ref.name.replace(/^refs\/(heads|remotes|tags)\//, ''); }
@@ -140,7 +168,7 @@ function acceptHistory(data, append = false) {
   state.branch = singleRef?.name || data.branch;
   if (data.missingBranch) {
     const fallback = singleRef ? `已切换到“${refDisplayName(singleRef)}”` : '已显示所有分支与标签';
-    error(`所选分支或标签“${refsLabel({ name: data.missingBranch })}”已不存在，${fallback}`, null);
+    error(`所选分支或标签“${refsLabel({ name: data.missingBranch })}”已不存在，${fallback}`, null, 'info');
   }
   state.tips = data.tips;
   state.hasMore = data.hasMore;
@@ -178,6 +206,8 @@ async function loadHistory(append = false, branch = $('branch').value, repositor
   $('repository').value = repository;
   $('branch').disabled = changingRepository || state.refs.length < 2;
   $('history-table').hidden = switching;
+  if (switching) showLoading(true);
+  if (switching) $('load-more').hidden = true;
   $('searchbar').inert = switching;
   $('empty').hidden = true;
   $('history-pane').setAttribute('aria-busy', 'true');
@@ -208,6 +238,8 @@ async function loadHistory(append = false, branch = $('branch').value, repositor
     if (version === state.historyVersion) {
       $('history-pane').setAttribute('aria-busy', 'false');
       state.loading = false; $('load-more').disabled = false; $('history-table').hidden = false; $('searchbar').inert = false;
+      showLoading(false);
+      $('load-more').hidden = !state.hasMore;
       $('branch').disabled = state.refs.length < 2;
     }
   }
@@ -235,6 +267,7 @@ function graphSvg(row) {
   return svg;
 }
 function renderHistory() {
+  $('history-skeleton').hidden = $('toolbar-skeleton').hidden = true;
   const graph = layout(state.commits, state);
   state.graphRows = new Map(graph.rows.map(row => [row.hash, row]));
   const fragment = document.createDocumentFragment();
@@ -391,7 +424,7 @@ async function selectCommit(hash, parent = 0, focus = false, file = '') {
   detailRow.hidden = false; positionDetail(true); $('detail-hash').textContent = hash.slice(0, 12);
   $('detail-hash').title = hash;
   renderCommitRefs();
-  $('commit-message').textContent = '正在读取提交…'; $('commit-meta').textContent = '';
+  $('commit-message').textContent = ''; $('commit-message').classList.add('skeleton-line'); $('commit-meta').textContent = '';
   $('files').replaceChildren(); clearDiff(); $('parent-label').hidden = true;
   $('open-file').disabled = true;
   $('diff-title').textContent = '选择文件查看差异'; $('files-label').textContent = '变更文件';
@@ -399,6 +432,7 @@ async function selectCommit(hash, parent = 0, focus = false, file = '') {
     const detail = await call('git_graph_commit', { hash, parent });
     if (version !== state.detailVersion) return;
     state.detail = detail;
+    $('commit-message').classList.remove('skeleton-line');
     $('commit-message').textContent = detail.message ? formatCommitMessage(detail.message) : '（无提交说明）';
     $('commit-meta').replaceChildren(node('span', `${detail.author} <${detail.email}>`), node('span', new Date(detail.date).toLocaleString('zh-CN')));
     $('parent-label').hidden = detail.parents.length < 2;
@@ -418,6 +452,7 @@ async function selectCommit(hash, parent = 0, focus = false, file = '') {
     else clearDiff('相对所选父提交没有文件变更。');
   } catch (e) {
     if (version !== state.detailVersion) return;
+    $('commit-message').classList.remove('skeleton-line');
     $('commit-message').textContent = '提交读取失败'; error(e.message, () => selectCommit(hash, parent, false, file));
   }
 }
@@ -435,11 +470,12 @@ async function selectFile(path) {
   const file = detail.files.find(file => file.path === path);
   $('diff-title').textContent = file.oldPath ? `${file.oldPath} → ${path}` : path;
   $('diff-title').title = $('diff-title').textContent;
-  clearDiff('正在读取差异…');
+  clearDiff(); $('diff-skeleton').hidden = false;
   try {
-    const result = await call('git_graph_diff', { ...detailArgs(detail), path });
+    const [result, loaded] = await Promise.all([call('git_graph_diff', { ...detailArgs(detail), path }), loadEditor()]);
     if (version !== state.diffVersion) return;
-    showDiff(result);
+    $('diff-skeleton').hidden = true;
+    loaded.showDiff(result);
   } catch (e) {
     if (version !== state.diffVersion) return;
     clearDiff('差异读取失败。'); error(e.message, () => selectFile(path));
@@ -522,7 +558,7 @@ document.addEventListener('keydown', event => {
 
 app.onhostcontextchanged = theme;
 app.ontoolresult = result => {
-  if (result.isError) { $('history-pane').setAttribute('aria-busy', 'false'); error(result.content?.find(item => item.type === 'text')?.text || '打开失败', null); return; }
+  if (result.isError) { showLoading(false); $('history-pane').setAttribute('aria-busy', 'false'); error(result.content?.find(item => item.type === 'text')?.text || '打开失败', null); return; }
   const data = result.structuredContent;
   if (data?.repo && data.commits) {
     ++state.historyVersion; closeDetail(); acceptHistory(data);
@@ -530,6 +566,7 @@ app.ontoolresult = result => {
     state.loading = false; $('load-more').disabled = false; $('history-table').hidden = false; $('searchbar').inert = false;
     $('branch').disabled = state.refs.length < 2;
   } else if (data?.contextCwd) {
+    showLoading(false);
     ++state.historyVersion; closeDetail();
     state.repo = ''; state.repository = ''; state.repositories = []; state.branch = ''; state.commits = []; state.refs = []; state.tips = []; state.hasMore = false;
     $('history-pane').setAttribute('aria-busy', 'false');
@@ -544,7 +581,7 @@ app.ontoolresult = result => {
 app.onteardown = async () => {
   state.connected = false; clearInterval(fontTimer);
   ++state.historyVersion; ++state.detailVersion; ++state.diffVersion;
-  panels.dispose(); disposeDiff(); await saveQueue; return {};
+  panels.dispose(); editor?.disposeDiff(); await saveQueue; return {};
 };
 app.connect().then(() => {
   state.connected = true; theme(app.getHostContext() || {});
@@ -553,5 +590,5 @@ app.connect().then(() => {
   // MCP host styles omit code size; only visible details poll the cached configuration.
   fontTimer = setInterval(() => { if (!document.hidden && !detailRow.hidden) refreshCodeFontSize(); }, 5000);
 }).catch(e => {
-  $('history-pane').setAttribute('aria-busy', 'false'); error(e.message, null);
+  showLoading(false); $('history-pane').setAttribute('aria-busy', 'false'); error(e.message, null);
 });

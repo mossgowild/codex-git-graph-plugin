@@ -91,8 +91,22 @@ button svg { width: var(--icon-size); height: var(--icon-size); flex: none }
 #search-count:empty { display: none }
 .step { width: var(--control-size); height: var(--control-size); flex: none; padding: calc((var(--control-size) - var(--icon-size)) / 2); border-radius: var(--radius-toolbar); color: var(--muted); background: var(--button-surface, transparent); transition: background-color 150ms ease, color 150ms ease, opacity 150ms ease }
 .step:not(:disabled):hover { background: var(--hover) }
-.error { padding: 8px 12px; background: var(--color-background-danger, color-mix(in srgb, var(--danger) 12%, var(--bg))); border-bottom: 1px solid var(--border); color: var(--danger); display: flex; gap: 8px; align-items: center }
+.error { margin: 8px var(--app-inline-inset) 0; padding: 8px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-list); color: var(--fg); display: flex; gap: 8px; align-items: center }
+.error::before { content: '!'; color: var(--danger); font-weight: 700; width: 16px; text-align: center; flex: none }
+.error[data-tone=info]::before { content: 'i'; color: var(--accent) }
 .error span { flex: 1; white-space: pre-wrap; overflow-wrap: anywhere }
+#retry, #layout-retry { color: var(--accent); flex: none }
+#toolbar-skeleton { display: flex; align-items: center; gap: 8px; min-height: calc(var(--space-unit) * 10); padding: var(--card-content-inline-inset) var(--app-inline-inset) }
+.skeleton-line, .skeleton-block { display: block; background: color-mix(in srgb, var(--fg) 10%, transparent); border-radius: var(--border-radius-xs); animation: skeleton-pulse 2s cubic-bezier(.4, 0, .6, 1) infinite }
+#toolbar-skeleton .skeleton-line { width: 112px; height: 16px }
+#toolbar-skeleton .skeleton-block { width: 28px; height: 28px; margin-left: auto }
+#history-skeleton { padding: 4px 8px }
+.skeleton-row { display: flex; align-items: center; gap: 10px; height: 30px }
+.skeleton-row::before { content: ''; width: 10px; height: 10px; margin-left: 10px; border-radius: 50%; background: color-mix(in srgb, var(--fg) 10%, transparent); animation: skeleton-pulse 2s cubic-bezier(.4, 0, .6, 1) infinite }
+.skeleton-row .skeleton-line { width: 42%; height: 12px }
+.skeleton-row:nth-child(3n) .skeleton-line { width: 26% }
+.skeleton-row:nth-child(2n) .skeleton-line { width: 35% }
+@keyframes skeleton-pulse { 50% { opacity: .5 } }
 #content { display: flex; flex: 1; min-height: 0 }
 #history-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0 }
 #history-table { width: 100% }
@@ -130,7 +144,7 @@ code, pre { font-family: var(--font-mono) }
 .ref { --ref-color: var(--fg); display: inline-flex; align-items: center; gap: 4px; flex: none; min-width: 0; font-size: var(--font-text-xs-size); line-height: 18px; height: 20px; border: 1px solid var(--border); border-radius: var(--radius-badge); padding: 0 6px; background: var(--surface); color: var(--ref-color) }
 .badges .ref { flex: 0 1 auto; overflow: hidden }
 .ref-name { min-width: 0; overflow: hidden; text-overflow: ellipsis }
-.empty { color: var(--muted); text-align: center; padding: 48px 20px; line-height: 1.8; overflow-wrap: anywhere }
+.empty { color: var(--muted); text-align: center; min-height: 100%; padding: 32px 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.6; overflow-wrap: anywhere }
 .empty strong { display: block; color: var(--fg); font-weight: var(--font-weight-medium); margin-bottom: 4px }
 #detail { --bg: var(--detail-bg); position: sticky; left: 0; width: calc(var(--history-viewport-width, 100vw) - var(--graph-width, 20px) - 16px); height: var(--detail-height, 420px); display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: var(--card-inset); border: 0; border-radius: var(--radius-card); background: var(--bg); box-shadow: inset 0 0 0 1px var(--border-subtle) }
 #detail-header { display: flex; align-items: center; flex-wrap: wrap; flex: none; gap: var(--toolbar-gap); min-height: var(--control-size) }
@@ -143,6 +157,7 @@ code, pre { font-family: var(--font-mono) }
 #commit-refs .ref { flex: 0 1 auto; max-width: 100%; height: auto }
 #commit-refs .ref-name { white-space: normal; overflow-wrap: anywhere }
 #commit-message { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; margin: 0 0 8px }
+#commit-message.skeleton-line { width: 64%; height: 14px; margin: 4px 0 16px }
 #commit-meta { display: flex; align-items: baseline; gap: 12px; min-width: 0; font-size: var(--font-text-xs-size); line-height: 1.7; color: var(--muted); white-space: nowrap }
 #commit-meta span { min-width: 0; overflow: hidden; text-overflow: ellipsis }
 #commit-meta span:last-child { flex: none }
@@ -165,7 +180,10 @@ code, pre { font-family: var(--font-mono) }
 #diff-revisions span { overflow-wrap: anywhere }
 #diff-body { flex: 1; position: relative; min-height: 80px }
 #diff-editor { position: absolute; inset: 0 }
-#diff-notice { white-space: pre-wrap; color: var(--muted); padding: 8px; overflow: auto; height: 100% }
+#diff-notice { white-space: pre-wrap; color: var(--muted); padding: 16px; overflow: auto; height: 100%; display: flex; align-items: center; justify-content: center; text-align: center }
+#diff-skeleton { padding: 16px }
+#diff-skeleton .skeleton-line { height: 12px; width: 75%; margin-bottom: 14px }
+#diff-skeleton .skeleton-line:nth-child(2) { width: 55% }
 #diff-status { min-height: 22px; flex-shrink: 0; padding: 3px 6px; color: var(--muted); font-size: var(--font-text-xs-size) }
 #history-body, #detail-content, #changes-pane, #diff-content { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0 }
 #detail-content { overflow: hidden }
@@ -201,6 +219,7 @@ code, pre { font-family: var(--font-mono) }
 }
 @media (prefers-reduced-motion: reduce) {
   .step { transition: none }
+  .skeleton-line, .skeleton-block, .skeleton-row::before { animation: none }
 }
 @media (max-width: 540px) {
   #search::-webkit-search-cancel-button { appearance: none; width: var(--icon-size); height: var(--icon-size); background: var(--muted); mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%20fill%3D%22none%22%20aria-hidden%3D%22true%22%20data-codex-icon%3D%22xmark-md-light-16%22%3E%3Cpath%20d%3D%22M10.962%204.29539C11.1669%204.09057%2011.4992%204.09076%2011.7042%204.29539C11.9092%204.50039%2011.9091%204.83255%2011.7042%205.03758L8.74229%207.99949L11.7052%2010.9624C11.9097%2011.1673%2011.9097%2011.4996%2011.7052%2011.7046C11.5003%2011.9095%2011.168%2011.9093%2010.963%2011.7046L8.0001%208.74168L5.03721%2011.7046C4.83216%2011.9093%204.49994%2011.9095%204.29502%2011.7046C4.09047%2011.4996%204.09045%2011.1673%204.29502%2010.9624L7.25791%207.99949L4.296%205.03758C4.09101%204.83255%204.09099%204.5004%204.296%204.29539C4.50105%204.09079%204.8333%204.09054%205.03819%204.29539L8.0001%207.2573L10.962%204.29539Z%22%20fill%3D%22currentColor%22%2F%3E%3C%2Fsvg%3E") center / contain no-repeat }
@@ -211,6 +230,7 @@ code, pre { font-family: var(--font-mono) }
 <body>
 <main id="app">
   <header id="header">
+  <div id="toolbar-skeleton" role="status" aria-label="正在加载提交历史"><span class="skeleton-line" aria-hidden="true"></span><span class="skeleton-block" aria-hidden="true"></span></div>
   <div id="toolbar" hidden>
     <select id="repository" aria-label="切换项目内仓库" hidden></select>
     <select id="branch" aria-label="筛选分支"></select><span class="spacer"></span>
@@ -231,7 +251,7 @@ code, pre { font-family: var(--font-mono) }
       <div id="history-body">
 
 
-      <div id="history-scroll"><div id="history-table"><div id="rows" role="list" aria-label="Git 提交列表" title="选择提交查看差异"></div></div><button id="load-more" hidden>加载更多</button><div id="empty" class="empty"><strong>正在读取当前任务的 Git 仓库</strong>浏览分支关系，选择提交查看文件差异。</div></div>
+      <div id="history-scroll"><div id="history-skeleton" aria-hidden="true"><div class="skeleton-row"><span class="skeleton-line"></span></div><div class="skeleton-row"><span class="skeleton-line"></span></div><div class="skeleton-row"><span class="skeleton-line"></span></div><div class="skeleton-row"><span class="skeleton-line"></span></div><div class="skeleton-row"><span class="skeleton-line"></span></div><div class="skeleton-row"><span class="skeleton-line"></span></div><div class="skeleton-row"><span class="skeleton-line"></span></div><div class="skeleton-row"><span class="skeleton-line"></span></div></div><div id="history-table"><div id="rows" role="list" aria-label="Git 提交列表" title="选择提交查看差异"></div></div><button id="load-more" hidden>加载更多</button><div id="empty" class="empty" hidden></div></div>
       </div>
     </section>
     <div id="detail-row" hidden><div id="detail-graph" aria-hidden="true"></div>
@@ -248,7 +268,7 @@ code, pre { font-family: var(--font-mono) }
       <section id="diff-pane" aria-label="文件差异">
       <div id="diff-content">
       <div id="diff-revisions" hidden><span id="diff-original"></span><span id="diff-modified"></span></div>
-      <div id="diff-body"><div id="diff-editor" hidden></div><div id="diff-notice" hidden role="status"></div></div><div id="diff-status" role="status"></div></div></section>
+      <div id="diff-body"><div id="diff-editor" hidden></div><div id="diff-skeleton" hidden role="status" aria-label="正在加载文件差异"><span class="skeleton-line"></span><span class="skeleton-line"></span><span class="skeleton-line"></span></div><div id="diff-notice" hidden role="status"></div></div><div id="diff-status" role="status"></div></div></section>
       </div></section></div>
     <div id="detail-resize" class="panel-resize" role="separator" tabindex="0" aria-label="调整提交详情高度" aria-controls="detail" aria-orientation="horizontal" title="拖动调整大小；双击恢复默认；方向键微调"></div>
     </section></div>

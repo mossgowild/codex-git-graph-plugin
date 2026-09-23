@@ -69,6 +69,10 @@ export const definitions = {
   git_graph_workspace_file: { title: '定位工作区文件', schema: z.strictObject({ repository: repositoryId, hash, parent: z.number().int().min(0).optional(),
     path: z.string().min(1).max(4096) }), run: workspaceFile },
   git_graph_layout: { title: '读取 Git Graph 布局', schema: z.strictObject({}), run: readLayout },
+  git_graph_editor: { title: '加载历史差异编辑器', schema: z.strictObject({}), run: async () => {
+    const [script, style] = await Promise.all(['editor.js', 'editor.css'].map(file => readFile(new URL(`./${file}`, import.meta.url), 'utf8')));
+    return { script, style };
+  } },
   git_graph_save_layout: { title: '保存 Git Graph 布局', description: 'Save global Git Graph column widths and panel layout in plugin data. Does not modify Git repositories.',
     schema: z.strictObject({ widths: widthsSchema, panels: panelsSchema.optional() }), run: saveLayout, annotations: { ...annotations, readOnlyHint: false } },
 };

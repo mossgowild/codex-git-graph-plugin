@@ -22,8 +22,10 @@ const client = new Client({ name: 'layout-ui-check', version: '1.0.0' });
 await client.connect(new StdioClientTransport({ command: process.execPath, args: [runner], cwd: root }));
 let failSave = false, codeFontSize = 15;
 let historyFixture, historyClient, intercept;
+let editorCalls = 0;
 async function callTool(request) {
   if (request.name === 'git_graph_appearance') return { content: [], structuredContent: { codeFontSize } };
+  if (request.name === 'git_graph_editor') editorCalls++;
   if (intercept) { const result=await intercept(request); if (result) return result; }
   if (historyClient) return historyClient.callTool(['git_graph','git_graph_history'].includes(request.name)
     ? {name:'git_graph_history',arguments:{...request.arguments,limit:2}} : request);
@@ -81,6 +83,38 @@ try {
     await f.locator('.commit-row').first().waitFor();
     await f.locator('#expand-detail:not([disabled])').waitFor({state:'attached'});return f;
   };
+  let releaseInitial;
+  const initialHeld = new Promise(resolve => { releaseInitial = resolve; });
+  intercept = async request => { if (request.name === 'git_graph') await initialHeld; };
+  await page.goto(url);
+  const initialFrame = page.frameLocator('iframe');
+  await initialFrame.locator('#history-skeleton').waitFor({state:'visible'});
+  assert.equal(await initialFrame.locator('#toolbar-skeleton').isVisible(),true,'initial toolbar uses a skeleton');
+  assert.equal(await initialFrame.locator('#empty').isVisible(),false,'loading text and empty state stay hidden');
+  assert.equal(editorCalls,0,'initial loading does not request the diff editor');
+  releaseInitial();
+  await initialFrame.locator('.commit-row').first().waitFor();
+  assert.equal(await initialFrame.locator('#history-skeleton').isVisible(),false,'skeleton clears on first result');
+  assert.equal(editorCalls,0,'history remains usable before loading Monaco');
+  let failEditor = true;
+  intercept = async request => request.name === 'git_graph_editor' && failEditor
+    ? { isError:true, content:[{type:'text',text:'模拟编辑器加载失败'}] } : null;
+  await initialFrame.locator('.commit-row').first().click();
+  await initialFrame.locator('#error').getByText('模拟编辑器加载失败').waitFor();
+  assert.equal(await initialFrame.locator('#diff-skeleton').isVisible(),false,'editor failure clears the diff skeleton');
+  failEditor = false;
+  await initialFrame.locator('#retry').click();
+  await initialFrame.locator('#diff-editor').waitFor({state:'visible'});
+  assert.equal(editorCalls,2,'editor loading retries only after the first diff fails');
+  assert.equal(await initialFrame.locator('#diff-skeleton').isVisible(),false,'diff skeleton clears after editor setup');
+  intercept = async request => request.name === 'git_graph' ? { isError:true, content:[{type:'text',text:'模拟首次加载失败'}] } : null;
+  await page.goto(url);
+  const failedFrame = page.frameLocator('iframe');
+  await failedFrame.locator('#error').getByText('模拟首次加载失败').waitFor();
+  assert.equal(await failedFrame.locator('#history-skeleton').isVisible(),false,'initial failure clears the skeleton');
+  assert.equal(await failedFrame.locator('#error').getAttribute('role'),'alert');
+  assert.equal(await failedFrame.locator('#error').evaluate(el=>el.getBoundingClientRect().left>0),true,'notice is inset from the panel edge');
+  intercept = null;
   let frame=await open();
   const scrollbarStyles=()=>frame.locator('#history-scroll, #detail-summary, #files, #diff-notice').evaluateAll(elements=>elements.map(element=>{
     const style=getComputedStyle(element);return {width:style.scrollbarWidth,color:style.scrollbarColor};
@@ -234,6 +268,7 @@ try {
   assert.equal(await frame.locator('#search-count').innerText(),'3/4 · 已加载历史');
   await frame.locator('#search').press('Shift+Enter');assert.equal(await frame.locator('#search-count').innerText(),'2/4 · 已加载历史');
   await page.evaluate(()=>window.light());
+  await frame.locator('html[data-theme="light"]').waitFor();
   assert.equal((await scrollbarStyles())[0].color,'rgb(221, 221, 221) rgba(0, 0, 0, 0)','scrollbars follow a light host theme');
   await accentMarks([118,167,243]);
   await page.evaluate(()=>window.codeFont({'--color-ring-primary':'#ba55d3'}));
@@ -380,7 +415,13 @@ try {
   assert.equal(await frame.locator('#branch').evaluate(el=>getComputedStyle(el).borderRadius),'5px','select triggers use the Codex action radius');
   assert.equal(await frame.locator('#detail').evaluate(el=>getComputedStyle(el).cornerShape),'superellipse(1.5)');
   assert.equal(await frame.locator('#search-field').evaluate(el=>getComputedStyle(el).cornerShape),'superellipse(1.5)');
-  assert.equal(await groupedRow.locator('.ref').first().evaluate(el=>getComputedStyle(el).borderRadius),'3px');
+  let badgeRadius;
+  for (let attempt=0;attempt<50;attempt++) {
+    badgeRadius=await groupedRow.locator('.ref').first().evaluate(el=>getComputedStyle(el).borderRadius);
+    if (badgeRadius==='3px') break;
+    await page.waitForTimeout(20);
+  }
+  assert.equal(badgeRadius,'3px');
   assert.equal(await groupedRow.locator('.ref').first().evaluate(el=>getComputedStyle(el).cornerShape),'superellipse(1.5)');
   await page.evaluate(()=>window.codeFont({'--border-radius-xs':'4px','--border-radius-sm':'6px','--border-radius-md':'8px','--border-radius-lg':'10px','--border-radius-xl':'12px'}));
   const badge=groupedRow.locator('.ref').first();
@@ -573,6 +614,7 @@ try {
       await reopen();await frame.locator('#branch').selectOption('refs/heads/topic');await settled();
       await git(repo,['branch','-D','topic']);await frame.locator(`#${button}`).click();
       await frame.locator('#error').getByText('已显示所有分支与标签',{exact:false}).waitFor();
+      assert.equal(await frame.locator('#error').getAttribute('role'),'status','filter changes are informational');
       assert.equal(await frame.locator('#branch').inputValue(),'');
       assert.equal(await frame.locator('#branch option[value="refs/heads/topic"]').count(),0);
       assert.equal(await frame.locator('#error').isVisible(),true);
