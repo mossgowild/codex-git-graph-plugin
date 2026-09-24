@@ -4,7 +4,7 @@
       "command": "node",
       "args": [
         "-e",
-        "const { join } = require('node:path');\nconst root = process.env.CODEX_HOME || join(require('node:os').homedir(), '.codex');\nprocess.argv[1] = join(root, 'plugins/cache/codex-git-graph/git-graph', \"0.3.0+codex.20260923080345\", 'dist/server.mjs');\nimport(require('node:url').pathToFileURL(process.argv[1]).href);"
+        "const { join } = require('node:path');\nconst root = process.env.CODEX_HOME || join(require('node:os').homedir(), '.codex');\nprocess.argv[1] = join(root, 'plugins/cache/codex-git-graph/git-graph', \"0.3.0+codex.20260925030334\", 'dist/server.mjs');\nimport(require('node:url').pathToFileURL(process.argv[1]).href);"
       ],
       "env_vars": [
         "CODEX_HOME"
