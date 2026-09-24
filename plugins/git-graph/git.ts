@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, type ExecFileException } from 'node:child_process';
 import { promisify } from 'node:util';
 import { realpath, stat } from 'node:fs/promises';
 import { isAbsolute, resolve, sep } from 'node:path';
@@ -6,7 +6,14 @@ import { isAbsolute, resolve, sep } from 'node:path';
 const exec = promisify(execFile);
 const objectId = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 
-export async function git(repo, args, encoding = 'utf8') {
+export type HistoryOptions = { repoPath: string; branch?: string; offset?: number; tips?: string[]; limit?: number };
+export type CommitOptions = { repoPath: string; hash: string; parent?: number };
+export type FileOptions = CommitOptions & { path: string };
+export type RevisionFile = { hash: string | null; path: string; exists: boolean; mode: string | null; content: string; reason?: string };
+
+export function git(repo: string, args: string[], encoding?: 'utf8'): Promise<string>;
+export function git(repo: string, args: string[], encoding: null): Promise<Buffer>;
+export async function git(repo: string, args: string[], encoding: 'utf8' | null = 'utf8'): Promise<string | Buffer> {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')));
   try {
     const { stdout } = await exec('git', ['--no-pager', '--no-optional-locks', '--literal-pathspecs',
@@ -14,21 +21,22 @@ export async function git(repo, args, encoding = 'utf8') {
       env: { ...env, LC_ALL: 'C', GIT_TERMINAL_PROMPT: '0', GIT_NO_LAZY_FETCH: '1' }, encoding, maxBuffer: 16 * 1024 * 1024, timeout: 20000,
     });
     return stdout;
-  } catch (error) {
+  } catch (caught) {
+    const error = caught as ExecFileException & { stderr?: string | Buffer };
     if (error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') throw new Error('结果超过 16 MB，请选择单个文件或缩小历史范围。');
     if (error.killed) throw new Error('Git 查询超过 20 秒，请缩小范围后重试。');
     throw new Error(String(error.stderr || '').trim() || error.message, { cause: error });
   }
 }
 
-export async function repository(repoPath) {
+export async function repository(repoPath: string) {
   if (!isAbsolute(repoPath) || repoPath.includes('\0')) throw new Error('请输入本地仓库的绝对路径。');
   const path = await realpath(repoPath);
   const root = (await git(path, ['rev-parse', '--show-toplevel'])).replace(/\n$/, '');
   return await realpath(root);
 }
 
-export async function repositoryInfo(repoPath) {
+export async function repositoryInfo(repoPath: string) {
   const root = await repository(repoPath);
   const commonDir = await realpath((await git(root, ['rev-parse', '--path-format=absolute', '--git-common-dir'])).trim());
   const main = (await git(root, ['worktree', 'list', '--porcelain', '-z']))
@@ -37,7 +45,7 @@ export async function repositoryInfo(repoPath) {
   return { root, commonDir, mainRoot: await realpath(main.slice('worktree '.length)) };
 }
 
-function parseCommits(raw) {
+function parseCommits(raw: string) {
   if (!raw) return [];
   const fields = raw.replace(/\0$/, '').split('\0');
   if (fields.length % 6) throw new Error('Git 返回的提交记录格式无效。');
@@ -49,7 +57,7 @@ function parseCommits(raw) {
   return result;
 }
 
-export async function history({ repoPath, branch = '', offset = 0, tips, limit = 250 }) {
+export async function history({ repoPath, branch = '', offset = 0, tips, limit = 250 }: HistoryOptions) {
   const repo = await repository(repoPath);
   const refText = await git(repo, ['for-each-ref', '--format=%(refname)%00%(objectname)%00%(*objectname)%00%(symref)%00%(objecttype)%00%(*objecttype)%00%(upstream)',
     'refs/heads', 'refs/remotes', 'refs/tags']);
@@ -58,12 +66,12 @@ export async function history({ repoPath, branch = '', offset = 0, tips, limit =
     return { name, hash: peeled || hash, symbolic, type: peeledType || type, upstream };
   }).filter(ref => !ref.symbolic && ['commit', 'tag'].includes(ref.type));
   const headRaw = await git(repo, ['rev-parse', '--verify', '--quiet', 'HEAD']).catch(error => {
-    if (refs.length || error.cause?.code !== 1) throw error;
+    if (refs.length || (error.cause as ExecFileException | undefined)?.code !== 1) throw error;
     return '';
   });
   const head = headRaw.trim();
   const headName = (await git(repo, ['symbolic-ref', '--quiet', '--short', 'HEAD']).catch(error => {
-    if (error.cause?.code !== 1) throw error;
+    if ((error.cause as ExecFileException | undefined)?.code !== 1) throw error;
     return '';
   })).trim();
   const missingBranch = branch && !refs.some(ref => ref.name === branch) ? branch : '';
@@ -86,12 +94,12 @@ export async function history({ repoPath, branch = '', offset = 0, tips, limit =
   return { repo, head, headName, refs, branch, missingBranch, tips: snapshot, offset, commits: commits.slice(0, limit), hasMore: commits.length > limit };
 }
 
-async function verifyCommit(repo, hash) {
+async function verifyCommit(repo: string, hash: string) {
   if (!objectId.test(hash)) throw new Error('提交 ID 无效。');
   return (await git(repo, ['rev-parse', '--verify', `${hash}^{commit}`])).trim();
 }
 
-export function parseFiles(raw) {
+export function parseFiles(raw: string) {
   const parts = raw.split('\0');
   if (parts.at(-1) === '') parts.pop();
   const files = [];
@@ -105,7 +113,7 @@ export function parseFiles(raw) {
   return files;
 }
 
-export async function commit({ repoPath, hash, parent = 0 }) {
+export async function commit({ repoPath, hash, parent = 0 }: CommitOptions) {
   const repo = await repository(repoPath);
   hash = await verifyCommit(repo, hash);
   const raw = await git(repo, ['show', '-s', '--no-show-signature',
@@ -120,10 +128,10 @@ export async function commit({ repoPath, hash, parent = 0 }) {
   return { repo, hash: id, parents, parent, base, author, email, date, message: message.trimEnd(), files };
 }
 
-async function revisionFile(repo, hash, path, exists) {
-  const revision = { hash, path, exists, mode: null, content: '' };
+async function revisionFile(repo: string, hash: string | null, path: string, exists: boolean): Promise<RevisionFile> {
+  const revision: RevisionFile = { hash, path, exists, mode: null, content: '' };
   if (!exists) return revision;
-  const entry = await git(repo, ['ls-tree', '-z', hash, '--', path]);
+  const entry = await git(repo, ['ls-tree', '-z', hash!, '--', path]);
   const tab = entry.indexOf('\t');
   if (tab === -1 || entry.slice(tab + 1) !== `${path}\0`) throw new Error('历史文件对象不存在。');
   const [mode, type, id] = entry.slice(0, tab).split(' ');
@@ -140,7 +148,7 @@ async function revisionFile(repo, hash, path, exists) {
   return revision;
 }
 
-export async function diff(args) {
+export async function diff(args: FileOptions) {
   const detail = await commit(args);
   const file = detail.files.find(file => file.path === args.path);
   if (!file) throw new Error('这个文件不在所选提交的变更中。');
@@ -151,13 +159,13 @@ export async function diff(args) {
   return { hash: detail.hash, base: detail.base, ...file, original, modified };
 }
 
-export async function workspaceFile(args) {
+export async function workspaceFile(args: FileOptions) {
   const detail = await commit(args);
   if (!detail.files.some(file => file.path === args.path)) throw new Error('这个文件不在所选提交的变更中。');
   let path;
   try { path = await realpath(resolve(detail.repo, args.path)); }
   catch (error) {
-    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') throw new Error('当前工作区中已没有这个文件；仍可在这里查看历史差异。');
+    if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code || '')) throw new Error('当前工作区中已没有这个文件；仍可在这里查看历史差异。');
     throw error;
   }
   if (!path.startsWith(`${detail.repo}${sep}`)) throw new Error('文件指向当前仓库之外，不能从 Git Graph 打开。');

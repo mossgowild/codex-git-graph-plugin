@@ -4,22 +4,28 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node build.mjs",
-    "test": "node --test test.mjs",
-    "test:installed": "node --test installed.test.mjs",
+    "build": "tsx build.ts",
+    "test": "node --import tsx --test test.ts",
+    "test:installed": "node --import tsx --test --test-name-pattern=\"installed plugin\" installed.test.ts",
     "start": "node dist/server.mjs",
-    "test:ui": "node ui.test.mjs"
+    "test:ui": "node --import tsx ui.test.ts",
+    "typecheck": "tsc --noEmit",
+    "test:launcher": "node --import tsx --test --test-name-pattern=\"built plugin\" installed.test.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "2.0.0",
     "@modelcontextprotocol/server": "^2.0.0",
     "monaco-editor": "0.56.0",
+    "preact": "10.29.8",
     "zod": "^4.2.0"
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "^2.0.0",
+    "@types/node": "20.19.43",
     "esbuild": "0.28.2",
-    "playwright": "1.63.0"
+    "playwright": "1.63.0",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2"
   },
   "overrides": {
     "monaco-editor": {

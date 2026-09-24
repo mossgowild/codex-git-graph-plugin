@@ -33682,14 +33682,14 @@ function G(B, Q, F, V, q) {
   return B.registerResource(Q, F, { mimeType: L, ...V }, q);
 }
 
-// server.mjs
+// server.ts
 import { mkdir, readFile as readFile2, rename, rm, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { homedir as homedir3 } from "node:os";
 import { basename, join as join3 } from "node:path";
 import { pathToFileURL } from "node:url";
 
-// git.mjs
+// git.ts
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { realpath, stat } from "node:fs/promises";
@@ -33717,7 +33717,8 @@ async function git(repo, args, encoding = "utf8") {
       timeout: 2e4
     });
     return stdout;
-  } catch (error62) {
+  } catch (caught) {
+    const error62 = caught;
     if (error62.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") throw new Error("\u7ED3\u679C\u8D85\u8FC7 16 MB\uFF0C\u8BF7\u9009\u62E9\u5355\u4E2A\u6587\u4EF6\u6216\u7F29\u5C0F\u5386\u53F2\u8303\u56F4\u3002");
     if (error62.killed) throw new Error("Git \u67E5\u8BE2\u8D85\u8FC7 20 \u79D2\uFF0C\u8BF7\u7F29\u5C0F\u8303\u56F4\u540E\u91CD\u8BD5\u3002");
     throw new Error(String(error62.stderr || "").trim() || error62.message, { cause: error62 });
@@ -33876,7 +33877,7 @@ async function workspaceFile(args) {
   try {
     path = await realpath(resolve(detail.repo, args.path));
   } catch (error62) {
-    if (error62.code === "ENOENT" || error62.code === "ENOTDIR") throw new Error("\u5F53\u524D\u5DE5\u4F5C\u533A\u4E2D\u5DF2\u6CA1\u6709\u8FD9\u4E2A\u6587\u4EF6\uFF1B\u4ECD\u53EF\u5728\u8FD9\u91CC\u67E5\u770B\u5386\u53F2\u5DEE\u5F02\u3002");
+    if (["ENOENT", "ENOTDIR"].includes(error62.code || "")) throw new Error("\u5F53\u524D\u5DE5\u4F5C\u533A\u4E2D\u5DF2\u6CA1\u6709\u8FD9\u4E2A\u6587\u4EF6\uFF1B\u4ECD\u53EF\u5728\u8FD9\u91CC\u67E5\u770B\u5386\u53F2\u5DEE\u5F02\u3002");
     throw error62;
   }
   if (!path.startsWith(`${detail.repo}${sep}`)) throw new Error("\u6587\u4EF6\u6307\u5411\u5F53\u524D\u4ED3\u5E93\u4E4B\u5916\uFF0C\u4E0D\u80FD\u4ECE Git Graph \u6253\u5F00\u3002");
@@ -33884,12 +33885,12 @@ async function workspaceFile(args) {
   return { path };
 }
 
-// project.mjs
+// project.ts
 import { readFile } from "node:fs/promises";
 import { homedir as homedir2 } from "node:os";
 import { join as join2 } from "node:path";
 
-// codex.mjs
+// codex.ts
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { stat as stat2 } from "node:fs/promises";
@@ -33898,7 +33899,8 @@ import { join } from "node:path";
 async function withCodex(run) {
   const child = spawn("codex", ["app-server", "--listen", "stdio://"], { stdio: ["pipe", "pipe", "pipe"] });
   const pending = /* @__PURE__ */ new Map();
-  let nextId = 0, failure2;
+  let nextId = 0;
+  let failure2;
   const fail = (error62) => {
     failure2 = error62;
     for (const request2 of pending.values()) request2.reject(error62);
@@ -33954,14 +33956,14 @@ function createCodeFontSizeReader({
       throw error62;
     });
     if (cached2?.stamp === stamp) return cached2.value;
-    const { config: config2 } = await readConfig();
+    const { config: config2 } = external_exports.object({ config: external_exports.object({ desktop: external_exports.object({ codeFontSize: external_exports.unknown().optional() }).nullish() }) }).parse(await readConfig());
     const value = { codeFontSize: codeFontSizeSchema.parse(config2.desktop?.codeFontSize) };
     cached2 = { stamp, value };
     return value;
   };
 }
 
-// project.mjs
+// project.ts
 var projectSchema = external_exports.object({ roots: external_exports.array(external_exports.object({ path: external_exports.string().min(1) })) });
 async function readDesktopState(codexHome) {
   try {
@@ -33977,22 +33979,23 @@ async function readProjectRoots(threadId, {
   readState = () => readDesktopState(codexHome),
   runWithCodex = withCodex
 } = {}) {
-  let desktop, useSelectedProject = !threadId;
+  let desktop;
+  let useSelectedProject = !threadId;
   const state = async () => desktop ??= await readState();
   if (!threadId && (await state())?.["selected-project"]?.type !== "local") return [home];
   return runWithCodex(async (request) => {
     let projectId;
     if (threadId) {
       try {
-        ({ thread: { projectId } } = await request("thread/read", { threadId, includeTurns: false }));
+        ({ thread: { projectId } } = external_exports.object({ thread: external_exports.object({ projectId: external_exports.string().nullish() }) }).parse(await request("thread/read", { threadId, includeTurns: false })));
       } catch (error62) {
-        if (error62.message !== `thread not loaded: ${threadId}`) throw error62;
+        if (!(error62 instanceof Error) || error62.message !== `thread not loaded: ${threadId}`) throw error62;
         useSelectedProject = true;
       }
     }
     if (!projectId) {
       const data = await state();
-      const assignment = data?.["thread-project-assignments"]?.[threadId];
+      const assignment = threadId ? data?.["thread-project-assignments"]?.[threadId] : void 0;
       const selected = useSelectedProject ? data?.["selected-project"] : void 0;
       const localProjectId = assignment?.projectKind === "local" ? assignment.projectId : selected?.type === "local" ? selected.projectId : void 0;
       if (localProjectId) {
@@ -34001,13 +34004,13 @@ async function readProjectRoots(threadId, {
       }
     }
     if (!projectId) return [home];
-    const { project } = await request("project/read", { projectId });
-    const roots = projectSchema.parse(project).roots.map((root) => root.path);
+    const { project } = external_exports.object({ project: projectSchema }).parse(await request("project/read", { projectId }));
+    const roots = project.roots.map((root) => root.path);
     return roots.length ? roots : [home];
   });
 }
 
-// layout.mjs
+// layout.ts
 var columns = [
   { id: "graph", label: "\u5173\u7CFB\u56FE", min: 20, initial: 20 },
   { id: "message", label: "\u63D0\u4EA4", min: 100, initial: 180 },
@@ -34031,7 +34034,7 @@ var git_branch_default = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/
 // assets/git-branch-dark.svg
 var git_branch_dark_default = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true" data-codex-icon="branch-light-20"><path fill-rule="evenodd" clip-rule="evenodd" d="M14.5837 2.45996C15.9863 2.46022 17.1238 3.59736 17.1238 5C17.1238 6.25397 16.2141 7.29306 15.0193 7.5H15.2488V7.66699C15.2486 9.3227 13.9055 10.6649 12.2498 10.665H7.74976C6.82862 10.6652 6.08196 11.4119 6.08179 12.333V12.5508C7.16167 12.8433 7.95679 13.8276 7.95679 15C7.95679 16.4028 6.81955 17.54 5.41675 17.54C4.01394 17.54 2.87671 16.4028 2.87671 15C2.87671 13.8276 3.67182 12.8433 4.75171 12.5508V7.44824C3.67195 7.15563 2.87671 6.17234 2.87671 5C2.87671 3.5972 4.01394 2.45996 5.41675 2.45996C6.81955 2.45996 7.95679 3.5972 7.95679 5C7.95679 6.17234 7.16155 7.15563 6.08179 7.44824V9.84082C6.55855 9.52113 7.13263 9.33503 7.74976 9.33496H12.2498C13.1709 9.33483 13.9185 8.58816 13.9187 7.66699V7.5H14.1472C12.9524 7.29306 12.0437 6.25397 12.0437 5C12.0437 3.5972 13.1809 2.45996 14.5837 2.45996ZM5.41675 13.79C4.74848 13.79 4.20679 14.3317 4.20679 15C4.20679 15.6683 4.74848 16.21 5.41675 16.21C6.08501 16.21 6.62671 15.6683 6.62671 15C6.62671 14.3317 6.08501 13.79 5.41675 13.79ZM5.41675 3.79004C4.74848 3.79004 4.20679 4.33174 4.20679 5C4.20679 5.66826 4.74848 6.20996 5.41675 6.20996C6.08501 6.20996 6.62671 5.66826 6.62671 5C6.62671 4.33174 6.08501 3.79004 5.41675 3.79004ZM14.5837 3.79004C13.9155 3.79004 13.3738 4.33174 13.3738 5C13.3738 5.66826 13.9155 6.20996 14.5837 6.20996C15.2518 6.2097 15.7937 5.6681 15.7937 5C15.7937 4.3319 15.2518 3.7903 14.5837 3.79004Z" fill="%23e6edf3"/></svg>%0A';
 
-// server.mjs
+// server.ts
 var html = await readFile2(new URL("./window.html", import.meta.url), "utf8");
 var resourceUri = `ui://git-graph/window-${createHash("sha256").update(html).digest("hex").slice(0, 16)}.html`;
 var hash2 = external_exports.string().regex(/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/);
@@ -34045,8 +34048,8 @@ async function readPreference(directory, file2, schema, label) {
   try {
     return schema.parse(JSON.parse(await readFile2(join3(directory, file2), "utf8")));
   } catch (error62) {
-    if (error62.code === "ENOENT") return {};
-    throw new Error(`\u8BFB\u53D6${label}\u5931\u8D25\uFF1A${error62.message}`);
+    if (error62.code === "ENOENT") return schema.parse({});
+    throw new Error(`\u8BFB\u53D6${label}\u5931\u8D25\uFF1A${error62 instanceof Error ? error62.message : String(error62)}`);
   }
 }
 async function writePreference(directory, file2, value, label) {
@@ -34060,7 +34063,7 @@ async function writePreference(directory, file2, value, label) {
       await rm(temporary, { force: true });
     }
   } catch (error62) {
-    throw new Error(`\u4FDD\u5B58${label}\u5931\u8D25\uFF1A${error62.message}`);
+    throw new Error(`\u4FDD\u5B58${label}\u5931\u8D25\uFF1A${error62 instanceof Error ? error62.message : String(error62)}`);
   }
 }
 async function readLayout({ preferencesDirectory: directory }) {
@@ -34079,63 +34082,67 @@ async function openGraph({ repositories, repositoryNotice, contextCwd = process.
   return { ...result, contextCwd, repositories, repositoryNotice };
 }
 var readCodeFontSize = createCodeFontSizeReader();
+function defineTool(definition) {
+  return { ...definition, async invoke(args, directory, context) {
+    const input2 = definition.schema.parse(args);
+    let repoPath = context.repositories[0]?.path || process.cwd();
+    if (input2.repository) {
+      const selected = context.repositories.find((repo) => repo.id === input2.repository);
+      if (!selected) throw new Error("\u6240\u9009\u4ED3\u5E93\u4E0D\u5C5E\u4E8E\u5F53\u524D\u4EFB\u52A1\u7684\u9879\u76EE\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00 Git Graph\u3002");
+      repoPath = await repository(selected.path);
+      if (repoPath !== selected.path) throw new Error("\u6240\u9009\u4ED3\u5E93\u8DEF\u5F84\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00 Git Graph\u3002");
+    }
+    return definition.run({ ...input2, ...context, repoPath, preferencesDirectory: directory });
+  } };
+}
 var definitions = {
-  git_graph_appearance: { title: "\u8BFB\u53D6 Codex \u4EE3\u7801\u5B57\u53F7", schema: external_exports.strictObject({}), run: readCodeFontSize },
-  git_graph: {
+  git_graph_appearance: defineTool({ title: "\u8BFB\u53D6 Codex \u4EE3\u7801\u5B57\u53F7", schema: external_exports.strictObject({}), run: readCodeFontSize }),
+  git_graph: defineTool({
     title: "Git Graph",
     description: "Browse Git history for the current Codex task working directory. Read-only.",
     schema: external_exports.strictObject({}),
     run: openGraph
-  },
-  git_graph_history: { title: "\u8BFB\u53D6\u63D0\u4EA4\u5386\u53F2", schema: external_exports.strictObject({
+  }),
+  git_graph_history: defineTool({ title: "\u8BFB\u53D6\u63D0\u4EA4\u5386\u53F2", schema: external_exports.strictObject({
     repository: repositoryId,
     branch: external_exports.string().max(1024).optional(),
     offset: external_exports.number().int().min(0).max(1e6).optional(),
     tips: external_exports.array(hash2).max(1e4).optional(),
     limit: external_exports.number().int().min(1).max(500).optional()
-  }), run: history },
-  git_graph_commit: { title: "\u67E5\u770B\u63D0\u4EA4", schema: external_exports.strictObject({ repository: repositoryId, hash: hash2, parent: external_exports.number().int().min(0).optional() }), run: commit },
-  git_graph_diff: { title: "\u67E5\u770B\u6587\u4EF6\u5DEE\u5F02", schema: external_exports.strictObject({
+  }), run: history }),
+  git_graph_commit: defineTool({ title: "\u67E5\u770B\u63D0\u4EA4", schema: external_exports.strictObject({ repository: repositoryId, hash: hash2, parent: external_exports.number().int().min(0).optional() }), run: commit }),
+  git_graph_diff: defineTool({ title: "\u67E5\u770B\u6587\u4EF6\u5DEE\u5F02", schema: external_exports.strictObject({
     repository: repositoryId,
     hash: hash2,
     parent: external_exports.number().int().min(0).optional(),
     path: external_exports.string().min(1).max(4096)
-  }), run: diff },
-  git_graph_workspace_file: { title: "\u5B9A\u4F4D\u5DE5\u4F5C\u533A\u6587\u4EF6", schema: external_exports.strictObject({
+  }), run: diff }),
+  git_graph_workspace_file: defineTool({ title: "\u5B9A\u4F4D\u5DE5\u4F5C\u533A\u6587\u4EF6", schema: external_exports.strictObject({
     repository: repositoryId,
     hash: hash2,
     parent: external_exports.number().int().min(0).optional(),
     path: external_exports.string().min(1).max(4096)
-  }), run: workspaceFile },
-  git_graph_layout: { title: "\u8BFB\u53D6 Git Graph \u5E03\u5C40", schema: external_exports.strictObject({}), run: readLayout },
-  git_graph_editor: { title: "\u52A0\u8F7D\u5386\u53F2\u5DEE\u5F02\u7F16\u8F91\u5668", schema: external_exports.strictObject({}), run: async () => {
+  }), run: workspaceFile }),
+  git_graph_layout: defineTool({ title: "\u8BFB\u53D6 Git Graph \u5E03\u5C40", schema: external_exports.strictObject({}), run: readLayout }),
+  git_graph_editor: defineTool({ title: "\u52A0\u8F7D\u5386\u53F2\u5DEE\u5F02\u7F16\u8F91\u5668", schema: external_exports.strictObject({}), run: async () => {
     const [script, style] = await Promise.all(["editor.js", "editor.css"].map((file2) => readFile2(new URL(`./${file2}`, import.meta.url), "utf8")));
     return { script, style };
-  } },
-  git_graph_save_layout: {
+  } }),
+  git_graph_save_layout: defineTool({
     title: "\u4FDD\u5B58 Git Graph \u5E03\u5C40",
     description: "Save global Git Graph column widths and panel layout in plugin data. Does not modify Git repositories.",
     schema: external_exports.strictObject({ widths: widthsSchema, panels: panelsSchema.optional() }),
     run: saveLayout,
     annotations: { ...annotations, readOnlyHint: false }
-  }
+  })
 };
-async function call(name, args, directory = preferencesDirectory, context = {}) {
+async function call(name, args, directory = preferencesDirectory, context = { repositories: [] }) {
   try {
-    const definition = definitions[name];
-    if (!definition) throw new Error("\u672A\u77E5\u7684 Git Graph \u64CD\u4F5C\u3002");
-    const input2 = definition.schema.parse(args);
-    let repoPath = context.repositories?.[0]?.path || process.cwd();
-    if (input2.repository) {
-      const selected = context.repositories?.find((repo) => repo.id === input2.repository);
-      if (!selected) throw new Error("\u6240\u9009\u4ED3\u5E93\u4E0D\u5C5E\u4E8E\u5F53\u524D\u4EFB\u52A1\u7684\u9879\u76EE\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00 Git Graph\u3002");
-      repoPath = await repository(selected.path);
-      if (repoPath !== selected.path) throw new Error("\u6240\u9009\u4ED3\u5E93\u8DEF\u5F84\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00 Git Graph\u3002");
-    }
-    const data = await definition.run({ ...input2, ...context, repoPath, preferencesDirectory: directory });
+    if (!Object.hasOwn(definitions, name)) throw new Error("\u672A\u77E5\u7684 Git Graph \u64CD\u4F5C\u3002");
+    const data = await definitions[name].invoke(args, directory, context);
     return { content: [{ type: "text", text: "Git Graph \u64CD\u4F5C\u5B8C\u6210\u3002" }], structuredContent: data };
   } catch (error62) {
-    return { isError: true, content: [{ type: "text", text: error62.message }] };
+    return { isError: true, content: [{ type: "text", text: error62 instanceof Error ? error62.message : String(error62) }] };
   }
 }
 function createServer({ preferencesDirectory: directory = preferencesDirectory, projectRoots = readProjectRoots } = {}) {
@@ -34156,7 +34163,7 @@ function createServer({ preferencesDirectory: directory = preferencesDirectory, 
         "openai/ui": { entrypoints: [{ type: "thread" }], preferredModelDisplayMode: "fullscreen" }
       } : { ui: { visibility: ["app"] } }
     }, async (args, request) => {
-      const threadId = request.mcpReq._meta?.threadId;
+      const threadId = external_exports.string().optional().parse(request.mcpReq._meta?.threadId);
       let context = contexts.get(threadId);
       if (name === "git_graph") {
         const notices = [];
@@ -34164,7 +34171,7 @@ function createServer({ preferencesDirectory: directory = preferencesDirectory, 
         try {
           roots = await projectRoots(threadId);
         } catch (error62) {
-          notices.push(`\u65E0\u6CD5\u8BFB\u53D6\u9879\u76EE\u76EE\u5F55\uFF1A${error62.message}`);
+          notices.push(`\u65E0\u6CD5\u8BFB\u53D6\u9879\u76EE\u76EE\u5F55\uFF1A${error62 instanceof Error ? error62.message : String(error62)}`);
         }
         const identities = /* @__PURE__ */ new Map();
         for (const path of new Set(roots.length ? roots : [process.cwd()])) {
@@ -34172,7 +34179,7 @@ function createServer({ preferencesDirectory: directory = preferencesDirectory, 
             const info = await repositoryInfo(path);
             if (!identities.has(info.commonDir)) identities.set(info.commonDir, info);
           } catch (error62) {
-            if (!/not a git repository/i.test(error62.cause?.stderr || "")) notices.push(`${path}\uFF1A${error62.message}`);
+            if (!/not a git repository/i.test(error62 instanceof Error ? String(error62.cause?.stderr || "") : "")) notices.push(`${path}\uFF1A${error62 instanceof Error ? error62.message : String(error62)}`);
           }
         }
         if (roots.length) {

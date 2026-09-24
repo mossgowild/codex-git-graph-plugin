@@ -6,12 +6,12 @@
 - 搜索已加载的提交，查看提交详情、文件差异及合并父节点。
 - Monaco 历史 diff：行内／并排视图、行号、字符差异、变更跳转和未修改区域折叠。
 - 跟随 Codex 的颜色、字体与主题，支持窄面板和键盘导航。
-- 首次读取与切换仓库显示骨架屏；错误和状态提示集中显示在内容区顶部。
+- 首次读取与切换仓库显示骨架屏；历史、提交详情、差异和文件操作分别就地显示错误与重试，宿主能力和布局错误独立显示。
 - 插件列表与任务侧面板使用统一的 Git 分支图标，适配浅色、深色主题。
 - 提交详情在选中提交下方原位展开，分支线贯穿详情；左侧文件列表、右侧 diff。
 - 提交信息始终显示，限制最大高度并支持内部滚动；文件列表与 diff 始终显示；详情高度和文件列表宽度可拖动调整。
 - 分区尺寸与详情放大状态跨任务、重启及插件更新保留。
-- 默认使用当前任务目录及 linked worktree；所属 Codex 仓库、分支和合并提交的父提交选择统一使用 `select.mjs` / `select.css` 组件，复用原生选择、键盘交互、标签截断和菜单样式。项目包含多个 Git 仓库时，可在名称处切换。
+- 默认使用当前任务目录及 linked worktree；所属 Codex 仓库、分支和合并提交的父提交选择统一使用 `select.tsx` / `select.css` 组件，复用原生选择、键盘交互、标签截断和菜单样式。项目包含多个 Git 仓库时，可在名称处切换。
 - 宿主支持时，可将工作区当前文件打开到 Codex 原生文件面板。
 
 所有 Git 操作只读，不执行 fetch、checkout 或 commit。每次加载 250 条提交，可继续加载；搜索覆盖已加载的历史。差异编辑器首次查看文件差异时按需加载。
@@ -74,17 +74,23 @@ codex plugin remove git-graph@codex-git-graph
 git clone https://github.com/mossgowild/codex-git-graph-plugin.git
 cd codex-git-graph-plugin/plugins/git-graph
 npm ci
+npm run typecheck
 npm run build
 npm test
+npm run test:launcher
 ```
 
-源码和构建产物都在 `plugins/git-graph/`；仓库市场入口位于 `.agents/plugins/marketplace.json`。发布修改时一起提交更新后的 `dist/` 和 `.mcp.json`。图布局及 SVG 基于 VS Code 内置 SCM Graph 的 MIT 源码适配，第三方 SDK 负责 MCP 和宿主通信。插件自身的按钮与菜单图标直接使用 Codex 26.915.31945 的原始 SVG 路径（`app-shared-8f4fbb856ceb.js`），行内/并排按钮使用 `code-diff-e1ff49b978eb.js` 的原始双色图标；Monaco 内部图标保持默认。界面图标定义于 `window.html` 和 `select.css`，构建后统一内嵌，分支入口图标源文件位于 `assets/`，插件清单引用 SVG，构建时将同一组图标内嵌到 MCP `serverInfo.icons`，不发起图标网络请求。
+手写运行、构建和测试源码统一使用 TypeScript。`ui.tsx` 使用 Preact 管理页面、异步状态、搜索高亮和局部提示，`select.tsx` 声明原生选择控件；`panels.ts` 负责尺寸计算和交互，Preact 渲染布局状态。唯一详情通过固定门户容器移入提交槽位，关闭时停放；`diff-editor.ts` 只管理 Monaco 容器内部、模型与主题，并把计算状态回传 Preact。`npm run typecheck` 严格检查 `.ts`/`.tsx` 源码，esbuild 负责打包；构建和测试通过 `tsx` 运行，最低支持 Node.js 20.11。安装后的插件只运行 `dist/server.mjs`，无需 TypeScript、tsx 或安装依赖。
+
+源码和构建产物都在 `plugins/git-graph/`；仓库市场入口位于 `.agents/plugins/marketplace.json`。发布修改时一起提交更新后的 `dist/` 和 `.mcp.json`。图布局及 SVG 基于 VS Code 内置 SCM Graph 的 MIT 源码适配，第三方 SDK 负责 MCP 和宿主通信。插件自身的按钮与菜单图标直接使用 Codex 26.915.31945 的原始 SVG 路径（`app-shared-8f4fbb856ceb.js`），行内/并排按钮使用 `code-diff-e1ff49b978eb.js` 的原始双色图标；Monaco 内部图标保持默认。界面图标定义于 `icons.tsx` 和 `select.css`，构建后统一内嵌，分支入口图标源文件位于 `assets/`，插件清单引用 SVG，构建时将同一组图标内嵌到 MCP `serverInfo.icons`，不发起图标网络请求。
 
 当前 Codex 兼容格式不会展开 MCP 参数中的 `${PLUGIN_ROOT}`。构建脚本按插件清单版本生成启动命令，从 `CODEX_HOME`（未设置时为 `~/.codex`）下的 `plugins/cache/codex-git-graph/git-graph/<version>/` 加载插件，保持进程工作目录为当前任务目录。这依赖 Codex 的缓存目录结构；以后宿主支持直接传入插件路径且保留任务目录时应替换。修改清单版本后需要重新构建；不要单独复制 `.mcp.json` 到别的市场。
 
 测试覆盖真实 Git 历史、合并父节点、特殊路径和重命名、分页、只读状态、任务仓库隔离、文件定位边界、祖先汇合与轨道连续、引用语义颜色与顺序、UI 缓存标识、布局跨进程保存和设置参数校验。
 
-浏览器回归检查使用 `npm run test:ui`；Playwright 已作为开发依赖声明，首次运行前执行 `npm install` 并安装其 Chromium。也可通过 `PLAYWRIGHT_MODULE` 指向现有 Playwright 的模块入口，通过 `PLAYWRIGHT_CHROMIUM` 指向现有浏览器可执行文件。检查会在临时数据目录中覆盖详情原位展开、分支线连续、文件与 diff 左右布局、Codex 行布局与分区拖动、键盘调整、取消、详情放大恢复、宽窄屏切换、跨会话布局恢复和错误重试，不修改个人布局。另使用临时 Git 仓库覆盖筛选失败与重试、删除筛选引用后的恢复、分页期间引用变化、刷新时父节点与文件选择保留、引用重名、diff 内容着色及乱序响应。
+浏览器回归检查使用 `npm run test:ui`；Playwright 已作为开发依赖声明，首次运行前执行 `npm install` 并安装其 Chromium。也可通过 `PLAYWRIGHT_MODULE` 指向现有 Playwright 的模块入口，通过 `PLAYWRIGHT_CHROMIUM` 指向现有浏览器可执行文件。检查会在临时数据目录中覆盖详情原位展开、分支线连续、文件与 diff 左右布局、Codex 行布局与分区拖动、键盘调整、取消、详情放大恢复、宽窄屏切换、跨会话布局恢复和错误重试，不修改个人布局。还检查提示归属与并存、字号错误恢复、打开文件失败及详情和编辑器 DOM 跨切换/关闭重开的身份保持。另使用临时 Git 仓库覆盖筛选失败与重试、删除筛选引用后的恢复、分页期间引用变化、刷新时父节点与文件选择保留、引用重名、diff 内容着色及乱序响应。
+
+`npm run test:launcher` 将当前构建的四类 `dist/` 文件复制到临时 `CODEX_HOME` 缓存，用生成的 `.mcp.json` 命令启动；同时校验无项目时的 Home 回退、HTML 资源及按需编辑器资源，缓存中不包含源码和 `node_modules`。
 
 在本机已安装当前清单版本后，运行 `npm run test:installed` 可额外检查实际缓存中的启动程序，确认没有本地项目时回退到 Home；该检查不会安装插件或修改 Codex 配置。
 

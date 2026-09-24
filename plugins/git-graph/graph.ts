@@ -1,23 +1,33 @@
 // Adapted from VS Code scmHistory.ts (MIT), commit 7debcd0e2acdea1c52de81bf9ee1620444407dda.
 // Copyright (c) Microsoft Corporation. See THIRD-PARTY-LICENSES.txt.
+export type GraphCommit = { hash: string; parents: string[] };
+export type GraphRef = { name: string; hash: string; upstream?: string };
+type Lane = { hash: string; color: string };
+type ColoredRef = GraphRef & { color?: string; icon: string };
+export type GraphRow<T extends GraphCommit = GraphCommit> = T & {
+  column: number; color: string; input: Lane[]; output: Lane[];
+  references: ColoredRef[]; kind: string; width: number;
+};
+
 export const laneWidth = 11;
 export const colors = Array.from({ length: 5 }, (_, index) => `var(--graph-${index + 1})`);
 const currentColor = 'var(--graph-current)', remoteColor = 'var(--graph-remote)';
-export const laneX = column => laneWidth * (column + 1);
+export const laneX = (column: number) => laneWidth * (column + 1);
 
-export function layout(commits, { refs = [], head = '', headName = '', branch = '' } = {}) {
+export function layout<T extends GraphCommit>(commits: T[], { refs = [], head = '', headName = '', branch = '' }: { refs?: GraphRef[]; head?: string; headName?: string; branch?: string } = {}) {
   const current = refs.find(ref => ref.name === `refs/heads/${headName}`);
   const upstream = current?.upstream;
-  const refsByHash = new Map(), commitsByHash = new Map(commits.map(commit => [commit.hash, commit]));
+  const refsByHash = new Map<string, GraphRef[]>(), commitsByHash = new Map(commits.map(commit => [commit.hash, commit]));
   for (const ref of refs) {
     if (!refsByHash.has(ref.hash)) refsByHash.set(ref.hash, []);
-    refsByHash.get(ref.hash).push(ref);
+    refsByHash.get(ref.hash)!.push(ref);
   }
-  const refColor = ref => ref.name === current?.name ? currentColor : ref.name === upstream ? remoteColor : undefined;
-  const labelColor = commit => (refsByHash.get(commit.hash) || []).map(refColor).find(Boolean);
-  let sequence = 0, previous = [];
-  const rows = commits.map(commit => {
-    const input = previous, output = [];
+  const refColor = (ref: GraphRef) => ref.name === current?.name ? currentColor : ref.name === upstream ? remoteColor : undefined;
+  const labelColor = (commit: GraphCommit) => (refsByHash.get(commit.hash) || []).map(refColor).find(Boolean);
+  let sequence = 0;
+  let previous: Lane[] = [];
+  const rows: GraphRow<T>[] = commits.map(commit => {
+    const input = previous, output: Lane[] = [];
     let firstParentAdded = false;
     for (const lane of input) {
       if (lane.hash === commit.hash) {
@@ -39,7 +49,7 @@ export function layout(commits, { refs = [], head = '', headName = '', branch = 
       color: refColor(ref) || (!branch || ref.name === branch ? color : undefined),
       icon: ref.name === current?.name ? 'target' : ref.name.startsWith('refs/remotes/') ? 'cloud' : ref.name.startsWith('refs/tags/') ? 'tag' : 'branch',
     }));
-    const priority = ref => ref.name === current?.name ? 1 : ref.name === upstream ? 2 : ref.color ? 4 : 99;
+    const priority = (ref: ColoredRef) => ref.name === current?.name ? 1 : ref.name === upstream ? 2 : ref.color ? 4 : 99;
     references.sort((a, b) => priority(a) - priority(b));
     previous = output;
     return { ...commit, column, color, input, output, references, kind: commit.hash === head ? 'HEAD' : 'node',
@@ -48,10 +58,10 @@ export function layout(commits, { refs = [], head = '', headName = '', branch = 
   return { rows, continuation: previous.map(lane => lane.hash) };
 }
 
-export function graphPaths(row, height = 22) {
+export function graphPaths(row: GraphRow, height = 22) {
   const middle = height / 2, inset = middle - 11;
-  const paths = [], { input, output, column, color, parents, hash } = row;
-  const add = (d, color) => paths.push({ d, color });
+  const paths: { d: string; color: string }[] = [], { input, output, column, color, parents, hash } = row;
+  const add = (d: string, color: string) => paths.push({ d, color });
   let target = 0;
   for (const [index, lane] of input.entries()) {
     if (lane.hash === hash) {

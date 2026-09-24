@@ -5,11 +5,15 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
 
-export async function withCodex(run) {
+export type CodexRequest = (method: string, params: Record<string, unknown>) => Promise<unknown>;
+export type WithCodex = <T>(run: (request: CodexRequest) => Promise<T>) => Promise<T>;
+
+export async function withCodex<T>(run: (request: CodexRequest) => Promise<T>): Promise<T> {
   const child = spawn('codex', ['app-server', '--listen', 'stdio://'], { stdio: ['pipe', 'pipe', 'pipe'] });
-  const pending = new Map();
-  let nextId = 0, failure;
-  const fail = error => {
+  const pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: unknown) => void }>();
+  let nextId = 0;
+  let failure: unknown;
+  const fail = (error: unknown) => {
     failure = error;
     for (const request of pending.values()) request.reject(error);
     pending.clear();
@@ -28,7 +32,7 @@ export async function withCodex(run) {
       else request.resolve(message.result);
     } catch (error) { fail(error); }
   });
-  const request = (method, params) => new Promise((resolve, reject) => {
+  const request: CodexRequest = (method, params) => new Promise<unknown>((resolve, reject) => {
     if (failure) { reject(failure); return; }
     const id = ++nextId;
     pending.set(id, { resolve, reject });
@@ -48,15 +52,15 @@ const codeFontSizeSchema = z.number().min(8).max(24).default(12);
 export function createCodeFontSizeReader({
   configPath = join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'config.toml'),
   readConfig = () => withCodex(request => request('config/read', { includeLayers: false })),
-} = {}) {
-  let cached;
+}: { configPath?: string; readConfig?: () => Promise<unknown> } = {}) {
+  let cached: { stamp: string; value: { codeFontSize: number } } | undefined;
   return async () => {
     const stamp = await stat(configPath).then(file => `${file.mtimeMs}:${file.ctimeMs}:${file.size}`, error => {
       if (error.code === 'ENOENT') return 'missing';
       throw error;
     });
     if (cached?.stamp === stamp) return cached.value;
-    const { config } = await readConfig();
+    const { config } = z.object({ config: z.object({ desktop: z.object({ codeFontSize: z.unknown().optional() }).nullish() }) }).parse(await readConfig());
     const value = { codeFontSize: codeFontSizeSchema.parse(config.desktop?.codeFontSize) };
     cached = { stamp, value };
     return value;
