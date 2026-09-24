@@ -10,7 +10,7 @@ import { pathToFileURL } from 'node:url';
 import { history, commit, diff, workspaceFile, repository, repositoryInfo } from './git.ts';
 import { readProjectRoots } from './project.ts';
 import { createCodeFontSizeReader } from './codex.ts';
-import { widthsSchema, panelsSchema, storedPanelsSchema, type ColumnWidths, type PanelLayout } from './layout.ts';
+import { panelsSchema, storedPanelsSchema, type PanelLayout } from './layout.ts';
 import lightIcon from './assets/git-branch.svg';
 import darkIcon from './assets/git-branch-dark.svg';
 
@@ -46,14 +46,12 @@ async function writePreference(directory: string, file: string, value: object, l
 }
 async function readLayout({ preferencesDirectory: directory }: ToolContext) {
   return {
-    widths: await readPreference(directory, 'column-widths.json', widthsSchema, '列宽布局'),
     panels: await readPreference(directory, 'panel-layout.json', storedPanelsSchema, '面板布局'),
   };
 }
-async function saveLayout({ widths, panels, preferencesDirectory: directory }: ToolContext & { widths: ColumnWidths; panels?: PanelLayout }) {
-  await writePreference(directory, 'column-widths.json', widths, '列宽布局');
-  if (panels) await writePreference(directory, 'panel-layout.json', panels, '面板布局');
-  return { widths, ...(panels ? { panels } : {}) };
+async function saveLayout({ panels, preferencesDirectory: directory }: ToolContext & { panels: PanelLayout }) {
+  await writePreference(directory, 'panel-layout.json', panels, '面板布局');
+  return { panels };
 }
 async function openGraph({ repositories, repositoryNotice, contextCwd = process.cwd() }: GraphContext) {
   const result = repositories.length ? await history({ repoPath: repositories[0].path }) : { repo: null };
@@ -96,8 +94,8 @@ export const definitions = {
     const [script, style] = await Promise.all(['editor.js', 'editor.css'].map(file => readFile(new URL(`./${file}`, import.meta.url), 'utf8')));
     return { script, style };
   } }),
-  git_graph_save_layout: defineTool({ title: '保存 Git Graph 布局', description: 'Save global Git Graph column widths and panel layout in plugin data. Does not modify Git repositories.',
-    schema: z.strictObject({ widths: widthsSchema, panels: panelsSchema.optional() }), run: saveLayout, annotations: { ...annotations, readOnlyHint: false } }),
+  git_graph_save_layout: defineTool({ title: '保存 Git Graph 布局', description: 'Save global Git Graph panel layout in plugin data. Does not modify Git repositories.',
+    schema: z.strictObject({ panels: panelsSchema }), run: saveLayout, annotations: { ...annotations, readOnlyHint: false } }),
 };
 
 export async function call(name: string, args: unknown, directory = preferencesDirectory,

@@ -293,7 +293,7 @@ try {
     {hash:'b2'+'b'.repeat(38),parents:[],subject:'Other change',message:'Other change\\n\\nFormatted body',author:'Fix',email:'hidden@example.invalid',date:'2026-09-20T00:00:00Z'},
   ];
   searchCommits[0].parents = [searchCommits[1].hash];
-  historyFixture={repo:root,branch:'',head:searchCommits[0].hash,headName:'feature/fix',hasMore:false,
+  historyFixture={repo:root,branch:'refs/heads/feature/fix',head:searchCommits[0].hash,headName:'feature/fix',hasMore:false,
     tips:[searchCommits[0].hash],commits:searchCommits,
     refs:[{name:'refs/heads/feature/fix',hash:searchCommits[0].hash,type:'commit',symbolic:''}]};
   frame=await open();
@@ -367,7 +367,8 @@ try {
     email:'graph@example.invalid',date:'2026-09-19T00:00:00Z',subject:'refactor: align project structure with current conventions'}));
   historyFixture={repo:root,branch:'',missingBranch:'',head:commits[1].hash,headName:branchNames[1],hasMore:false,tips:commits.map(commit=>commit.hash),commits,
     refs:branchNames.map((name,index)=>({name:`refs/heads/${name}`,hash:commits[index].hash,type:'commit',symbolic:''}))};
-  await client.callTool({name:'git_graph_save_layout',arguments:{widths:{message:478,author:62}}});
+  await mkdir(data, { recursive: true });
+  await writeFile(join(data, 'column-widths.json'), '{broken legacy layout');
   frame=await open();
   for (const width of [1000,400]) {
     await page.setViewportSize({width,height:760});
@@ -396,7 +397,7 @@ try {
   historyFixture.refs.push({name:`refs/remotes/origin/${branchNames[0]}`,hash:commits[0].hash},
     {name:'refs/tags/v1.0.0',hash:commits[0].hash});
   await frame.locator('#refresh').click();
-  await frame.locator('#commit-refs .tag').waitFor();
+  await frame.locator('#commit-refs').getByText('v1.0.0', { exact: true }).waitFor();
   assert.deepEqual(await frame.locator('#commit-refs .ref').allTextContents(),[branchNames[0],`origin/${branchNames[0]}`,'v1.0.0']);
   historyFixture.refs.push({name:'refs/heads/alias',hash:commits[0].hash},{name:'refs/heads/alias2',hash:commits[0].hash});
   await frame.locator('#refresh').click();
@@ -1089,7 +1090,7 @@ try {
   }
   // Project switching must reset repository-specific state and ignore out-of-order histories.
   const repositories = [{id:'a'.repeat(64),name:'web',path:'/project/web'}, {id:'b'.repeat(64),name:'app',path:'/project/app'}];
-  const fixtures = repositories.map((repo,index) => ({ repo:repo.path, repositories, branch:'', head:String(index+1).repeat(40),
+  const fixtures = repositories.map((repo,index) => ({ repo:repo.path, repositories, branch:'refs/heads/main', head:String(index+1).repeat(40),
     headName:'main', tips:[String(index+1).repeat(40)], refs:[{name:'refs/heads/main',hash:String(index+1).repeat(40)}], hasMore:false,
     commits:[{hash:String(index+1).repeat(40),parents:[],subject:repo.name,author:'Graph Test',email:'graph@example.invalid',date:'2026-09-20T00:00:00Z'}] }));
   let failRepository=false, holdRepository=false;
@@ -1101,7 +1102,7 @@ try {
     if (request.name==='git_graph_history') {
       if (index===1&&failRepository) return {isError:true,content:[{type:'text',text:'模拟仓库读取失败'}]};
       if (index===1&&holdRepository) {enteredRepository();await repositoryHeld;}
-      return {content:[],structuredContent:{...data,branch:request.arguments.branch||''}};
+      return {content:[],structuredContent:{...data,branch:request.arguments.branch||'refs/heads/main'}};
     }
     if (request.name==='git_graph_commit') {
       assert.equal(request.arguments.hash,data.head,'details must use the selected repository');

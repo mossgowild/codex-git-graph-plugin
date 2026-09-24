@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, readFile, rename, rm, copyFile, realpath, symlink } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile, readFile, rename, rm, copyFile, realpath, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client, type CallToolRequest } from '@modelcontextprotocol/client';
@@ -69,7 +69,7 @@ test('VS Code swimlanes converge at the ancestor, compact lanes, and share seman
   assert.equal(semantic[1].kind, 'HEAD');
   assert.equal(semantic[1].color, 'var(--graph-current)');
   assert.equal(semantic[2].color, 'var(--graph-remote)');
-  assert.equal(semantic[1].references[0].icon, 'target');
+  assert.equal(semantic[1].references[0].name, 'refs/heads/main');
   assert.ok(semantic[1].references.every(ref => ref.color === semantic[1].color));
   assert.equal(layout(commits, {refs, branch:'refs/tags/v1'}).rows[0].references[0].color, undefined);
   assert.ok(graphPaths(rows[2], 28).some(path => path.d === 'M22 0V3A11 11 0 0 1 11 14H11'));
@@ -327,10 +327,11 @@ test('changed UI content gets a new host cache identity', async () => {
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
-test('column layout persists across MCP processes and repositories with bounded app-only writes', async () => {
+test('panel layout persists across MCP processes and repositories with bounded app-only writes', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'git-graph-layout-'));
   const data = join(directory, 'data');
-  const settings = join(data, 'column-widths.json');
+  const settings = join(data, 'panel-layout.json');
+  const legacy = join(data, 'column-widths.json');
   const runner = join(directory, 'server.mjs');
   const clients: Client[] = [];
   try {
@@ -343,6 +344,8 @@ await createServer({ preferencesDirectory: ${JSON.stringify(data)} }).connect(ne
       await client.connect(new StdioClientTransport({ command: process.execPath, args: [runner], cwd }));
       return client;
     };
+    await mkdir(data);
+    await writeFile(legacy, '{broken legacy layout');
     const first = await connect(import.meta.dirname);
     const { tools } = await first.listTools();
     const save = tools.find(tool => tool.name === 'git_graph_save_layout');
@@ -351,43 +354,41 @@ await createServer({ preferencesDirectory: ${JSON.stringify(data)} }).connect(ne
     assert.equal(save.annotations?.destructiveHint, false);
     assert.deepEqual(uiMetadata.parse(save._meta).ui.visibility, ['app']);
     assert.ok(tools.filter(tool => tool !== save).every(tool => tool.annotations?.readOnlyHint));
-    assert.deepEqual((await callTool(first, { name: 'git_graph_layout', arguments: {} })).structuredContent, { widths: {}, panels: {} });
-    const widths = { graph: 100, message: 720, author: 160, date: 90, hash: 100 };
-    assert.ok(!(await callTool(first, { name: 'git_graph_save_layout', arguments: { widths } })).isError);
+    assert.deepEqual((await callTool(first, { name: 'git_graph_layout', arguments: {} })).structuredContent, { panels: {} });
+    const panels = { detailHeight: 380, filesWidth: 180, summaryHeight: 144, detailMaximized: true };
+    assert.ok(!(await callTool(first, { name: 'git_graph_save_layout', arguments: { panels } })).isError);
     await first.close();
     const second = await connect(directory);
-    assert.deepEqual((await callTool(second, { name: 'git_graph_layout', arguments: {} })).structuredContent, { widths, panels: {} });
-    const panels = { detailHeight: 380, filesWidth: 180, summaryHeight: 144,
-      detailMaximized: true };
-    assert.ok(!(await callTool(second, { name: 'git_graph_save_layout', arguments: { widths, panels } })).isError);
-    await writeFile(join(data, 'panel-layout.json'), JSON.stringify({ ...panels, historyCollapsed: true, changesCollapsed: true, detailCollapsed: true, filesCollapsed: true, diffCollapsed: false, summaryCollapsed: true }));
+    assert.deepEqual((await callTool(second, { name: 'git_graph_layout', arguments: {} })).structuredContent, { panels });
+    assert.ok(!(await callTool(second, { name: 'git_graph_save_layout', arguments: { panels } })).isError);
+    await writeFile(settings, JSON.stringify({ ...panels, historyCollapsed: true, changesCollapsed: true, detailCollapsed: true, filesCollapsed: true, diffCollapsed: false, summaryCollapsed: true }));
     assert.deepEqual((await callTool(second, { name: 'git_graph_layout', arguments: {} })).structuredContent.panels, panels);
-    assert.ok(!(await callTool(second, { name: 'git_graph_save_layout', arguments: { widths, panels } })).isError);
-    const savedPanels = await readFile(join(data, 'panel-layout.json'), 'utf8');
+    assert.ok(!(await callTool(second, { name: 'git_graph_save_layout', arguments: { panels } })).isError);
+    const savedPanels = await readFile(settings, 'utf8');
     assert.deepEqual(JSON.parse(savedPanels), panels);
-    const saved = await readFile(settings, 'utf8');
-    for (const args of [{ widths: { graph: -1 } }, { widths: { message: 99 } }, { widths: { author: 2401 } },
-      { widths: { date: 64.5 } }, { widths: { hash: '80' } }, { widths: { extra: 100 } },
-      { widths, panels: { detailHeight: -1 } }, { widths, panels: { filesWidth: 1 } },
-      { widths, panels: { detailMaximized: 'true' } }, { widths, panels: { summaryCollapsed: true } }, { widths, panels: { summaryHeight: 63 } }, { widths, panels: { summaryHeight: 10001 } }, { widths, panels: { repoPath: directory } },
-      { widths: {}, preferencesDirectory: directory }, { widths: {}, repoPath: directory }]) {
+    for (const args of [{}, { widths: {} }, { panels: {}, widths: {} },
+      { panels: { detailHeight: -1 } }, { panels: { filesWidth: 1 } },
+      { panels: { detailMaximized: 'true' } }, { panels: { summaryCollapsed: true } },
+      { panels: { summaryHeight: 63 } }, { panels: { summaryHeight: 10001 } },
+      { panels: { filesWidth: 96.5 } }, { panels: { repoPath: directory } },
+      { panels: {}, preferencesDirectory: directory }, { panels: {}, repoPath: directory }]) {
       assert.equal((await second.callTool({ name: 'git_graph_save_layout', arguments: args })).isError, true);
-      assert.equal(await readFile(settings, 'utf8'), saved);
-      assert.equal(await readFile(join(data, 'panel-layout.json'), 'utf8'), savedPanels);
+      assert.equal(await readFile(settings, 'utf8'), savedPanels);
     }
+    assert.equal(await readFile(legacy, 'utf8'), '{broken legacy layout');
     await writeFile(settings, '{broken');
     const invalid = await second.callTool({ name: 'git_graph_layout', arguments: {} });
     assert.equal(invalid.isError, true);
     assert.equal(invalid.content[0].type, 'text');
     assert.ok('text' in invalid.content[0]);
-    assert.match(invalid.content[0].text, /读取列宽布局失败/);
+    assert.match(invalid.content[0].text, /读取面板布局失败/);
     assert.equal(await readFile(settings, 'utf8'), '{broken');
-    assert.ok(!(await callTool(second, { name: 'git_graph_save_layout', arguments: { widths: {} } })).isError);
+    assert.ok(!(await callTool(second, { name: 'git_graph_save_layout', arguments: { panels: {} } })).isError);
     await second.close();
     const third = await connect(import.meta.dirname);
-    assert.deepEqual((await callTool(third, { name: 'git_graph_layout', arguments: {} })).structuredContent, { widths: {}, panels });
+    assert.deepEqual((await callTool(third, { name: 'git_graph_layout', arguments: {} })).structuredContent, { panels: {} });
     await rm(data, { recursive: true }); await writeFile(data, 'not a directory');
-    assert.equal((await third.callTool({ name: 'git_graph_save_layout', arguments: { widths } })).isError, true);
+    assert.equal((await third.callTool({ name: 'git_graph_save_layout', arguments: { panels } })).isError, true);
     assert.equal(await readFile(data, 'utf8'), 'not a directory');
   } finally {
     for (const client of clients) await client.close();

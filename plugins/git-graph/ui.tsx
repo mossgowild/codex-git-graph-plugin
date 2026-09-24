@@ -4,7 +4,7 @@ import { createPortal, flushSync } from 'preact/compat';
 import { App, applyDocumentTheme, applyHostStyleVariables, applyHostFonts } from '@modelcontextprotocol/ext-apps';
 import { z } from 'zod';
 import { layout, graphPaths, laneX, type GraphRow, type GraphRef } from './graph.ts';
-import { widthsSchema, panelsSchema, type ColumnWidths } from './layout.ts';
+import { panelsSchema } from './layout.ts';
 import { createPanels, type PanelView } from './panels.ts';
 import { Select, type SelectItem } from './select.tsx';
 import { Icon } from './icons.tsx';
@@ -90,7 +90,7 @@ function Highlight({ parts, active }: { parts: Part[]; active: string }) {
   return <>{parts.map((part, index) => typeof part === 'string' ? part : <mark key={index} data-search-match="" data-match-key={part.key} data-active={part.key === active ? '' : undefined}>{part.text}</mark>)}</>;
 }
 function RefBadge({ reference: ref, refs, children }: { reference: Row['references'][number]; refs: GraphRef[]; children?: ComponentChildren }) {
-  return <span class={`ref ${ref.icon}`} title={ref.name} aria-label={refName(ref, refs)} style={ref.color ? { '--ref-color': ref.color } : {}}><span class="ref-name">{children ?? refName(ref, refs)}</span></span>;
+  return <span class="ref" title={ref.name} aria-label={refName(ref, refs)} style={ref.color ? { '--ref-color': ref.color } : {}}><span class="ref-name">{children ?? refName(ref, refs)}</span></span>;
 }
 function CommitRow({ row, selected, focused, open, first, refs, search, active, choose, onFocus }: {
   row: Row; selected: string; focused: string; open: boolean; first: boolean; refs: GraphRef[]; search: RowSearch; active: string; choose(hash: string, keyboard?: boolean): void; onFocus(hash: string): void;
@@ -155,7 +155,7 @@ function ResizeHandle({ id, label, controls, view }: { id: string; label: string
 function GitGraphApp() {
   const [app] = useState(() => new App({ name: 'Git Graph', version: '0.3.0' }));
   const connected = useRef(false), historyVersion = useRef(0), layoutReady = useRef(false), saveVersion = useRef(0);
-  const widths = useRef<ColumnWidths>({}), saveQueue = useRef(Promise.resolve()), panels = useRef<ReturnType<typeof createPanels>>();
+  const saveQueue = useRef(Promise.resolve()), panels = useRef<ReturnType<typeof createPanels>>();
   const [panelView, setPanelView] = useState<PanelView | null>(null);
   const [history, setHistory] = useState<History | null>(null), historyRef = useRef(history); historyRef.current = history;
   const [repositories, setRepositories] = useState<Repository[]>([]);
@@ -202,7 +202,6 @@ function GitGraphApp() {
     setMatchKey(search.matches.find(item => item.hash === hash)?.key || ''); refreshFont();
   }
   function accept(data: History, append = false) {
-    if (data.refs.length === 1) data = { ...data, branch: data.refs[0].name };
     park();
     setHistory(append && historyRef.current ? { ...data, commits: [...historyRef.current.commits, ...data.commits] } : data);
     setContextCwd('');
@@ -234,13 +233,13 @@ function GitGraphApp() {
     try {
       const data = await call('git_graph_layout', {});
       if (!connected.current) return;
-      widths.current = widthsSchema.parse(data.widths); layoutReady.current = true; panels.current?.load(panelsSchema.parse(data.panels)); setLayoutNotice(null);
+      layoutReady.current = true; panels.current?.load(panelsSchema.parse(data.panels)); setLayoutNotice(null);
     } catch (error) { if (connected.current) setLayoutNotice({ message: `无法读取已保存的布局。${message(error)}`, retry: loadLayout }); }
   }
   function saveLayout() {
-    const columnWidths = { ...widths.current }, preferences = panels.current!.preferences, version = ++saveVersion.current;
+    const preferences = panels.current!.preferences, version = ++saveVersion.current;
     saveQueue.current = saveQueue.current.then(async () => {
-      try { await call('git_graph_save_layout', { widths: columnWidths, panels: preferences }); if (version === saveVersion.current) setLayoutNotice(null); }
+      try { await call('git_graph_save_layout', { panels: preferences }); if (version === saveVersion.current) setLayoutNotice(null); }
       catch (error) { if (version === saveVersion.current) setLayoutNotice({ message: `布局尚未保存。${message(error)}`, retry: saveLayout }); }
     });
   }
@@ -284,7 +283,7 @@ function GitGraphApp() {
       const data = result.structuredContent as GraphResult | undefined;
       if (!data) return;
       closeDetail(true); setRepositories(data.repositories); repositoryRef.current = data.repositories.find(repo => repo.path === data.repo)?.id || '';
-      if (data.repo && 'commits' in data) { park(); setHistory(data.refs.length === 1 ? { ...data, branch: data.refs[0].name } : data); setContextCwd(''); }
+      if (data.repo && 'commits' in data) { park(); setHistory(data); setContextCwd(''); }
       else { park(); setHistory(null); setContextCwd(data.contextCwd); setSearchOpen(false); setQuery(''); }
       setHistoryNotice(null); setBranchNotice(null);
       setRepositoryNotice(data.repositoryNotice ? { message: data.repositoryNotice, tone: 'info' } : null);

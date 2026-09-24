@@ -3,7 +3,7 @@
 export type GraphCommit = { hash: string; parents: string[] };
 export type GraphRef = { name: string; hash: string; upstream?: string };
 type Lane = { hash: string; color: string };
-type ColoredRef = GraphRef & { color?: string; icon: string };
+type ColoredRef = GraphRef & { color?: string };
 export type GraphRow<T extends GraphCommit = GraphCommit> = T & {
   column: number; color: string; input: Lane[]; output: Lane[];
   references: ColoredRef[]; kind: string; width: number;
@@ -47,7 +47,6 @@ export function layout<T extends GraphCommit>(commits: T[], { refs = [], head = 
     const color = (commit.parents.length ? output[column]?.color : undefined) || input[column]?.color || currentColor;
     const references = (refsByHash.get(commit.hash) || []).map(ref => ({ ...ref,
       color: refColor(ref) || (!branch || ref.name === branch ? color : undefined),
-      icon: ref.name === current?.name ? 'target' : ref.name.startsWith('refs/remotes/') ? 'cloud' : ref.name.startsWith('refs/tags/') ? 'tag' : 'branch',
     }));
     const priority = (ref: ColoredRef) => ref.name === current?.name ? 1 : ref.name === upstream ? 2 : ref.color ? 4 : 99;
     references.sort((a, b) => priority(a) - priority(b));
@@ -55,7 +54,7 @@ export function layout<T extends GraphCommit>(commits: T[], { refs = [], head = 
     return { ...commit, column, color, input, output, references, kind: commit.hash === head ? 'HEAD' : 'node',
       width: laneWidth * (Math.max(input.length, output.length, column + 1) + 1) };
   });
-  return { rows, continuation: previous.map(lane => lane.hash) };
+  return { rows };
 }
 
 export function graphPaths(row: GraphRow, height = 22) {

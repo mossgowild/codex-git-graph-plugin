@@ -34011,15 +34011,6 @@ async function readProjectRoots(threadId, {
 }
 
 // layout.ts
-var columns = [
-  { id: "graph", label: "\u5173\u7CFB\u56FE", min: 20, initial: 20 },
-  { id: "message", label: "\u63D0\u4EA4", min: 100, initial: 180 },
-  { id: "author", label: "\u4F5C\u8005", min: 56, initial: 100 },
-  { id: "date", label: "\u65E5\u671F", min: 48, initial: 60 },
-  { id: "hash", label: "SHA", min: 56, initial: 64 }
-];
-var maxColumnWidth = 2400;
-var widthsSchema = external_exports.strictObject(Object.fromEntries(columns.map((column) => [column.id, external_exports.number().int().min(column.min).max(maxColumnWidth).optional()])));
 var panelsSchema = external_exports.strictObject({
   detailHeight: external_exports.number().int().min(160).max(1e4).optional(),
   summaryHeight: external_exports.number().int().min(64).max(1e4).optional(),
@@ -34068,14 +34059,12 @@ async function writePreference(directory, file2, value, label) {
 }
 async function readLayout({ preferencesDirectory: directory }) {
   return {
-    widths: await readPreference(directory, "column-widths.json", widthsSchema, "\u5217\u5BBD\u5E03\u5C40"),
     panels: await readPreference(directory, "panel-layout.json", storedPanelsSchema, "\u9762\u677F\u5E03\u5C40")
   };
 }
-async function saveLayout({ widths, panels, preferencesDirectory: directory }) {
-  await writePreference(directory, "column-widths.json", widths, "\u5217\u5BBD\u5E03\u5C40");
-  if (panels) await writePreference(directory, "panel-layout.json", panels, "\u9762\u677F\u5E03\u5C40");
-  return { widths, ...panels ? { panels } : {} };
+async function saveLayout({ panels, preferencesDirectory: directory }) {
+  await writePreference(directory, "panel-layout.json", panels, "\u9762\u677F\u5E03\u5C40");
+  return { panels };
 }
 async function openGraph({ repositories, repositoryNotice, contextCwd = process.cwd() }) {
   const result = repositories.length ? await history({ repoPath: repositories[0].path }) : { repo: null };
@@ -34130,8 +34119,8 @@ var definitions = {
   } }),
   git_graph_save_layout: defineTool({
     title: "\u4FDD\u5B58 Git Graph \u5E03\u5C40",
-    description: "Save global Git Graph column widths and panel layout in plugin data. Does not modify Git repositories.",
-    schema: external_exports.strictObject({ widths: widthsSchema, panels: panelsSchema.optional() }),
+    description: "Save global Git Graph panel layout in plugin data. Does not modify Git repositories.",
+    schema: external_exports.strictObject({ panels: panelsSchema }),
     run: saveLayout,
     annotations: { ...annotations, readOnlyHint: false }
   })

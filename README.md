@@ -62,7 +62,7 @@ codex plugin remove git-graph@codex-git-graph
 
 分隔线使用宿主主题色和两端渐隐高亮，支持 Tab 聚焦、对应方向键调整 8 px、Shift + 方向键微调 1 px、双击或 Home 恢复默认、Escape 取消拖动。尺寸和详情放大状态跨任务保留；窄窗口限制文件列表宽度，为右侧 diff 留出空间，回到宽窗口后恢复已保存宽度。时间线纵向滚动，标题、作者与徽标在窄窗口中省略显示，详情宽度随可视区域调整。
 
-布局只写入插件数据目录 `~/.codex/plugins/data/git-graph-codex-git-graph/`：`panel-layout.json` 保存分区尺寸和详情放大状态。旧版 `column-widths.json` 数据保留，但紧凑列表不再应用列宽。使用 `CODEX_HOME` 时跟随该目录；不写入仓库或 Codex 设置。所有任务共享最近一次保存的布局，已经打开的其他面板在重新打开时读取更新。保存失败会显示错误并提供重试。
+布局只写入插件数据目录 `~/.codex/plugins/data/git-graph-codex-git-graph/`：`panel-layout.json` 保存分区尺寸和详情放大状态。旧版 `column-widths.json` 文件保留原样，不再读取、校验或写入；紧凑列表不应用列宽。使用 `CODEX_HOME` 时跟随该目录；不写入仓库或 Codex 设置。所有任务共享最近一次保存的布局，已经打开的其他面板在重新打开时读取更新。保存失败会显示错误并提供重试。
 
 “在 Codex 中打开工作区文件”打开的是当前内容。不存在的历史文件仍可在 Git Graph 内查看差异；服务器拒绝打开指向仓库外的符号链接及非普通文件。
 
