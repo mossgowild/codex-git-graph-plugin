@@ -9,6 +9,8 @@
 /* Codex supplies these values; keep the panel surface and neutral controls in the host palette. */
 :root {
   color-scheme: light dark;
+  --color-background-primary-ghost-hover: light-dark(var(--codex-hover-light), var(--codex-hover-dark));
+  --color-background-selected: light-dark(var(--color-background-tertiary), rgb(255 255 255 / 5%));
   --bg: var(--color-background-primary, Canvas);
   --fg: var(--color-text-primary, CanvasText);
   --muted: var(--color-text-secondary, GrayText);
@@ -51,9 +53,7 @@
 }
 :root, #detail {
   --surface: color-mix(in oklab, var(--fg) 5%, var(--bg));
-  --hover: color-mix(in oklab, var(--fg) 5%, transparent);
-  --hover-surface: color-mix(in oklab, var(--fg) 5%, var(--bg));
-  --selected: var(--color-background-disabled, color-mix(in oklab, var(--fg) 5%, transparent));
+  --selected: var(--color-background-selected);
 }
 * { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent }
 body { margin: 0 }
@@ -64,7 +64,7 @@ button, input { font: inherit; color: inherit; min-width: 0 }
 button { cursor: var(--interaction-cursor, default) }
 button, input { border: 0; min-height: var(--control-size); padding: var(--space-unit) var(--control-padding-inline); background: transparent }
 button { display: inline-flex; align-items: center; justify-content: center; gap: var(--card-content-inline-inset); border-radius: var(--radius-action) }
-button:not(.step, .commit-row):not(:disabled):hover { background: var(--hover) }
+button:not(.step, .commit-row):not(:disabled):hover { background: var(--color-background-primary-ghost-hover) }
 button:disabled { cursor: default; opacity: .4; pointer-events: none }
 button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
 input { border-radius: var(--radius-action); background: var(--surface); border: 1px solid transparent }
@@ -90,7 +90,7 @@ button svg { width: var(--icon-size); height: var(--icon-size); flex: none }
 #search-count { font-variant-numeric: tabular-nums; color: var(--muted); font-size: var(--font-text-xs-size); white-space: nowrap }
 #search-count:empty { display: none }
 .step { width: var(--control-size); height: var(--control-size); flex: none; padding: calc((var(--control-size) - var(--icon-size)) / 2); border-radius: var(--radius-toolbar); color: var(--muted); background: var(--button-surface, transparent); transition: background-color 150ms ease, color 150ms ease, opacity 150ms ease }
-.step:not(:disabled):hover { background: var(--hover) }
+.step:not(:disabled):hover { background: var(--color-background-primary-ghost-hover) }
 .error { margin: 8px var(--app-inline-inset) 0; padding: 8px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-list); color: var(--fg); display: flex; gap: 8px; align-items: center }
 .error::before { content: '!'; color: var(--danger); font-weight: 700; width: 16px; text-align: center; flex: none }
 .error[data-tone=info]::before { content: 'i'; color: var(--accent) }
@@ -131,10 +131,10 @@ button svg { width: var(--icon-size); height: var(--icon-size); flex: none }
 .commit-row[aria-expanded=true] > .graph .node-edge { stroke-width: 3px }
 .graph circle { stroke: var(--bg) }
 .commit-row:hover .graph circle:first-of-type, .commit-row.is-focused[data-selected] .graph circle:first-of-type { stroke: transparent }
-.commit-row:hover .graph circle:nth-of-type(2) { stroke: var(--hover) }
+.commit-row:hover .graph circle:nth-of-type(2) { stroke: var(--color-background-primary-ghost-hover) }
 #rows:has(.commit-row:focus) .commit-row[data-selected] .graph circle:nth-of-type(2) { stroke: var(--selected) }
 .commit-row.is-focused .graph circle:nth-of-type(2) { stroke: var(--selected-surface, var(--surface)) }
-.commit-row.current:hover .graph circle:last-of-type { fill: var(--hover) }
+.commit-row.current:hover .graph circle:last-of-type { fill: var(--color-background-primary-ghost-hover) }
 .commit-row .message { display: flex; align-items: center; flex: 1; min-width: 0; gap: 8px; overflow: hidden }
 .subject { overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto }
 .author { flex: 0 1 auto; max-width: 20%; margin-left: 12px; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: var(--font-text-xs-size) }

@@ -44,9 +44,9 @@ function applyTheme(context: HostContext) {
   const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1;
   const painter = canvas.getContext('2d', { willReadFrequently: true })!;
   // Flatten translucent host colors so overlapping SVG shapes do not accumulate opacity.
-  for (const name of ['selected-surface', 'graph-current', 'graph-remote', 'graph-1', 'graph-2', 'graph-3', 'graph-4', 'graph-5']) {
+  for (const name of ['selected-surface', 'hover-surface', 'graph-current', 'graph-remote', 'graph-1', 'graph-2', 'graph-3', 'graph-4', 'graph-5']) {
     document.documentElement.style.removeProperty(`--${name}`); painter.clearRect(0, 0, 1, 1);
-    for (const value of ['var(--bg)', `var(--${name === 'selected-surface' ? 'selected' : name})`]) {
+    for (const value of ['var(--bg)', `var(--${name === 'selected-surface' ? 'selected' : name === 'hover-surface' ? 'color-background-primary-ghost-hover' : name})`]) {
       probe.style.color = value; painter.fillStyle = getComputedStyle(probe).color; painter.fillRect(0, 0, 1, 1);
     }
     document.documentElement.style.setProperty(`--${name}`, `rgb(${[...painter.getImageData(0, 0, 1, 1).data].slice(0, 3).join(',')})`);
@@ -183,14 +183,20 @@ function GitGraphApp() {
     if (!result.structuredContent) throw new Error('Git Graph 返回了无效的数据。');
     return result.structuredContent as Awaited<ReturnType<Tools[K]['invoke']>>;
   }, [app]);
-  const fontRefresh = useRef<Promise<void> | null>(null);
-  const refreshFont = useCallback(() => {
-    if (!connected.current || fontRefresh.current) return fontRefresh.current;
-    fontRefresh.current = call('git_graph_appearance', {}).then(data => {
-      if (connected.current) { setFontSize(z.number().min(8).max(24).parse(data.codeFontSize)); setFontNotice(null); }
-    }).catch(error => { if (connected.current) setFontNotice({ message: `无法读取 Codex 代码字号：${message(error)}`, retry: refreshFont }); })
-      .finally(() => { fontRefresh.current = null; });
-    return fontRefresh.current;
+  const appearanceRefresh = useRef<Promise<void> | null>(null);
+  const refreshAppearance = useCallback(() => {
+    if (!connected.current || appearanceRefresh.current) return appearanceRefresh.current;
+    appearanceRefresh.current = call('git_graph_appearance', {}).then(data => {
+      if (connected.current) {
+        const hover = z.object({ light: z.string(), dark: z.string() }).parse(data.ghostHover);
+        document.documentElement.style.setProperty('--codex-hover-light', hover.light);
+        document.documentElement.style.setProperty('--codex-hover-dark', hover.dark);
+        applyTheme({});
+        setFontSize(z.number().min(8).max(24).parse(data.codeFontSize)); setFontNotice(null);
+      }
+    }).catch(error => { if (connected.current) setFontNotice({ message: `无法读取 Codex 外观：${message(error)}`, retry: refreshAppearance }); })
+      .finally(() => { appearanceRefresh.current = null; });
+    return appearanceRefresh.current;
   }, [call]);
   function closeDetail(reset = false) {
     setOpen(false); detailRow.hidden = true; park();
@@ -199,7 +205,7 @@ function GitGraphApp() {
   function choose(hash: string, keyboard = false) {
     if (hash === selected && open && !keyboard) { closeDetail(); return; }
     setSelected(hash); setOpen(true); reveal.current = true; focusRow.current = keyboard;
-    setMatchKey(search.matches.find(item => item.hash === hash)?.key || ''); refreshFont();
+    setMatchKey(search.matches.find(item => item.hash === hash)?.key || ''); refreshAppearance();
   }
   function accept(data: History, append = false) {
     park();
@@ -276,7 +282,7 @@ function GitGraphApp() {
     return () => panels.current?.dispose();
   }, []);
   useEffect(() => {
-    app.onhostcontextchanged = context => { applyTheme(context); setHostTheme(`${context.theme || document.documentElement.dataset.theme}:${Date.now()}`); refreshFont(); };
+    app.onhostcontextchanged = context => { applyTheme(context); setHostTheme(`${context.theme || document.documentElement.dataset.theme}:${Date.now()}`); refreshAppearance(); };
     app.ontoolresult = result => {
       ++historyVersion.current; setBusy(false); setInitial(false); setPending(null);
       if (result.isError) { setHistoryNotice({ message: result.content?.find(item => item.type === 'text')?.text || '打开失败', retry: reloadInitial }); return; }
@@ -296,17 +302,17 @@ function GitGraphApp() {
         if (version === historyVersion.current) app.ontoolresult?.({ content: [], structuredContent: data });
       } catch (error) { if (version === historyVersion.current) { setBusy(false); setInitial(false); setHistoryNotice({ message: message(error), retry: reloadInitial }); } }
     }
-    const visibility = () => { if (!document.hidden) refreshFont(); };
-    window.addEventListener('focus', refreshFont); document.addEventListener('visibilitychange', visibility);
-    const timer = setInterval(() => { if (!document.hidden && openRef.current) refreshFont(); }, 5000);
+    const visibility = () => { if (!document.hidden) refreshAppearance(); };
+    window.addEventListener('focus', refreshAppearance); document.addEventListener('visibilitychange', visibility);
+    const timer = setInterval(() => { if (!document.hidden && openRef.current) refreshAppearance(); }, 5000);
     app.onteardown = async () => { connected.current = false; ++historyVersion.current; clearInterval(timer); await saveQueue.current; render(null, $('root')); return {}; };
     let disposed = false;
     app.connect().then(() => {
       if (disposed) return;
-      connected.current = true; applyTheme(app.getHostContext() || {}); setHostTheme(`${document.documentElement.dataset.theme}:${Date.now()}`); refreshFont();
+      connected.current = true; applyTheme(app.getHostContext() || {}); setHostTheme(`${document.documentElement.dataset.theme}:${Date.now()}`); refreshAppearance();
       setCanOpenFile(Boolean(app.getHostCapabilities()?.experimental?.['openai/files'])); loadLayout();
     }).catch(error => { if (!disposed) { setBusy(false); setInitial(false); setConnectionNotice({ message: `${message(error)} 请重新打开 Git Graph 窗口。` }); } });
-    return () => { disposed = true; connected.current = false; ++historyVersion.current; clearInterval(timer); window.removeEventListener('focus', refreshFont); document.removeEventListener('visibilitychange', visibility); };
+    return () => { disposed = true; connected.current = false; ++historyVersion.current; clearInterval(timer); window.removeEventListener('focus', refreshAppearance); document.removeEventListener('visibilitychange', visibility); };
   }, []);
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {

@@ -33945,7 +33945,17 @@ async function withCodex(run) {
   }
 }
 var codeFontSizeSchema = external_exports.number().min(8).max(24).default(12);
-function createCodeFontSizeReader({
+var chromeThemeSchema = external_exports.object({ ink: external_exports.string().regex(/^#[0-9a-f]{6}$/i).optional(), contrast: external_exports.number().min(0).max(100).optional() });
+function ghostHover(theme, dark) {
+  const baseline = dark ? 60 : 45, contrast = theme?.contrast ?? baseline;
+  const adjusted = contrast / 100 + (contrast - baseline) / 60 * 0.7;
+  const normalized = contrast <= baseline ? adjusted : baseline / 100 + (adjusted - baseline / 100) * 2;
+  const alpha = Number(Math.min(1, Math.max(0, (dark ? 0.06 : 0.04) + normalized * 0.03)).toFixed(3));
+  const ink = theme?.ink ?? (dark ? "#ffffff" : "#1a1c1f");
+  const rgb = [1, 3, 5].map((offset) => parseInt(ink.slice(offset, offset + 2), 16));
+  return `rgba(${rgb.join(", ")}, ${alpha})`;
+}
+function createAppearanceReader({
   configPath = join(process.env.CODEX_HOME || join(homedir(), ".codex"), "config.toml"),
   readConfig = () => withCodex((request) => request("config/read", { includeLayers: false }))
 } = {}) {
@@ -33956,8 +33966,11 @@ function createCodeFontSizeReader({
       throw error62;
     });
     if (cached2?.stamp === stamp) return cached2.value;
-    const { config: config2 } = external_exports.object({ config: external_exports.object({ desktop: external_exports.object({ codeFontSize: external_exports.unknown().optional() }).nullish() }) }).parse(await readConfig());
-    const value = { codeFontSize: codeFontSizeSchema.parse(config2.desktop?.codeFontSize) };
+    const { config: config2 } = external_exports.object({ config: external_exports.object({ desktop: external_exports.object({ codeFontSize: external_exports.unknown().optional(), appearanceDarkChromeTheme: chromeThemeSchema.optional(), appearanceLightChromeTheme: chromeThemeSchema.optional() }).nullish() }) }).parse(await readConfig());
+    const value = {
+      codeFontSize: codeFontSizeSchema.parse(config2.desktop?.codeFontSize),
+      ghostHover: { light: ghostHover(config2.desktop?.appearanceLightChromeTheme, false), dark: ghostHover(config2.desktop?.appearanceDarkChromeTheme, true) }
+    };
     cached2 = { stamp, value };
     return value;
   };
@@ -34070,7 +34083,7 @@ async function openGraph({ repositories, repositoryNotice, contextCwd = process.
   const result = repositories.length ? await history({ repoPath: repositories[0].path }) : { repo: null };
   return { ...result, contextCwd, repositories, repositoryNotice };
 }
-var readCodeFontSize = createCodeFontSizeReader();
+var readAppearance = createAppearanceReader();
 function defineTool(definition) {
   return { ...definition, async invoke(args, directory, context) {
     const input2 = definition.schema.parse(args);
@@ -34085,7 +34098,7 @@ function defineTool(definition) {
   } };
 }
 var definitions = {
-  git_graph_appearance: defineTool({ title: "\u8BFB\u53D6 Codex \u4EE3\u7801\u5B57\u53F7", schema: external_exports.strictObject({}), run: readCodeFontSize }),
+  git_graph_appearance: defineTool({ title: "\u8BFB\u53D6 Codex \u5B57\u53F7\u4E0E\u60AC\u505C\u914D\u8272", schema: external_exports.strictObject({}), run: readAppearance }),
   git_graph: defineTool({
     title: "Git Graph",
     description: "Browse Git history for the current Codex task working directory. Read-only.",

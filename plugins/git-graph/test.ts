@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { Client, type CallToolRequest } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { git, history, commit, diff, repository, workspaceFile } from './git.ts';
-import { createCodeFontSizeReader, type WithCodex } from './codex.ts';
+import { createAppearanceReader, type WithCodex } from './codex.ts';
 import { layout, graphPaths, colors, type GraphCommit } from './graph.ts';
 import { readProjectRoots } from './project.ts';
 import type { definitions } from './server.ts';
@@ -480,27 +480,33 @@ test('project roots use the selected project before falling back to Home', async
 });
 
 
-test('Codex code size follows configuration changes, defaults and read failures', async () => {
+test('Codex appearance follows configuration changes, defaults and read failures', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'git-graph-font-'));
   const configPath = join(directory, 'config.toml');
-  let desktop: { codeFontSize?: number } = {}, reads = 0;
+  let desktop: { codeFontSize?: number; appearanceDarkChromeTheme?: { ink: string; contrast: number } } = {}, reads = 0;
   let failure: Error | null | undefined;
-  const read = createCodeFontSizeReader({ configPath, readConfig: async () => {
+  const read = createAppearanceReader({ configPath, readConfig: async () => {
     reads++; if (failure) throw failure; return { config: { desktop } };
   } });
+  const ghostHover = { light: 'rgba(26, 28, 31, 0.053)', dark: 'rgba(255, 255, 255, 0.078)' };
   try {
-    assert.deepEqual(await read(), { codeFontSize: 12 });
+    assert.deepEqual(await read(), { codeFontSize: 12, ghostHover });
     await read(); assert.equal(reads, 1, 'unchanged files do not launch another config reader');
     desktop = { codeFontSize: 18 }; await writeFile(configPath, 'changed');
-    assert.deepEqual(await read(), { codeFontSize: 18 });
+    assert.deepEqual(await read(), { codeFontSize: 18, ghostHover });
     desktop = { codeFontSize: 24 }; await writeFile(configPath, 'another change');
-    assert.deepEqual(await read(), { codeFontSize: 24 });
+    assert.deepEqual(await read(), { codeFontSize: 24, ghostHover });
     desktop = { codeFontSize: 100 }; await writeFile(configPath, 'invalid code size');
     await assert.rejects(read());
     failure = new Error('configuration unavailable'); await assert.rejects(read(), /configuration unavailable/);
     failure = null; desktop = { codeFontSize: 16 };
-    assert.deepEqual(await read(), { codeFontSize: 16 }, 'failed reads are not cached');
+    assert.deepEqual(await read(), { codeFontSize: 16, ghostHover }, 'failed reads are not cached');
+    desktop = { appearanceDarkChromeTheme: { ink: '#fcfcfc', contrast: 50 } }; await writeFile(configPath, 'custom theme');
+    const customHover = (await read()).ghostHover.dark;
+    assert.equal(customHover, 'rgba(252, 252, 252, 0.071)');
+    const alpha = Number(customHover.split(', ').at(-1)!.slice(0, -1));
+    assert.equal(Math.round(252 * alpha + 17 * (1 - alpha)), 34, 'native screenshot: hover over #111111 is #222222');
     desktop = {}; await rm(configPath);
-    assert.deepEqual(await read(), { codeFontSize: 12 });
+    assert.deepEqual(await read(), { codeFontSize: 12, ghostHover });
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

@@ -9,7 +9,7 @@ import { basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { history, commit, diff, workspaceFile, repository, repositoryInfo } from './git.ts';
 import { readProjectRoots } from './project.ts';
-import { createCodeFontSizeReader } from './codex.ts';
+import { createAppearanceReader } from './codex.ts';
 import { panelsSchema, storedPanelsSchema, type PanelLayout } from './layout.ts';
 import lightIcon from './assets/git-branch.svg';
 import darkIcon from './assets/git-branch-dark.svg';
@@ -57,7 +57,7 @@ async function openGraph({ repositories, repositoryNotice, contextCwd = process.
   const result = repositories.length ? await history({ repoPath: repositories[0].path }) : { repo: null };
   return { ...result, contextCwd, repositories, repositoryNotice };
 }
-const readCodeFontSize = createCodeFontSizeReader();
+const readAppearance = createAppearanceReader();
 // Keep each schema paired with its operation when dispatching tools by name.
 function defineTool<S extends z.ZodObject, R extends Record<string, unknown>>(definition: {
   title: string; description?: string; schema: S;
@@ -78,7 +78,7 @@ function defineTool<S extends z.ZodObject, R extends Record<string, unknown>>(de
 }
 
 export const definitions = {
-  git_graph_appearance: defineTool({ title: '读取 Codex 代码字号', schema: z.strictObject({}), run: readCodeFontSize }),
+  git_graph_appearance: defineTool({ title: '读取 Codex 字号与悬停配色', schema: z.strictObject({}), run: readAppearance }),
   git_graph: defineTool({ title: 'Git Graph', description: 'Browse Git history for the current Codex task working directory. Read-only.',
     schema: z.strictObject({}), run: openGraph }),
   git_graph_history: defineTool({ title: '读取提交历史', schema: z.strictObject({ repository: repositoryId, branch: z.string().max(1024).optional(),

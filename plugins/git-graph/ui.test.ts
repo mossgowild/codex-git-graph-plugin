@@ -39,7 +39,7 @@ let editorCalls = 0;
 async function callTool(request: Request) {
   if (request.name === 'git_graph_editor') editorCalls++;
   if (intercept) { const result=await intercept(request); if (result) return result; }
-  if (request.name === 'git_graph_appearance') return { content: [], structuredContent: { codeFontSize } };
+  if (request.name === 'git_graph_appearance') return { content: [], structuredContent: { codeFontSize, ghostHover: { light: "rgba(26, 28, 31, 0.053)", dark: "rgba(230, 237, 243, 0.078)" } } };
   if (historyClient) {
     if (request.name === 'git_graph') {
       const initial = await historyClient.callTool(request);
@@ -57,7 +57,7 @@ async function callTool(request: Request) {
 const script = `import {AppBridge,PostMessageTransport} from '@modelcontextprotocol/ext-apps/app-bridge';
 import {injectPreviewTheme,observePreviewTheme} from './preview-theme.ts';
 const frame=document.querySelector('iframe')!;
-const variables={'--color-background-primary':'#0d1117','--color-background-secondary':'#292d33','--color-text-primary':'#e6edf3','--color-text-secondary':'#7d838b','--color-text-disabled':'rgba(230,237,243,.498)','--color-border-primary':'#3a424d','--color-border-secondary':'#23282f','--color-ring-primary':'#76a7f3','--color-text-info':'#64a4e0','--color-text-success':'#3fb950','--color-text-danger':'#f85149','--font-sans':'system-ui','--font-mono':'ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace','--font-text-sm-size':'13px','--font-text-xs-size':'12px','--font-weight-normal':'430','--border-radius-xs':'4px','--border-radius-sm':'6px','--border-radius-md':'8px','--border-radius-lg':'10px','--border-radius-xl':'12px','--shadow-lg':'0px 4px 8px -2px #0000001a','--color-background-disabled':'rgba(230,237,243,.09)','--color-background-info':'rgba(100,164,224,.15)'};
+const variables={'--color-background-primary':'#0d1117','--color-background-secondary':'#292d33','--color-background-tertiary':'#20242b','--color-text-primary':'#e6edf3','--color-text-secondary':'#7d838b','--color-text-disabled':'rgba(230,237,243,.498)','--color-border-primary':'#3a424d','--color-border-secondary':'#23282f','--color-ring-primary':'#76a7f3','--color-text-info':'#64a4e0','--color-text-success':'#3fb950','--color-text-danger':'#f85149','--font-sans':'system-ui','--font-mono':'ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace','--font-text-sm-size':'13px','--font-text-xs-size':'12px','--font-weight-normal':'430','--border-radius-xs':'4px','--border-radius-sm':'6px','--border-radius-md':'8px','--border-radius-lg':'10px','--border-radius-xl':'12px','--shadow-lg':'0px 4px 8px -2px #0000001a','--color-background-disabled':'rgba(230,237,243,.09)','--color-background-info':'rgba(100,164,224,.15)'};
 const bridge=new AppBridge(null,{name:'UI test host',version:'1.0.0'},{serverTools:{},...(location.search.includes('file-open')?{experimental:{'openai/files':{}}}:{})},{hostContext:{theme:'dark',styles:{variables},displayMode:'fullscreen',containerDimensions:{maxHeight:2000}}});
 async function call(params){return(await fetch('/call',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(params)})).json();}
 bridge.oncalltool=call;
@@ -65,7 +65,7 @@ bridge.oninitialized=async()=>{await bridge.sendToolInput({arguments:{}});await 
 let previewContext={theme:'dark',styles:{variables}};
 injectPreviewTheme(previewContext);
 window.codeFont=values=>{previewContext={...previewContext,styles:{variables:{...previewContext.styles.variables,...values}}};injectPreviewTheme(previewContext);};
-window.light=()=>{previewContext={theme:'light',styles:{variables:{...variables,'--color-background-primary':'#ffffff','--color-background-secondary':'#f5f5f5','--color-text-primary':'#202020','--color-text-secondary':'#777777','--color-border-primary':'#c9c9c9','--color-border-secondary':'#dddddd'}}};injectPreviewTheme(previewContext);};
+window.light=()=>{previewContext={theme:'light',styles:{variables:{...variables,'--color-background-primary':'#ffffff','--color-background-secondary':'#f5f5f5','--color-background-tertiary':'#eeeeee','--color-text-primary':'#202020','--color-text-secondary':'#777777','--color-border-primary':'#c9c9c9','--color-border-secondary':'#dddddd'}}};injectPreviewTheme(previewContext);};
 await bridge.connect(new PostMessageTransport(frame.contentWindow,frame.contentWindow));
 observePreviewTheme(context=>bridge.sendHostContextChange(context),missing=>{throw new Error('Missing preview theme: '+missing.join(','));});frame.src='/frame.html';`;
 const built = await build({ stdin: { contents: script, resolveDir: root, sourcefile: 'host.ts', loader: 'ts' }, bundle:true,format:'esm',write:false });
@@ -486,12 +486,32 @@ try {
   assert.equal(badgeRadius,'3px');
   assert.equal(await groupedRow.locator('.ref').first().evaluate(el=>getComputedStyle(el).cornerShape),'superellipse(1.5)');
   await page.evaluate(()=>window.codeFont({'--border-radius-xs':'4px','--border-radius-sm':'6px','--border-radius-md':'8px','--border-radius-lg':'10px','--border-radius-xl':'12px'}));
+  await frame.locator('#refresh').hover();
+  await frame.locator('#refresh').evaluate(async el => {
+    await Promise.all(el.getAnimations().map(animation => animation.finished));
+  });
+  assert.equal(await frame.locator('.commit-row[data-selected]').evaluate(el => getComputedStyle(el, '::before').backgroundColor),
+    'rgb(25, 29, 34)', 'dark selection uses the native white 5% overlay independently of host ink and disabled colors');
+  const darkHover = await frame.locator('#refresh').evaluate(el => getComputedStyle(el).backgroundColor);
+  assert.match(darkHover, /^rgba\(230, 237, 243, /);
+  assert.ok(Math.abs(Number(darkHover.split(', ').at(-1)!.slice(0, -1)) - 0.078) < 1 / 255,
+    'toolbar consumes the dark hover token within browser alpha quantization');
   const badge=groupedRow.locator('.ref').first();
   const darkBadge=await badge.evaluate(el=>getComputedStyle(el).backgroundColor);
   const box=(await groupedRow.boundingBox())!;await page.mouse.move(box.x+20,box.y+11);
   assert.equal(await badge.evaluate(el=>getComputedStyle(el).backgroundColor),darkBadge,'hover does not change badge fill');
   await page.evaluate(()=>window.light());
   assert.notEqual(await badge.evaluate(el=>getComputedStyle(el).backgroundColor),darkBadge,'badge follows the host surface');
+  await frame.locator('#refresh').hover();
+  await frame.locator('#refresh').evaluate(async el => {
+    await Promise.all(el.getAnimations().map(animation => animation.finished));
+  });
+  assert.equal(await frame.locator('.commit-row[data-selected]').evaluate(el => getComputedStyle(el, '::before').backgroundColor),
+    'rgb(238, 238, 238)', 'light selection follows the host tertiary surface after a theme change');
+  const lightHover = await frame.locator('#refresh').evaluate(el => getComputedStyle(el).backgroundColor);
+  assert.match(lightHover, /^rgba\(26, 28, 31, /);
+  assert.ok(Math.abs(Number(lightHover.split(', ').at(-1)!.slice(0, -1)) - 0.053) < 1 / 255,
+    'host theme changes select the light hover token within browser alpha quantization');
   await codexRows();
   await headRow.hover();await looksFilled(headRow);
   await page.mouse.move(0,0);
@@ -547,7 +567,7 @@ try {
   await page.mouse.move(0,0);
   const selectedStroke=await graphRow('f').evaluate(el=>getComputedStyle(el,'::before').backgroundColor);
   const activeStroke=(await strokes(graphRow('f')))[1];
-  assert.notEqual(activeStroke,selectedStroke,'active selection preserves alpha; inactive selection uses the flattened surface');
+  assert.equal(activeStroke,selectedStroke,'light selection uses the opaque native surface for both active and inactive nodes');
   assert.deepEqual(await strokes(graphRow('f')),['rgba(0, 0, 0, 0)',activeStroke]);
   await frame.locator('#toggle-search').press(process.platform==='darwin'?'Meta+f':'Control+f');
   assert.deepEqual(await strokes(graphRow('f')),['rgba(0, 0, 0, 0)',selectedStroke],'logical row focus persists when entering controls');
