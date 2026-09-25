@@ -45,7 +45,7 @@ test('built plugin launcher runs from an isolated cache without development depe
   await checkLauncher(import.meta.dirname);
 });
 
-test('installed plugin launcher falls back to Home without a selected project', { timeout: 10000 }, async () => {
+test('installed plugin launcher uses its working directory without a selected project', { timeout: 10000 }, async () => {
   const codexHome = process.env.CODEX_HOME || join(homedir(), '.codex');
   const { version } = JSON.parse(await readFile(new URL('.codex-plugin/plugin.json', import.meta.url), 'utf8'));
   await checkLauncher(await realpath(join(codexHome, 'plugins/cache/codex-git-graph/git-graph', version)));

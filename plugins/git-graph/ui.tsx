@@ -27,10 +27,20 @@ const message = (error: unknown) => error instanceof Error ? error.message : Str
 const refsLabel = (ref: { name: string }) => ref.name.replace(/^refs\/(heads|remotes|tags)\//, '');
 
 function Notice({ id, value, dismiss }: { id: string; value: NoticeValue; dismiss?: () => void }) {
-  return <div id={id} class="error" hidden={!value} data-tone={value?.tone || 'error'} role={value?.tone === 'info' ? 'status' : 'alert'}>
-    <span>{value?.message}</span>{value?.retry && <button id={`${id}-retry`} onClick={value.retry}>重试</button>}
-    {dismiss && <button class="step" aria-label="关闭提示" onClick={dismiss}><Icon name="dismiss-error" /></button>}
-  </div>;
+  const info = value?.tone === 'info';
+  return <div class="notice-scope flex-none p-2" hidden={!value}><aside id={id} class="error" hidden={!value} data-tone={info ? 'info' : 'error'} role={info ? 'status' : 'alert'} aria-live={info ? 'polite' : 'assertive'}>
+    <div class="notice-main flex w-full min-w-0 items-start gap-3 @min-[560px]:items-center"><span class="notice-icon flex flex-none pt-0.5 [&_svg]:size-[18px]"><Icon name={info ? 'notice-info' : 'notice-error'} /></span>
+      <div class="notice-content flex min-w-0 flex-1 flex-col @min-[560px]:flex-row @min-[560px]:items-center @min-[560px]:justify-between @min-[560px]:gap-8"><span class="notice-message min-w-0 flex-1 whitespace-pre-wrap wrap-anywhere leading-[1.625] text-pretty">{value?.message}</span>
+        {value?.retry && <div class="notice-actions mt-2 flex self-start gap-2 @min-[560px]:mt-0 @min-[560px]:flex-none @min-[560px]:self-auto"><button id={`${id}-retry`} onClick={value.retry}>重试</button></div>}
+      </div>
+    </div>{dismiss && <button class="step" aria-label="关闭提示" onClick={dismiss}><Icon name="dismiss-error" /></button>}
+  </aside></div>;
+}
+function EmptyState({ id, hidden, title, description, class: sizing = 'min-h-full' }: { id: string; hidden?: boolean; title: string; description: string; class?: string }) {
+  return <div id={id} class={`empty flex w-full flex-col items-center justify-center px-3 py-6 wrap-anywhere ${sizing}`} hidden={hidden} role="status"><div class="empty-content flex w-full max-w-[36rem] flex-col items-center justify-center gap-3 text-center">
+    <div class="empty-illustration pointer-events-none flex items-center justify-center text-tertiary [&_svg]:h-18 [&_svg]:w-auto"><Icon name="empty-diff" /></div>
+    <div class="empty-copy flex flex-col items-center gap-2"><strong class="text-ui-lg leading-6 font-ui-medium text-content">{title}</strong><span class="text-ui-sm leading-ui text-description whitespace-pre-wrap">{description}</span></div>
+  </div></div>;
 }
 function applyTheme(context: HostContext) {
   if (context.theme) applyDocumentTheme(context.theme);
@@ -90,7 +100,7 @@ function Highlight({ parts, active }: { parts: Part[]; active: string }) {
   return <>{parts.map((part, index) => typeof part === 'string' ? part : <mark key={index} data-search-match="" data-match-key={part.key} data-active={part.key === active ? '' : undefined}>{part.text}</mark>)}</>;
 }
 function RefBadge({ reference: ref, refs, children }: { reference: Row['references'][number]; refs: GraphRef[]; children?: ComponentChildren }) {
-  return <span class="ref" title={ref.name} aria-label={refName(ref, refs)} style={ref.color ? { '--ref-color': ref.color } : {}}><span class="ref-name">{children ?? refName(ref, refs)}</span></span>;
+  return <span class="ref" title={ref.name} aria-label={refName(ref, refs)} style={ref.color ? { '--ref-color': ref.color } : {}}><span class="ref-name min-w-0 overflow-hidden text-ellipsis">{children ?? refName(ref, refs)}</span></span>;
 }
 function CommitRow({ row, selected, focused, open, first, refs, search, active, choose, onFocus }: {
   row: Row; selected: string; focused: string; open: boolean; first: boolean; refs: GraphRef[]; search: RowSearch; active: string; choose(hash: string, keyboard?: boolean): void; onFocus(hash: string): void;
@@ -103,42 +113,41 @@ function CommitRow({ row, selected, focused, open, first, refs, search, active, 
     tabIndex={selected === row.hash || (!selected && first) ? 0 : -1}
     title={`${row.subject}\n${row.author} <${row.email}>\n${new Date(row.date).toLocaleString('zh-CN')}\n${row.hash}`}
     onClick={() => choose(row.hash)} onFocus={() => onFocus(row.hash)}>
-    <svg class="graph" style={{ width: row.width }} width={row.width} height={30} aria-hidden="true">
+    <svg class="graph mr-[4px] block h-[30px] flex-none self-stretch" style={{ width: row.width }} width={row.width} height={30} aria-hidden="true">
       {paths.map((path, index) => <path key={index} d={path.d} stroke={path.color} fill="none" stroke-width="1" stroke-linecap="round" class={edge && index === paths.length - 1 ? 'node-edge' : undefined} />)}
       {row.kind === 'HEAD' ? <>{circle(7, 2)}{circle(2, 4, true)}</> : row.parents.length > 1 ? <>{circle(6, 2)}{circle(3, 2)}</> : circle(5, 2)}
     </svg>
-    <span class="message"><span class="badges">{row.references.map((ref, i) => <RefBadge key={ref.name} reference={ref} refs={refs}><Highlight parts={search.refs[i]} active={active} /></RefBadge>)}</span>
-      <span class="subject" title={row.subject}><Highlight parts={search.subject} active={active} /></span>
-      {search.context && <span class="search-context" title={search.context.title}>{search.context.label} <span><Highlight parts={search.context.parts} active={active} /></span></span>}
-    </span><span class="author" title={`${row.author} <${row.email}>`}><Highlight parts={search.author} active={active} /></span>
+    <span class="message flex min-w-0 flex-1 items-center gap-[8px] overflow-hidden"><span class="badges flex min-w-0 max-w-1/2 flex-initial items-center gap-[4px] overflow-hidden empty:hidden">{row.references.map((ref, i) => <RefBadge key={ref.name} reference={ref} refs={refs}><Highlight parts={search.refs[i]} active={active} /></RefBadge>)}</span>
+      <span class="subject flex-initial overflow-hidden text-ellipsis" title={row.subject}><Highlight parts={search.subject} active={active} /></span>
+      {search.context && <span class="search-context min-w-0 max-w-[45%] flex-initial overflow-hidden text-ellipsis text-ui-xs text-muted" title={search.context.title}>{search.context.label} <span><Highlight parts={search.context.parts} active={active} /></span></span>}
+    </span><span class="author ml-[12px] max-w-1/5 flex-initial overflow-hidden text-ellipsis text-ui-xs text-muted" title={`${row.author} <${row.email}>`}><Highlight parts={search.author} active={active} /></span>
   </button>;
 }
-function Header({ history, repositories, repository, pending, busy, initial, searchOpen, query, match, count, branchNotice, onBranch, onRepository, refresh, toggleSearch, search, step }: {
+function Header({ history, repositories, repository, pending, busy, initial, searchOpen, query, match, count, onBranch, onRepository, refresh, toggleSearch, search, step }: {
   history: History | null; repositories: Repository[]; repository: string; pending: { branch: string; repository: string } | null; busy: boolean; initial: boolean;
-  searchOpen: boolean; query: string; match: number; count: number; branchNotice: NoticeValue;
+  searchOpen: boolean; query: string; match: number; count: number;
   onBranch(value: string): void; onRepository(value: string): void; refresh(): void; toggleSearch(): void; search(value: string): void; step(direction: number): void;
 }) {
   const refs = history?.refs || [];
   const groups: SelectItem[] = [['本地分支', 'refs/heads/'], ['远程分支', 'refs/remotes/'], ['标签', 'refs/tags/']].map(([label, prefix]) => ({ label,
     options: refs.filter(ref => ref.name.startsWith(prefix)).map(ref => ({ label: refName(ref, refs), value: ref.name })) })).filter(group => group.options.length);
   const items = refs.length === 1 ? groups.flatMap(group => 'options' in group ? group.options : [group]) : [{ label: '所有分支与标签', value: '' }, ...groups];
-  return <header id="header">
-    <div id="toolbar-skeleton" hidden={!initial} role="status" aria-label="正在加载提交历史"><span class="skeleton-line" aria-hidden="true" /><span class="skeleton-block" aria-hidden="true" /></div>
-    <div id="toolbar" hidden={!history}>
-      <Select id="repository" aria-label="切换项目内仓库" icon="folder-light-16" value={pending?.repository ?? repository} disabled={repositories.length < 2}
+  return <header id="header" class="flex-none border-0 border-b border-solid border-outline">
+    <div id="toolbar-skeleton" class="flex min-h-10 items-center gap-[8px] px-app py-content" hidden={!initial} role="status" aria-label="正在加载提交历史"><span class="skeleton-line h-[16px] w-[112px]" aria-hidden="true" /><span class="skeleton-block ml-auto size-[28px]" aria-hidden="true" /></div>
+    <div id="toolbar" class="flex min-h-10 items-center gap-1 px-app py-content" hidden={!history}>
+      <Select id="repository" class="max-w-[34%]" aria-label="切换任务仓库" icon="folder-light-16" value={pending?.repository ?? repository} disabled={repositories.length < 2}
         title={repositories.find(repo => repo.id === repository)?.displayPath || history?.repo}
         items={repositories.map(repo => ({ label: repositories.some(other => other.id !== repo.id && other.name === repo.name) ? (repo.displayPath || repo.path) : repo.name, value: repo.id, title: repo.displayPath || repo.path }))}
         onChange={event => onRepository(event.currentTarget.value)} />
-      <Select id="branch" aria-label="筛选分支" icon="branch-light-16" items={items} value={pending?.branch ?? history?.branch ?? ''}
+      <Select id="branch" class="max-w-1/2" aria-label="筛选分支" icon="branch-light-16" items={items} value={pending?.branch ?? history?.branch ?? ''}
         disabled={refs.length < 2 || (!!pending && pending.repository !== repository)} onChange={event => onBranch(event.currentTarget.value)} />
-      <span class="spacer" /><button id="toggle-search" class="step" title="搜索提交" aria-label="搜索提交" aria-controls="searchbar" aria-expanded={searchOpen} onClick={toggleSearch}><Icon name="toggle-search" /></button>
+      <span class="flex-1" /><button id="toggle-search" class="step" title="搜索提交" aria-label="搜索提交" aria-controls="searchbar" aria-expanded={searchOpen} onClick={toggleSearch}><Icon name="toggle-search" /></button>
       <button id="refresh" class="step" title="重新读取仓库" aria-label="刷新" onClick={refresh}><Icon name="refresh" /></button>
     </div>
-    <Notice id="branch-notice" value={branchNotice} />
-    <div id="searchbar" hidden={!searchOpen} inert={busy && !!pending}>
-      <label id="search-field"><Icon name="toggle-search" /><input id="search" type="search" aria-label="搜索已加载的提交" placeholder="搜索提交、作者或 SHA" value={query}
+    <div id="searchbar" class="flex items-center gap-1 px-app pb-2" hidden={!searchOpen} inert={busy && !!pending}>
+      <label id="search-field" class="flex h-control min-w-0 flex-1 items-center gap-content rounded-control border border-solid border-outline bg-soft-alpha pl-control-x text-ui-md leading-[18px] text-muted [&>svg]:size-icon [&>svg]:flex-none"><Icon name="toggle-search" /><input id="search" class="h-full min-h-0 w-full flex-1 rounded-none border-0 bg-transparent p-0 pr-content text-content outline-none" type="search" aria-label="搜索已加载的提交" placeholder="搜索提交、作者或 SHA" value={query}
         onInput={event => search(event.currentTarget.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); step(event.shiftKey ? -1 : 1); } }} /></label>
-      <span id="search-count" role="status">{query.trim() ? `${match < 0 ? 0 : match + 1}/${count} · 已加载历史` : ''}</span>
+      <span id="search-count" class="text-ui-xs text-muted tabular-nums whitespace-nowrap empty:hidden" role="status">{query.trim() ? `${match < 0 ? 0 : match + 1}/${count} · 已加载历史` : ''}</span>
       <button class="step" id="prev-match" disabled={!count} title="上一个匹配" aria-label="上一个匹配" onClick={() => step(-1)}><Icon name="prev-match" /></button>
       <button class="step" id="next-match" disabled={!count} title="下一个匹配" aria-label="下一个匹配" onClick={() => step(1)}><Icon name="next-match" /></button>
     </div>
@@ -168,7 +177,7 @@ function GitGraphApp() {
   const [historyNotice, setHistoryNotice] = useState<NoticeValue>(null), [repositoryNotice, setRepositoryNotice] = useState<NoticeValue>(null);
   const [branchNotice, setBranchNotice] = useState<NoticeValue>(null), [layoutNotice, setLayoutNotice] = useState<NoticeValue>(null);
   const [hostTheme, setHostTheme] = useState(''), [fontSize, setFontSize] = useState<number>(), [canOpenFile, setCanOpenFile] = useState(false);
-  const [detailRow] = useState(() => { const el = document.createElement('div'); el.id = 'detail-row'; el.hidden = true; return el; });
+  const [detailRow] = useState(() => { const el = document.createElement('div'); el.id = 'detail-row'; el.className = 'relative py-0.5 pr-[12px] pl-[calc(var(--graph-width,22px)+12px)]'; el.hidden = true; return el; });
   const parking = useRef<HTMLDivElement>(null), slots = useRef(new Map<string, HTMLDivElement>()), reveal = useRef(false), focusRow = useRef(false), searchFocus = useRef<string>();
   const graph = useMemo(() => layout(history?.commits || [], history || {}).rows, [history]);
   const search = useMemo(() => searchRows(graph, history?.refs || [], searchOpen ? query.trim() : ''), [graph, searchOpen, query]);
@@ -191,6 +200,11 @@ function GitGraphApp() {
         const hover = z.object({ light: z.string(), dark: z.string() }).parse(data.ghostHover);
         document.documentElement.style.setProperty('--codex-hover-light', hover.light);
         document.documentElement.style.setProperty('--codex-hover-dark', hover.dark);
+        for (const mode of ['light', 'dark'] as const) {
+          const colors = z.object({ primarySoft: z.string(), textTertiary: z.string() }).parse(data.noticeColors[mode]);
+          document.documentElement.style.setProperty(`--codex-primary-soft-${mode}`, colors.primarySoft);
+          document.documentElement.style.setProperty(`--codex-text-tertiary-${mode}`, colors.textTertiary);
+        }
         applyTheme({});
         setFontSize(z.number().min(8).max(24).parse(data.codeFontSize)); setFontNotice(null);
       }
@@ -234,6 +248,23 @@ function GitGraphApp() {
     } catch (error) {
       if (version === historyVersion.current) setHistoryNotice({ message: message(error), retry: () => loadHistory(append, branch, targetRepo) });
     } finally { if (version === historyVersion.current) { setBusy(false); setPending(null); setInitial(false); } }
+  }
+  async function refreshGraph() {
+    const version = ++historyVersion.current;
+    setBusy(true); setHistoryNotice(null); setBranchNotice(null);
+    try {
+      const data = await call('git_graph', { selectedRepository: repositoryRef.current || undefined, branch: historyRef.current?.branch });
+      if (version !== historyVersion.current) return;
+      const changed = data.repo !== historyRef.current?.repo;
+      setRepositories(data.repositories);
+      repositoryRef.current = data.repositories.find(repo => repo.path === data.repo)?.id || '';
+      if (changed) { closeDetail(true); setQuery(''); setMatchKey(''); }
+      if (data.repo && 'commits' in data) accept(data);
+      else { park(); setHistory(null); setContextCwd(data.contextCwd); setSearchOpen(false); }
+      setRepositoryNotice(data.repositoryNotice ? { message: data.repositoryNotice, tone: 'info' } : null);
+      setRefreshVersion(value => value + 1);
+    } catch (error) { if (version === historyVersion.current) setHistoryNotice({ message: message(error), retry: refreshGraph }); }
+    finally { if (version === historyVersion.current) { setBusy(false); setInitial(false); setPending(null); } }
   }
   async function loadLayout() {
     try {
@@ -325,27 +356,26 @@ function GitGraphApp() {
     document.addEventListener('keydown', keydown); return () => document.removeEventListener('keydown', keydown);
   });
   const switching = !!pending && (pending.repository !== repository || pending.branch !== history?.branch);
-  return <main id="app">
-    <Header history={history} repositories={repositories} repository={repository} pending={pending} busy={busy} initial={initial} searchOpen={searchOpen} query={query} match={match} count={search.matches.length} branchNotice={branchNotice}
-      onBranch={value => loadHistory(false, value)} onRepository={value => loadHistory(false, '', value)} refresh={() => loadHistory()} toggleSearch={() => toggleSearch(searchOpen && panelView?.maximized ? true : !searchOpen)} search={value => { setQuery(value); setMatchKey(''); }} step={step} />
-    <Notice id="connection-error" value={connectionNotice} /><Notice id="font-error" value={fontNotice} /><Notice id="layout-error" value={layoutNotice} />
-    <div id="content"><section id="history-pane" aria-label="提交历史" aria-busy={busy} class={panelView?.maximized && open ? 'detail-maximized' : ''} style={{ '--history-viewport-width': `${panelView?.width || 0}px` }}>
+  return <main id="app" class="flex h-dvh flex-col overflow-hidden bg-panel">
+    <Header history={history} repositories={repositories} repository={repository} pending={pending} busy={busy} initial={initial} searchOpen={searchOpen} query={query} match={match} count={search.matches.length}
+      onBranch={value => loadHistory(false, value)} onRepository={value => loadHistory(false, '', value)} refresh={refreshGraph} toggleSearch={() => toggleSearch(searchOpen && panelView?.maximized ? true : !searchOpen)} search={value => { setQuery(value); setMatchKey(''); }} step={step} />
+    <Notice id="branch-notice" value={branchNotice} /><Notice id="connection-error" value={connectionNotice} /><Notice id="font-error" value={fontNotice} /><Notice id="layout-error" value={layoutNotice} />
+    <div id="content" class="flex min-h-0 flex-1"><section id="history-pane" aria-label="提交历史" aria-busy={busy} class={`flex min-h-0 min-w-0 flex-1 flex-col ${panelView?.maximized && open ? 'detail-maximized' : ''}`} style={{ '--history-viewport-width': `${panelView?.width || 0}px` }}>
       <Notice id="repository-notice" value={repositoryNotice} /><Notice id="history-error" value={historyNotice} dismiss={() => setHistoryNotice(null)} />
-      <div id="history-body"><div id="history-scroll">
-        <div id="history-skeleton" hidden={!initial && !(busy && switching)} aria-hidden="true">{Array.from({ length: 8 }, (_, index) => <div key={index} class="skeleton-row"><span class="skeleton-line" /></div>)}</div>
-        <div id="history-table" hidden={busy && switching}><div id="rows" role="list" aria-label="Git 提交列表" title="选择提交查看差异" onKeyDown={event => {
+      <div id="history-body" class="flex min-h-0 min-w-0 flex-1 flex-col"><div id="history-scroll" class="relative flex-1 overflow-auto overflow-x-hidden py-0.5 [overflow-anchor:none]">
+        <div id="history-skeleton" class="px-[8px] py-[4px]" hidden={!initial && !(busy && switching)} aria-hidden="true">{Array.from({ length: 8 }, (_, index) => <div key={index} class="skeleton-row"><span class="skeleton-line" /></div>)}</div>
+        <div id="history-table" class="w-full" hidden={busy && switching}><div id="rows" class="w-full" role="list" aria-label="Git 提交列表" title="选择提交查看差异" onKeyDown={event => {
           const row = (event.target as Element).closest<HTMLElement>('.commit-row'); if (!row) return;
           const index = graph.findIndex(item => item.hash === row.dataset.hash);
           const target = event.key === 'ArrowDown' ? graph[index + 1] : event.key === 'ArrowUp' ? graph[index - 1] : event.key === 'Home' ? graph[0] : event.key === 'End' ? graph.at(-1) : null;
           if (target) { event.preventDefault(); choose(target.hash, true); }
-        }}>{graph.map((row, index) => <div key={row.hash} class={`commit-entry${open && selected === row.hash ? ' is-open' : ''}`} role="listitem">
+        }}>{graph.map((row, index) => <div key={row.hash} class={`commit-entry min-w-0${open && selected === row.hash ? ' is-open' : ''}`} role="listitem">
           <CommitRow row={row} selected={selected} focused={focused} open={open && selected === row.hash} first={index === 0} refs={history!.refs} search={search.rows.get(row.hash)!} active={active} choose={choose} onFocus={setFocused} />
           <div class="detail-slot" ref={el => { if (el) slots.current.set(row.hash, el); else slots.current.delete(row.hash); }} />
         </div>)}</div></div>
-        <button id="load-more" hidden={!history?.hasMore || switching} disabled={busy} onClick={() => loadHistory(true)}>加载更多</button>
-        <div id="empty" class="empty" hidden={busy || !!history?.commits.length || !!historyNotice || !!connectionNotice}>
-          <strong>{contextCwd ? '当前目录不属于 Git 仓库' : '这个仓库还没有提交'}</strong><span>{contextCwd || '创建提交后点击刷新。'}</span>
-        </div>
+        <button id="load-more" class="mx-auto my-[8px] flex text-muted" hidden={!history?.hasMore || switching} disabled={busy} onClick={() => loadHistory(true)}>加载更多</button>
+        <EmptyState id="empty" hidden={busy || !!history?.commits.length || !!historyNotice || !!connectionNotice}
+          title={contextCwd ? '当前目录不属于 Git 仓库' : '这个仓库还没有提交'} description={contextCwd || '创建提交后点击刷新。'} />
       </div></div>
     </section><div ref={parking} id="detail-parking" hidden /></div>
     {createPortal(<CommitDetail call={call} app={app} selected={selected} open={open} repository={repository} refreshVersion={refreshVersion} row={graph.find(row => row.hash === selected)} refs={history?.refs || []}
@@ -378,20 +408,20 @@ function CommitDetail({ call, app, selected, open, repository, refreshVersion, r
     return () => { ++version.current; };
   }, [selected, repository, open, refreshVersion]);
   return <>
-    <div id="detail-graph" aria-hidden="true">{row && <svg width={row.width} viewBox={`0 0 ${row.width} 1`} preserveAspectRatio="none">
+    <div id="detail-graph" class="pointer-events-none absolute inset-y-0 left-[8px] w-(--graph-width,20px) [&_svg]:block [&_svg]:h-full" aria-hidden="true">{row && <svg width={row.width} viewBox={`0 0 ${row.width} 1`} preserveAspectRatio="none">
       {row.output.map((lane, index) => <path key={index} d={`M${laneX(index)} 0V1`} stroke={lane.color} stroke-width={index === row.column && row.parents.length ? 3 : 1} vector-effect="non-scaling-stroke" />)}
     </svg>}</div>
-    <section id="detail" aria-label="提交详情" style={{ '--detail-height': `${view?.detail || 480}px`, '--graph-width': `${row?.width || 0}px` }}>
-      <div id="detail-header"><div id="detail-identity"><code id="detail-hash" title={selected}>{selected.slice(0, 12)}</code><div id="commit-refs" aria-label="分支与标签">{row?.references.map(ref => <RefBadge key={ref.name} reference={ref} refs={refs} />)}</div></div>
+    <section id="detail" class="sticky left-0 flex min-h-0 min-w-0 flex-col rounded-panel border-0 bg-panel p-card shadow-panel" aria-label="提交详情" style={{ '--detail-height': `${view?.detail || 480}px`, '--graph-width': `${row?.width || 0}px` }}>
+      <div id="detail-header" class="flex min-h-control flex-none flex-wrap items-center gap-1 [&_button]:text-ui-xs [&_button]:text-muted"><div id="detail-identity" class="flex min-w-0 flex-1 flex-wrap items-center gap-x-control-x gap-y-1 px-content"><code id="detail-hash" class="max-w-full flex-none truncate text-ui-xs text-muted" title={selected}>{selected.slice(0, 12)}</code><div id="commit-refs" class="flex min-w-0 flex-wrap items-baseline gap-x-[6px] gap-y-[4px] text-ui-xs text-muted empty:hidden" aria-label="分支与标签">{row?.references.map(ref => <RefBadge key={ref.name} reference={ref} refs={refs} />)}</div></div>
         <button id="expand-detail" class="step" disabled={!view?.ready} aria-pressed={!!view?.maximized} title={view?.maximized ? '恢复历史与详情布局' : '放大详情'} aria-label={view?.maximized ? '恢复历史与详情布局' : '放大详情'} onClick={maximize}><Icon name="expand-detail" /></button>
         <button id="close-detail" class="step" title="关闭提交详情" aria-label="关闭提交详情" onClick={close}><Icon name="close-detail" /></button>
       </div>
-      <div id="detail-content">
-        <section id="summary-pane" aria-label="提交信息" aria-busy={loading} style={{ '--summary-height': view?.summary != null ? `${view.summary}px` : undefined }}>
-          <div id="detail-summary"><Notice id="detail-error" value={notice} />
-            <p id="commit-message" class={loading ? 'skeleton-line' : ''}>{loading ? '' : detail ? detail.message ? detail.message.replace(/\\r\\n|\\[nr]/g, '\n') : '（无提交说明）' : ''}</p>
-            <div id="commit-meta">{detail && <><span>{detail.author} &lt;{detail.email}&gt;</span><span>{new Date(detail.date).toLocaleString('zh-CN')}</span></>}</div>
-            <label id="parent-label" hidden={!detail || detail.parents.length < 2}>对比父提交<Select id="parent" aria-label="选择对比的父提交" value={parent}
+      <div id="detail-content" class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <section id="summary-pane" class="flex min-h-0 min-w-0 flex-none flex-col overflow-hidden" aria-label="提交信息" aria-busy={loading} style={{ '--summary-height': view?.summary != null ? `${view.summary}px` : undefined }}>
+          <div id="detail-summary" class="min-h-0 flex-1 overflow-auto px-content pt-card pb-content"><Notice id="detail-error" value={notice} />
+            <p id="commit-message" class={`whitespace-pre-wrap wrap-anywhere leading-[1.6] ${loading ? 'skeleton-line mx-0 mt-[4px] mb-[16px] h-[14px] w-[64%]' : 'm-0 mb-[8px]'}`}>{loading ? '' : detail ? detail.message ? detail.message.replace(/\\r\\n|\\[nr]/g, '\n') : '（无提交说明）' : ''}</p>
+            <div id="commit-meta" class="flex min-w-0 items-baseline gap-[12px] text-ui-xs leading-[1.7] text-muted whitespace-nowrap [&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis [&_span:last-child]:flex-none">{detail && <><span>{detail.author} &lt;{detail.email}&gt;</span><span>{new Date(detail.date).toLocaleString('zh-CN')}</span></>}</div>
+            <label id="parent-label" class="mt-[8px] flex items-center gap-[6px] text-muted" hidden={!detail || detail.parents.length < 2}>对比父提交<Select id="parent" aria-label="选择对比的父提交" value={parent}
               items={detail?.parents.map((hash, index) => ({ label: `${index + 1} · ${hash.slice(0, 12)}`, value: index })) || []} onChange={event => load(Number(event.currentTarget.value))} /></label>
           </div>
         </section>
@@ -403,14 +433,14 @@ function CommitDetail({ call, app, selected, open, repository, refreshVersion, r
   </>;
 }
 function FileList({ detail, file, selectFile, view }: { detail: Detail | null; file: string; selectFile(value: string): void; view: PanelView | null }) {
-  return <section id="files-pane" aria-label="文件列表" style={{ '--files-width': view?.files != null ? `${view.files}px` : undefined }}><div id="files" role="listbox" aria-label="变更文件" onKeyDown={event => {
+  return <section id="files-pane" class="flex min-h-0 min-w-0 w-(--files-width,220px) flex-none flex-col overflow-hidden" aria-label="文件列表" style={{ '--files-width': view?.files != null ? `${view.files}px` : undefined }}><div id="files" class="min-h-0 flex-1 overflow-auto pt-0 pr-[6px] pb-[4px] pl-[3px]" role="listbox" aria-label="变更文件" onKeyDown={event => {
     const button = (event.target as Element).closest('button'); if (!button) return;
     const next = event.key === 'ArrowDown' ? button.nextElementSibling : event.key === 'ArrowUp' ? button.previousElementSibling : null;
     if (next instanceof HTMLButtonElement) { event.preventDefault(); next.focus(); selectFile(next.dataset.path!); }
   }}>{detail?.files.map(item => {
     const title = item.oldPath ? `${item.oldPath} → ${item.path}` : item.path, slash = item.path.lastIndexOf('/');
-    return <button key={item.path} data-path={item.path} role="option" aria-selected={file === item.path} tabIndex={file === item.path ? 0 : -1} title={title} aria-label={`${item.status[0]} ${title}`} onClick={() => selectFile(item.path)}>
-      <span class="file-path">{item.path.slice(slash + 1)}</span>{slash !== -1 && <span class="file-directory">{item.path.slice(0, slash)}</span>}<span class={`file-status ${item.status[0]}`}>{item.status[0]}</span>
+    return <button class="flex w-full justify-start gap-[8px] rounded-item px-[6px] py-[4px] text-left text-ui-sm aria-selected:bg-selected" key={item.path} data-path={item.path} role="option" aria-selected={file === item.path} tabIndex={file === item.path ? 0 : -1} title={title} aria-label={`${item.status[0]} ${title}`} onClick={() => selectFile(item.path)}>
+      <span class="file-path min-w-0 truncate">{item.path.slice(slash + 1)}</span>{slash !== -1 && <span class="file-directory min-w-0 max-w-[45%] truncate text-ui-xs text-muted">{item.path.slice(0, slash)}</span>}<span class={`file-status ml-auto flex-none font-code text-ui-xs ${item.status[0]} ${item.status[0] === 'A' ? 'text-success' : item.status[0] === 'D' ? 'text-danger' : 'text-muted'}`}>{item.status[0]}</span>
     </button>;
   })}</div></section>;
 }
@@ -465,22 +495,24 @@ function ChangesPane({ call, app, detail, file, selectFile, view, hostTheme, fon
     finally { if (request === version.current) setOpening(false); }
   }
   const item = detail?.files.find(item => item.path === file), title = item?.oldPath ? `${item.oldPath} → ${file}` : file || '选择文件查看差异';
-  return <section id="changes-pane" aria-label="变更文件">
-    <div id="changes-header"><div id="changes-heading"><span id="files-label">{detail ? `变更文件 · ${detail.files.length}${detail.parents.length > 1 ? ` · 相对父提交 ${detail.parent + 1}` : ''}` : '变更文件'}</span><span id="diff-title" title={title}>{title}</span></div>
+  const empty = !!detail && !detail.files.length;
+  return <section id="changes-pane" class="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="变更文件">
+    <div id="changes-header" class="flex min-h-9 flex-none flex-wrap items-center gap-1 py-card"><div id="changes-heading" class="flex min-w-0 flex-1 items-center gap-content px-content py-card text-muted [&_span]:truncate"><span id="files-label" class="min-w-0 max-w-1/2 flex-initial">{detail ? `变更文件 · ${detail.files.length}${detail.parents.length > 1 ? ` · 相对父提交 ${detail.parent + 1}` : ''}` : '变更文件'}</span><span id="diff-title" class="min-w-0 flex-1 truncate text-ui-xs text-muted" hidden={empty} title={title}>{title}</span></div>
       <button id="diff-mode" class="step" data-mode={split ? 'split' : 'inline'} disabled={!comparable} aria-label={split ? '切换为行内差异' : '切换为并排差异'} title={split ? '切换为行内差异' : '切换为并排差异'} onClick={() => { setSplit(!split); editor.current?.setSplit(!split); }}><Icon name="diff-mode" /></button>
       <button id="prev-change" class="step" disabled={!status.canNavigate} title="上一处差异" aria-label="上一处差异" onClick={() => editor.current?.goToDiff('previous')}><Icon name="prev-change" /></button>
       <button id="next-change" class="step" disabled={!status.canNavigate} title="下一处差异" aria-label="下一处差异" onClick={() => editor.current?.goToDiff('next')}><Icon name="next-change" /></button>
       <button id="open-file" class="step" hidden={!canOpenFile} disabled={!detail || !file || opening} title="在 Codex 中打开工作区文件（当前内容）" aria-label="在 Codex 中打开工作区文件" onClick={openFile}><Icon name="open-file" /></button>
     </div><Notice id="file-error" value={openNotice} />
-    <div id="detail-body"><FileList detail={detail} file={file} selectFile={selectFile} view={view} /><ResizeHandle id="files" label="调整文件列表与差异大小" controls="files-pane diff-pane" view={view} />
-      <section id="diff-pane" aria-label="文件差异" aria-busy={loading}><div id="diff-content">
-        <div id="diff-revisions" hidden={!result}>{result && [result.original, result.modified].map((side, index) => <span key={index} id={index ? 'diff-modified' : 'diff-original'} title={`${side.hash || '空树'}\n${side.path}${side.mode ? `\n文件模式：${side.mode}` : ''}`}>
+    <EmptyState id="changes-empty" class="min-h-0 flex-1 overflow-auto" hidden={!empty} title="尚无文件更改" description="相对所选父提交没有文件更改。" />
+    <div id="detail-body" class="flex min-h-0 min-w-0 flex-1" hidden={empty}><FileList detail={detail} file={file} selectFile={selectFile} view={view} /><ResizeHandle id="files" label="调整文件列表与差异大小" controls="files-pane diff-pane" view={view} />
+      <section id="diff-pane" class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" aria-label="文件差异" aria-busy={loading}><div id="diff-content" class="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div id="diff-revisions" class="flex flex-wrap gap-x-[16px] gap-y-[4px] px-[6px] py-[4px] text-ui-xs text-muted [&_span]:wrap-anywhere" hidden={!result}>{result && [result.original, result.modified].map((side, index) => <span key={index} id={index ? 'diff-modified' : 'diff-original'} title={`${side.hash || '空树'}\n${side.path}${side.mode ? `\n文件模式：${side.mode}` : ''}`}>
           {`${index ? '目标' : '基准'} ${side.hash?.slice(0, 7) || '空树'}${side.exists ? '' : ' · 文件不存在'}${side.mode && result.original.mode !== result.modified.mode ? ` · ${side.mode}` : ''}`}
         </span>)}</div>
-        <div id="diff-body"><div id="diff-editor" hidden={!comparable} /><Notice id="diff-error" value={notice} />
-          <div id="diff-skeleton" hidden={!loading} role="status" aria-label="正在加载文件差异"><span class="skeleton-line" /><span class="skeleton-line" /><span class="skeleton-line" /></div>
-          <div id="diff-notice" hidden={!reasons.length && !(detail && !detail.files.length)} role="status">{reasons.join('\n') || (detail && !detail.files.length ? '相对所选父提交没有文件变更。' : '')}</div>
-        </div><div id="diff-status" role="status" aria-live="polite">{status.text}</div>
+        <div id="diff-body" class="relative min-h-[80px] flex-1"><div id="diff-editor" class="absolute inset-0" hidden={!comparable} /><Notice id="diff-error" value={notice} />
+          <div id="diff-skeleton" class="p-[16px] [&_.skeleton-line]:mb-[14px] [&_.skeleton-line]:h-[12px] [&_.skeleton-line]:w-3/4 [&_.skeleton-line:nth-child(2)]:w-[55%]" hidden={!loading} role="status" aria-label="正在加载文件差异"><span class="skeleton-line" /><span class="skeleton-line" /><span class="skeleton-line" /></div>
+          <EmptyState id="diff-notice" class="h-full min-h-full overflow-auto" hidden={!reasons.length} title="无法显示文件差异" description={reasons.join('\n')} />
+        </div><div id="diff-status" class="min-h-[22px] shrink-0 px-[6px] py-[3px] text-ui-xs text-muted" role="status" aria-live="polite">{status.text}</div>
       </div></section>
     </div>
   </section>;

@@ -1,7 +1,13 @@
 import { build } from 'esbuild';
+import { execFileSync } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 
 await mkdir('dist', { recursive: true });
+const tailwindPackage = new URL(import.meta.resolve('@tailwindcss/cli/package.json'));
+const { bin } = JSON.parse(await readFile(tailwindPackage, 'utf8'));
+const css = execFileSync(process.execPath, [fileURLToPath(new URL(bin.tailwindcss, tailwindPackage)),
+  '--input', 'styles.css', '--minify'], { encoding: 'utf8' });
 const worker = await build({ entryPoints: ['monaco-editor/editor/editor.worker.js'], bundle: true,
   minify: true, format: 'iife', platform: 'browser', write: false, supported: { 'template-literal': false } });
 const ui = await build({ entryPoints: ['ui.tsx'], bundle: true, minify: true, format: 'iife', platform: 'browser', write: false,
@@ -10,7 +16,7 @@ const editor = await build({ entryPoints: ['diff-editor.ts'], bundle: true, mini
   platform: 'browser', write: false, outfile: 'dist/editor.js', supported: { 'template-literal': false },
   loader: { '.ttf': 'dataurl' }, define: { __DIFF_WORKER__: JSON.stringify(worker.outputFiles[0].text) } });
 const html = (await readFile('window.html', 'utf8'))
-  .replace('/* EDITOR_STYLE */', () => ui.outputFiles.find(file => file.path.endsWith('.css'))!.text.replaceAll('</style', '<\\/style'))
+  .replace('/* APP_STYLE */', () => css.replaceAll('</style', '<\\/style'))
   .replace('/* APP_SCRIPT */', () => ui.outputFiles.find(file => file.path.endsWith('.js'))!.text.replaceAll('</script', '<\\/script'));
 await writeFile('dist/window.html', html);
 await writeFile('dist/editor.js', editor.outputFiles.find(file => file.path.endsWith('.js'))!.text);
@@ -24,6 +30,6 @@ const root = process.env.CODEX_HOME || join(require('node:os').homedir(), '.code
 process.argv[1] = join(root, 'plugins/cache/codex-git-graph/git-graph', ${JSON.stringify(version)}, 'dist/server.mjs');
 import(require('node:url').pathToFileURL(process.argv[1]).href);`;
 await writeFile('.mcp.json', JSON.stringify({ mcpServers: { git_graph: {
-  command: 'node', args: ['-e', launch], env_vars: ['CODEX_HOME'],
+  command: 'node', args: ['-e', launch], env_vars: ['CODEX_HOME', 'CODEX_CLI_PATH', 'CODEX_MCP_NODE_PATH'],
 } } }, null, 2) + '\n');
 console.log('Built window UI and bundled MCP server.');

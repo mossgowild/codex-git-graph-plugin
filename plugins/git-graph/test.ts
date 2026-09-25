@@ -8,7 +8,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { git, history, commit, diff, repository, workspaceFile } from './git.ts';
 import { createAppearanceReader, type WithCodex } from './codex.ts';
 import { layout, graphPaths, colors, type GraphCommit } from './graph.ts';
-import { readProjectRoots } from './project.ts';
+import { readWorkspace, resolveRepositories } from './project.ts';
 import type { definitions } from './server.ts';
 import { z } from 'zod';
 
@@ -88,7 +88,7 @@ test('real Git history, merge parents, renames, paths, pagination, read-only sta
   try {
     await writeFile(runner, `import { createServer } from ${JSON.stringify(new URL('./dist/server.mjs', import.meta.url).href)};
 import { StdioServerTransport } from ${JSON.stringify(import.meta.resolve('@modelcontextprotocol/server/stdio'))};
-await createServer({ projectRoots: async () => [] }).connect(new StdioServerTransport());`);
+await createServer({ readContext: async () => ({ cwd: process.cwd(), runtimeRoots: [process.cwd()], sourceRoots: [], worktrees: [], notices: [] }) }).connect(new StdioServerTransport());`);
     await git(repo, ['init', '-b', 'main']);
     await git(repo, ['config', 'user.name', 'Graph Test']);
     await git(repo, ['config', 'user.email', 'graph@example.invalid']);
@@ -211,7 +211,7 @@ await createServer({ projectRoots: async () => [] }).connect(new StdioServerTran
     const linked = await callTool(linkedClient, { name: 'git_graph', arguments: {} });
     assert.equal(linked.structuredContent.repo, await repository(worktree));
     assert.equal(linked.structuredContent.repositories.length, 1);
-    assert.equal(linked.structuredContent.repositories[0].displayPath, await repository(repo));
+    assert.equal(linked.structuredContent.repositories[0].displayPath, await repository(worktree));
     assert.ok('head' in linked.structuredContent);
     assert.equal(linked.structuredContent.head, feature);
     const refreshed = (await callTool(client, { name: 'git_graph', arguments: {} })).structuredContent;
@@ -403,7 +403,7 @@ test('project repositories route every Git operation and isolate task scopes', a
   const empty = await mkdtemp(join(directory, 'documents-'));
   const outside = await mkdtemp(join(directory, 'outside-'));
   const linked = join(directory, 'web-linked');
-  const runner = join(directory, 'server.mjs');
+  const runner = join(directory, 'server.mjs'), scopes = join(directory, 'scopes.json');
   const client = new Client({ name: 'project-test', version: '1.0.0' });
   try {
     const heads = [];
@@ -417,68 +417,115 @@ test('project repositories route every Git operation and isolate task scopes', a
     }
     await git(outside, ['init', '-b', 'main']);
     await git(first, ['worktree', 'add', '--detach', linked, heads[0]]);
+    const workspace = { cwd: second, runtimeRoots: [first, linked, second, first, empty], sourceRoots: [], worktrees: [], notices: [] };
+    await writeFile(scopes, JSON.stringify(workspace));
     await writeFile(runner, `import { createServer } from ${JSON.stringify(new URL('./dist/server.mjs', import.meta.url).href)};
+import { readFile } from 'node:fs/promises';
 import { StdioServerTransport } from ${JSON.stringify(import.meta.resolve('@modelcontextprotocol/server/stdio'))};
-await createServer({ projectRoots: async threadId => threadId === 'multi' ? ${JSON.stringify([first, linked, second, first, empty])} : threadId === 'home' ? [${JSON.stringify(directory)}] : [] }).connect(new StdioServerTransport());`);
+await createServer({ preferencesDirectory: ${JSON.stringify(join(directory, 'data'))}, readContext: async threadId => threadId === 'multi' ? JSON.parse(await readFile(${JSON.stringify(scopes)}, 'utf8')) : ({ cwd: ${JSON.stringify(directory)}, runtimeRoots: [${JSON.stringify(directory)}], sourceRoots: [], worktrees: [], notices: [] }) }).connect(new StdioServerTransport());`);
     await client.connect(new StdioClientTransport({ command: process.execPath, args: [runner], cwd: outside }));
     const call = (name: string, args: Record<string, unknown> = {}, threadId = 'multi') => client.callTool({ name, arguments: args, _meta: { threadId } });
     const read = <K extends keyof typeof definitions>(name: K, args: Record<string, unknown> = {}, threadId = 'multi') => callTool(client, { name, arguments: args, _meta: { threadId } });
     const opened = (await read('git_graph')).structuredContent;
-    assert.equal(opened.repositories.length, 2, 'use project roots, merge worktrees and omit non-Git folders');
-    assert.deepEqual(opened.repositories.map(repo => repo.displayPath), [await realpath(first), await realpath(second)]);
+    assert.equal(opened.repositories.length, 3, 'keep distinct runtime worktrees and omit non-Git folders');
+    assert.equal(opened.repo, await realpath(second), 'task cwd selects the default repository');
+    assert.deepEqual(opened.repositories.map(repo => repo.displayPath), [await realpath(first), await realpath(linked), await realpath(second)]);
     assert.ok(opened.repositories.every(repo => repo.path !== outside), 'ignore an unrelated process cwd');
-    const selected = opened.repositories[1].id;
+    const selected = opened.repositories[2].id;
     const selectedArgs = { repository: selected, hash: heads[1] };
     assert.equal((await read('git_graph_history', { repository: selected })).structuredContent.head, heads[1]);
     assert.equal((await read('git_graph_commit', selectedArgs)).structuredContent.message, 'app');
     assert.equal((await read('git_graph_diff', { ...selectedArgs, path: 'file.txt' })).structuredContent.modified.content, 'app');
     assert.equal((await read('git_graph_workspace_file', { ...selectedArgs, path: 'file.txt' })).structuredContent.path, await realpath(join(second, 'file.txt')));
-    assert.equal((await read('git_graph_history')).structuredContent.head, heads[0], 'selection never changes process cwd');
+    assert.equal((await read('git_graph_history')).structuredContent.head, heads[1], 'default follows task cwd, not first repository or process cwd');
     const home = (await read('git_graph', {}, 'home')).structuredContent;
     assert.equal(home.repo, null);
     assert.equal(home.contextCwd, directory);
+    assert.equal((await call('git_graph_history', {}, 'home')).isError, true, 'non-Git tasks cannot fall through to the process repository');
+    assert.equal((await call('git_graph_history', {}, 'unopened')).isError, true);
+    assert.equal((await read('git_graph', { selectedRepository: opened.repositories[1].id })).structuredContent.repo, await realpath(linked), 'refresh preserves a valid worktree selection');
+    assert.equal((await read('git_graph', { selectedRepository: 'f'.repeat(64) })).structuredContent.repo, await realpath(second), 'stale selection returns to task cwd');
+    const scope = { cwd: linked, runtimeRoots: [linked, second], sourceRoots: [first, second], worktrees: [], notices: [] };
+    const resolved = await resolveRepositories(scope);
+    assert.deepEqual(resolved.repositories.map(repo => repo.path), [await realpath(linked), await realpath(second)], 'source checkout maps to runtime worktree');
+    const attached = await resolveRepositories({ ...scope, worktrees: [{ root: directory, workspaceRoot: first }] });
+    assert.deepEqual(attached.repositories.map(repo => repo.path), [await realpath(linked), await realpath(second), await realpath(first)], 'attachment discovery uses workspaceRoot, not its container root');
+    const projectless = await resolveRepositories({ ...scope, sourceRoots: [], runtimeRoots: [linked] });
+    assert.equal(projectless.repositories[0].path, await realpath(linked));
+    await mkdir(join(first, 'web')); await mkdir(join(first, 'app'));
+    await mkdir(join(linked, 'web')); await mkdir(join(linked, 'app'));
+    const subdirs = await resolveRepositories({ ...scope, cwd: join(linked, 'app'), runtimeRoots: [join(first, 'web'), join(linked, 'app')], sourceRoots: [join(first, 'web'), join(first, 'app')] });
+    assert.deepEqual(subdirs.repositories.map(repo => repo.path), [await realpath(first), await realpath(linked)], 'repeated project subdirectories map to their runtime checkouts');
+    assert.equal(subdirs.defaultRepository, subdirs.repositories[1].id);
+    const duplicate = await resolveRepositories({ ...scope, cwd: first, runtimeRoots: [first, join(first, 'web')], sourceRoots: [first, join(first, 'app')] });
+    assert.equal(duplicate.repositories.length, 1, 'same worktree is listed only once');
     await read('git_graph', {}, 'single');
     assert.equal((await call('git_graph_history', { repository: selected }, 'single')).isError, true);
     assert.equal((await call('git_graph_history', { repository: 'f'.repeat(64) })).isError, true);
     assert.equal((await call('git_graph_history', { repoPath: second })).isError, true);
+    await writeFile(scopes, JSON.stringify({ ...workspace, cwd: first, runtimeRoots: [first] }));
+    const changed = (await read('git_graph', { selectedRepository: selected })).structuredContent;
+    assert.equal(changed.repo, await realpath(first)); assert.equal(changed.repositories.length, 1);
+    assert.equal((await call('git_graph_history', { repository: selected })).isError, true, 'removed roots leave the allowlist on refresh');
+    await writeFile(scopes, 'invalid context');
+    assert.equal((await call('git_graph')).isError, true);
+    assert.equal((await call('git_graph_history', { repository: changed.repositories[0].id })).isError, true, 'context failures invalidate stale repository access');
+    await read('git_graph_layout');
+    await read('git_graph_editor');
   } finally { await client.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
-test('project roots use the selected project before falling back to Home', async () => {
-  const codexHome = '/codex-home', home = '/Users/tester';
-  const selectedProject = 'desktop-project', mappedProject = 'app-server-project';
-  const desktop = {
-    'selected-project': { type: 'local', projectId: selectedProject },
-    'app-server-project-id-by-legacy-project-id-by-host': {
-      [`local:${codexHome}`]: { [selectedProject]: mappedProject },
-    },
-  };
+test('task workspace uses pending state, environments, cwd, project sources and paged attachments', async () => {
+  const codexHome = '/codex-home', cwd = '/task/current';
+  const selected = { 'selected-project': { type: 'local', projectId: 'desktop-project' },
+    'app-server-project-id-by-legacy-project-id-by-host': { [`local:${codexHome}`]: { 'desktop-project': 'app-project' } } };
+  let thread: unknown = { projectId: null, cwd: '/task/projectless', environments: null };
+  let projectFails = false;
   const requests: { method: string; params: Record<string, unknown> }[] = [];
   const runWithCodex: WithCodex = run => run(async (method, params) => {
     requests.push({ method, params });
-    if (method === 'thread/read') throw new Error('thread not loaded: fresh');
-    if (method === 'project/read') return { project: { roots: [{ path: '/repo/web' }, { path: '/repo/app' }] } };
+    if (method === 'thread/read') { if (thread instanceof Error) throw thread; return { thread }; }
+    if (method === 'project/read') { if (projectFails) throw new Error('project unavailable'); return { project: { roots: [{ path: '/repo/web' }, { path: '/repo/app' }] } }; }
+    if (method === 'thread/attachment/list') return params.cursor == null
+      ? { data: [{ attachmentType: 'worktree', payload: { root: '/trees/container', workspaceRoot: '/trees/container/repo' } }, { attachmentType: 'worktree', payload: { invalid: true } }], nextCursor: 'page-2' }
+      : { data: [], nextCursor: null };
     throw new Error(`unexpected method: ${method}`);
   });
-
-  assert.deepEqual(await readProjectRoots('fresh', {
-    codexHome, home, readState: async () => desktop, runWithCodex,
-  }), ['/repo/web', '/repo/app']);
-  assert.deepEqual(requests, [
-    { method: 'thread/read', params: { threadId: 'fresh', includeTurns: false } },
-    { method: 'project/read', params: { projectId: mappedProject } },
-  ]);
-  requests.length = 0;
-  assert.deepEqual(await readProjectRoots(undefined, {
-    codexHome, home, readState: async () => desktop, runWithCodex,
-  }), ['/repo/web', '/repo/app']);
-  assert.deepEqual(requests, [{ method: 'project/read', params: { projectId: mappedProject } }]);
-  assert.deepEqual(await readProjectRoots(undefined, {
-    codexHome, home, readState: async () => ({}),
-    runWithCodex: async () => { throw new Error('app-server should not start'); },
-  }), [home]);
+  const options = { codexHome, cwd, readState: async () => selected, runWithCodex };
+  const projectless = await readWorkspace('task', options);
+  assert.equal(projectless.cwd, '/task/projectless');
+  assert.deepEqual(projectless.runtimeRoots, ['/task/projectless']);
+  assert.deepEqual(projectless.sourceRoots, [], 'selected project cannot override an existing projectless task');
+  assert.deepEqual(projectless.worktrees, [{ root: '/trees/container', workspaceRoot: '/trees/container/repo' }]);
+  assert.equal(requests.filter(item => item.method === 'thread/attachment/list').length, 2);
+  thread = { projectId: 'assigned', cwd: '/source/main', environments: [{ cwd: '/runtime/worktree/app', runtimeWorkspaceRoots: ['/runtime/worktree/app', '/other'] }] };
+  const environment = await readWorkspace('task', options);
+  assert.equal(environment.cwd, '/runtime/worktree/app');
+  assert.deepEqual(environment.runtimeRoots, ['/runtime/worktree/app', '/other']);
+  assert.deepEqual(environment.sourceRoots, ['/repo/web', '/repo/app']);
+  const applied = { cwd: '/applied', runtimeWorkspaceRoots: ['/applied'], projectSources: ['/source'] };
+  const pending = { cwd: '/pending', runtimeWorkspaceRoots: ['/pending'], projectSources: ['/new-source'] };
+  const state = { project: {}, applied, pending: pending as typeof pending | null };
+  const readState = async () => ({ ...selected, 'electron-persisted-atom-state': { 'thread-workspace-state-v1:task': state } });
+  const moved = await readWorkspace('task', { ...options, readState });
+  assert.equal(moved.cwd, pending.cwd); assert.deepEqual(moved.sourceRoots, pending.projectSources);
+  state.pending = null;
+  const active = await readWorkspace('task', { ...options, readState });
+  assert.equal(active.cwd, applied.cwd); assert.deepEqual(active.runtimeRoots, environment.runtimeRoots, 'live environments override applied runtime roots');
+  thread = { projectId: 'assigned', cwd: '/old' };
+  assert.equal((await readWorkspace('task', { ...options, readState })).cwd, applied.cwd);
+  projectFails = true;
+  const partial = await readWorkspace('task', { ...options, readState });
+  assert.deepEqual(partial.runtimeRoots, applied.runtimeWorkspaceRoots);
+  assert.match(partial.notices.join(), /project unavailable/); projectFails = false;
+  thread = new Error('thread not loaded: fresh');
+  assert.deepEqual((await readWorkspace('fresh', options)).sourceRoots, ['/repo/web', '/repo/app']);
+  assert.equal((await readWorkspace(undefined, options)).cwd, '/repo/web');
+  assert.deepEqual(await readWorkspace(undefined, { ...options, readState: async () => ({}), runWithCodex: async () => { throw new Error('must not start'); } }),
+    { cwd, runtimeRoots: [cwd], sourceRoots: [], worktrees: [], notices: [] });
+  thread = new Error('cannot read task');
+  await assert.rejects(readWorkspace('task', options), /cannot read task/);
 });
-
 
 test('Codex appearance follows configuration changes, defaults and read failures', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'git-graph-font-'));
@@ -490,23 +537,26 @@ test('Codex appearance follows configuration changes, defaults and read failures
   } });
   const ghostHover = { light: 'rgba(26, 28, 31, 0.053)', dark: 'rgba(255, 255, 255, 0.078)' };
   try {
-    assert.deepEqual(await read(), { codeFontSize: 12, ghostHover });
+    const base = await read();
+    assert.equal(base.codeFontSize, 12); assert.deepEqual(base.ghostHover, ghostHover);
+    assert.equal(base.noticeColors.dark.primarySoft, 'rgba(45, 45, 45, 0.96)');
+    assert.equal(base.noticeColors.dark.textTertiary, 'rgba(255, 255, 255, 0.498)');
     await read(); assert.equal(reads, 1, 'unchanged files do not launch another config reader');
     desktop = { codeFontSize: 18 }; await writeFile(configPath, 'changed');
-    assert.deepEqual(await read(), { codeFontSize: 18, ghostHover });
+    assert.deepEqual(await read(), { ...base, codeFontSize: 18, ghostHover });
     desktop = { codeFontSize: 24 }; await writeFile(configPath, 'another change');
-    assert.deepEqual(await read(), { codeFontSize: 24, ghostHover });
+    assert.deepEqual(await read(), { ...base, codeFontSize: 24, ghostHover });
     desktop = { codeFontSize: 100 }; await writeFile(configPath, 'invalid code size');
     await assert.rejects(read());
     failure = new Error('configuration unavailable'); await assert.rejects(read(), /configuration unavailable/);
     failure = null; desktop = { codeFontSize: 16 };
-    assert.deepEqual(await read(), { codeFontSize: 16, ghostHover }, 'failed reads are not cached');
+    assert.deepEqual(await read(), { ...base, codeFontSize: 16, ghostHover }, 'failed reads are not cached');
     desktop = { appearanceDarkChromeTheme: { ink: '#fcfcfc', contrast: 50 } }; await writeFile(configPath, 'custom theme');
     const customHover = (await read()).ghostHover.dark;
     assert.equal(customHover, 'rgba(252, 252, 252, 0.071)');
     const alpha = Number(customHover.split(', ').at(-1)!.slice(0, -1));
     assert.equal(Math.round(252 * alpha + 17 * (1 - alpha)), 34, 'native screenshot: hover over #111111 is #222222');
     desktop = {}; await rm(configPath);
-    assert.deepEqual(await read(), { codeFontSize: 12, ghostHover });
+    assert.deepEqual(await read(), base);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

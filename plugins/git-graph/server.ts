@@ -5,10 +5,10 @@ import { z } from 'zod';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { history, commit, diff, workspaceFile, repository, repositoryInfo } from './git.ts';
-import { readProjectRoots } from './project.ts';
+import { history, commit, diff, workspaceFile, repository } from './git.ts';
+import { readWorkspace, resolveRepositories, type GraphContext, type Workspace } from './project.ts';
 import { createAppearanceReader } from './codex.ts';
 import { panelsSchema, storedPanelsSchema, type PanelLayout } from './layout.ts';
 import lightIcon from './assets/git-branch.svg';
@@ -23,8 +23,6 @@ const annotations = { readOnlyHint: true, destructiveHint: false, idempotentHint
 const preferencesDirectory = join(process.env.CODEX_HOME || join(homedir(), '.codex'),
   'plugins/data/git-graph-codex-git-graph');
 
-type Repository = { id: string; name: string; path: string; displayPath: string };
-type GraphContext = { repositories: Repository[]; repositoryNotice?: string; contextCwd?: string };
 type ToolContext = GraphContext & { repoPath: string; preferencesDirectory: string };
 
 async function readPreference<S extends z.ZodType<object>>(directory: string, file: string, schema: S, label: string): Promise<z.output<S>> {
@@ -53,8 +51,9 @@ async function saveLayout({ panels, preferencesDirectory: directory }: ToolConte
   await writePreference(directory, 'panel-layout.json', panels, '面板布局');
   return { panels };
 }
-async function openGraph({ repositories, repositoryNotice, contextCwd = process.cwd() }: GraphContext) {
-  const result = repositories.length ? await history({ repoPath: repositories[0].path }) : { repo: null };
+async function openGraph({ repositories, repositoryNotice, contextCwd = process.cwd(), defaultRepository, selectedRepository: selected, branch }: GraphContext & { selectedRepository?: string; branch?: string }) {
+  const repo = repositories.find(repo => repo.id === selected) ?? repositories.find(repo => repo.id === defaultRepository) ?? repositories[0];
+  const result = repo ? await history({ repoPath: repo.path, branch: repo.id === selected ? branch : undefined }) : { repo: null };
   return { ...result, contextCwd, repositories, repositoryNotice };
 }
 const readAppearance = createAppearanceReader();
@@ -66,10 +65,11 @@ function defineTool<S extends z.ZodObject, R extends Record<string, unknown>>(de
 }) {
   return { ...definition, async invoke(args: unknown, directory: string, context: GraphContext) {
     const input = definition.schema.parse(args);
-    let repoPath = context.repositories[0]?.path || process.cwd();
-    if (input.repository) {
-      const selected = context.repositories.find(repo => repo.id === input.repository);
-      if (!selected) throw new Error('所选仓库不属于当前任务的项目，请重新打开 Git Graph。');
+    let repoPath = context.repositories.find(repo => repo.id === context.defaultRepository)?.path || context.repositories[0]?.path || process.cwd();
+    if ('repository' in definition.schema.shape) {
+      const selected = input.repository ? context.repositories.find(repo => repo.id === input.repository)
+        : context.repositories.find(repo => repo.id === context.defaultRepository) ?? context.repositories[0];
+      if (!selected) throw new Error('所选仓库不属于当前任务，请重新打开 Git Graph。');
       repoPath = await repository(selected.path);
       if (repoPath !== selected.path) throw new Error('所选仓库路径已变化，请重新打开 Git Graph。');
     }
@@ -80,7 +80,7 @@ function defineTool<S extends z.ZodObject, R extends Record<string, unknown>>(de
 export const definitions = {
   git_graph_appearance: defineTool({ title: '读取 Codex 字号与悬停配色', schema: z.strictObject({}), run: readAppearance }),
   git_graph: defineTool({ title: 'Git Graph', description: 'Browse Git history for the current Codex task working directory. Read-only.',
-    schema: z.strictObject({}), run: openGraph }),
+    schema: z.strictObject({ selectedRepository: repositoryId, branch: z.string().max(1024).optional() }), run: openGraph }),
   git_graph_history: defineTool({ title: '读取提交历史', schema: z.strictObject({ repository: repositoryId, branch: z.string().max(1024).optional(),
     offset: z.number().int().min(0).max(1000000).optional(), tips: z.array(hash).max(10000).optional(),
     limit: z.number().int().min(1).max(500).optional() }), run: history }),
@@ -109,15 +109,15 @@ export async function call(name: string, args: unknown, directory = preferencesD
   }
 }
 
-export function createServer({ preferencesDirectory: directory = preferencesDirectory, projectRoots = readProjectRoots }: { preferencesDirectory?: string; projectRoots?: (threadId: string | undefined) => Promise<string[]> } = {}) {
-  const contexts = new Map<string | undefined, GraphContext>();
+export function createServer({ preferencesDirectory: directory = preferencesDirectory, readContext = readWorkspace }: { preferencesDirectory?: string; readContext?: (threadId: string | undefined) => Promise<Workspace> } = {}) {
+  const contexts = new Map<string | undefined, Promise<GraphContext>>();
   const server = new McpServer({ name: 'git-graph', title: 'Git Graph', version: '0.3.0', icons: [
     { src: lightIcon, mimeType: 'image/svg+xml', sizes: ['any'], theme: 'light' },
     { src: darkIcon, mimeType: 'image/svg+xml', sizes: ['any'], theme: 'dark' },
   ] });
   for (const [name, definition] of Object.entries(definitions)) {
     registerAppTool(server, name, { title: definition.title, description: definition.description || definition.title,
-      inputSchema: definition.schema, annotations: definition.annotations || annotations,
+      inputSchema: definition.schema as z.ZodObject, annotations: definition.annotations || annotations,
       _meta: name === 'git_graph' ? {
         ui: { resourceUri, visibility: ['app', 'model'] },
         // Codex Desktop 26.908 supports these window entrypoints; keep standard MCP UI metadata too.
@@ -125,35 +125,12 @@ export function createServer({ preferencesDirectory: directory = preferencesDire
       } : { ui: { visibility: ['app'] } },
     }, async (args: unknown, request: ServerContext) => {
       const threadId = z.string().optional().parse(request.mcpReq._meta?.threadId);
-      let context = contexts.get(threadId);
-      if (name === 'git_graph') {
-        const notices = [];
-        let roots: string[] = [];
-        try { roots = await projectRoots(threadId); }
-        catch (error) { notices.push(`无法读取项目目录：${error instanceof Error ? error.message : String(error)}`); }
-        const identities = new Map<string, Awaited<ReturnType<typeof repositoryInfo>>>();
-        for (const path of new Set(roots.length ? roots : [process.cwd()])) {
-          try {
-            const info = await repositoryInfo(path);
-            if (!identities.has(info.commonDir)) identities.set(info.commonDir, info);
-          } catch (error) {
-            if (!/not a git repository/i.test(error instanceof Error ? String((error.cause as { stderr?: unknown } | undefined)?.stderr || '') : '')) notices.push(`${path}：${error instanceof Error ? error.message : String(error)}`);
-          }
-        }
-        if (roots.length) {
-          try {
-            const current = await repositoryInfo(process.cwd());
-            if (identities.has(current.commonDir)) identities.set(current.commonDir, current);
-          } catch {}
-        }
-        const repositories = [...identities.values()].map(({ root, commonDir, mainRoot }) => ({
-          id: createHash('sha256').update(commonDir).digest('hex'),
-          name: basename(mainRoot),
-          path: root,
-          displayPath: mainRoot,
-        }));
-        context = { repositories, repositoryNotice: notices.join('\n'), contextCwd: roots[0] || process.cwd() };
-        contexts.set(threadId, context);
+      if (name === 'git_graph') contexts.set(threadId, readContext(threadId).then(resolveRepositories));
+      let context: GraphContext | undefined;
+      try { if (name === 'git_graph' || 'repository' in definition.schema.shape) context = await contexts.get(threadId); }
+      catch (error) { return { isError: true, content: [{ type: 'text', text: `无法读取任务目录：${error instanceof Error ? error.message : String(error)}` }] }; }
+      if (!context?.repositories.length && ['git_graph_history', 'git_graph_commit', 'git_graph_diff', 'git_graph_workspace_file'].includes(name)) {
+        return { isError: true, content: [{ type: 'text', text: '请重新打开 Git Graph，读取当前任务仓库。' }] };
       }
       return call(name, args, directory, context);
     });

@@ -1229,8 +1229,8 @@ function prefixIssues(path, issues) {
     return iss;
   });
 }
-function unwrapMessage(message) {
-  return typeof message === "string" ? message : message?.message;
+function unwrapMessage(message2) {
+  return typeof message2 === "string" ? message2 : message2?.message;
 }
 function attachSchema(issues, start, inst) {
   var _a3;
@@ -1248,7 +1248,7 @@ function finalizeIssue(iss, ctx, config2) {
       iss.schema = iss.inst;
   }
   const schemaError = iss.schema !== iss.inst ? iss.schema?._zod.def?.error : void 0;
-  const message = iss.message ? iss.message : unwrapMessage(iss.inst?._zod.def?.error?.(iss)) ?? unwrapMessage(schemaError?.(iss)) ?? unwrapMessage(ctx?.error?.(iss)) ?? unwrapMessage(config2.customError?.(iss)) ?? unwrapMessage(config2.localeError?.(iss)) ?? "Invalid input";
+  const message2 = iss.message ? iss.message : unwrapMessage(iss.inst?._zod.def?.error?.(iss)) ?? unwrapMessage(schemaError?.(iss)) ?? unwrapMessage(ctx?.error?.(iss)) ?? unwrapMessage(config2.customError?.(iss)) ?? unwrapMessage(config2.localeError?.(iss)) ?? "Invalid input";
   const full = {};
   for (const k of Object.keys(iss)) {
     if (k === "inst" || k === "schema" || k === "continue" || k === "input" || k === "__proto__")
@@ -1256,7 +1256,7 @@ function finalizeIssue(iss, ctx, config2) {
     full[k] = iss[k];
   }
   full.path ?? (full.path = []);
-  full.message = message;
+  full.message = message2;
   if (ctx?.reportInput) {
     full.input = iss.input;
   }
@@ -5088,7 +5088,7 @@ var recursive = /* @__PURE__ */ new WeakMap();
 var NONE = 0;
 var ASSUMED = 1;
 var PROVEN = 2;
-function isRecursive(inst, stack, resolve2) {
+function isRecursive(inst, stack, resolve3) {
   const cached2 = recursive.get(inst);
   if (cached2 !== void 0)
     return cached2 ? PROVEN : NONE;
@@ -5098,7 +5098,7 @@ function isRecursive(inst, stack, resolve2) {
   let result = NONE;
   const check2 = (child) => {
     if (result !== PROVEN && child?._zod) {
-      const answer = isRecursive(child, stack, resolve2);
+      const answer = isRecursive(child, stack, resolve3);
       if (answer > result)
         result = answer;
     }
@@ -5109,7 +5109,7 @@ function isRecursive(inst, stack, resolve2) {
       const desc = Object.getOwnPropertyDescriptor(sh, key);
       if (spread && !desc.enumerable)
         continue;
-      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve2) : NONE;
+      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve3) : NONE;
       if (child > answer)
         answer = child;
     }
@@ -5173,7 +5173,7 @@ function isRecursive(inst, stack, resolve2) {
       break;
     // `$ZodLazy` caches its inner on the def, so a resolved edge is followed exactly
     case "lazy": {
-      const inner = def._cachedInner ?? (resolve2 ? inst._zod.innerType : void 0);
+      const inner = def._cachedInner ?? (resolve3 ? inst._zod.innerType : void 0);
       merge2(inner ? isRecursive(inner, stack, false) : ASSUMED);
       break;
     }
@@ -12967,8 +12967,8 @@ var globalRegistry = globalThis.__zod_globalRegistry;
 var INVALID = /* @__PURE__ */ Symbol.for("zod.compile.invalid");
 var FALLBACK_FLAG = /* @__PURE__ */ Symbol.for("zod.compile.fallback");
 var ZodCompileAsyncError = class extends Error {
-  constructor(message = "z.compile does not support async refinements, transforms, or checks") {
-    super(message);
+  constructor(message2 = "z.compile does not support async refinements, transforms, or checks") {
+    super(message2);
     this.name = "ZodCompileAsyncError";
   }
 };
@@ -15660,12 +15660,12 @@ function initializeContext(params) {
     external: params?.external ?? void 0
   };
 }
-function handleUnrepresentable(schema, ctx, json2, params, message) {
-  const result = typeof ctx.unrepresentable === "function" ? ctx.unrepresentable({ zodSchema: schema, path: params.path, message }) : ctx.unrepresentable;
+function handleUnrepresentable(schema, ctx, json2, params, message2) {
+  const result = typeof ctx.unrepresentable === "function" ? ctx.unrepresentable({ zodSchema: schema, path: params.path, message: message2 }) : ctx.unrepresentable;
   if (result === "any")
     return false;
   if (result === void 0 || result === "throw")
-    throw new Error(message);
+    throw new Error(message2);
   Object.assign(json2, result);
   return true;
 }
@@ -20715,8 +20715,8 @@ var OAuthError = class OAuthError2 extends Error {
     if (typeof this !== "function") throw new TypeError("isInstance must be called on the class (e.g. `SdkError.isInstance(value)`); for callbacks use `v => SdkError.isInstance(v)`");
     return brandedHasInstance(this, value);
   }
-  constructor(code, message, errorUri) {
-    super(message);
+  constructor(code, message2, errorUri) {
+    super(message2);
     this.code = code;
     this.errorUri = errorUri;
     this.name = "OAuthError";
@@ -20782,8 +20782,8 @@ var SdkError = class extends Error {
     if (typeof this !== "function") throw new TypeError("isInstance must be called on the class (e.g. `SdkError.isInstance(value)`); for callbacks use `v => SdkError.isInstance(v)`");
     return brandedHasInstance(this, value);
   }
-  constructor(code, message, data) {
-    super(message);
+  constructor(code, message2, data) {
+    super(message2);
     this.code = code;
     this.data = data;
     this.name = "SdkError";
@@ -20794,8 +20794,8 @@ var SdkHttpError = class extends SdkError {
   static {
     Object.defineProperty(this, "mcpBrand", { value: "mcp.SdkHttpError" });
   }
-  constructor(code, message, data) {
-    super(code, message, data);
+  constructor(code, message2, data) {
+    super(code, message2, data);
     this.name = "SdkHttpError";
   }
   get status() {
@@ -22978,8 +22978,8 @@ var ProtocolError = class ProtocolError2 extends Error {
     if (typeof this !== "function") throw new TypeError("isInstance must be called on the class (e.g. `SdkError.isInstance(value)`); for callbacks use `v => SdkError.isInstance(v)`");
     return brandedHasInstance(this, value);
   }
-  constructor(code, message, data) {
-    super(message);
+  constructor(code, message2, data) {
+    super(message2);
     this.code = code;
     this.data = data;
     this.name = "ProtocolError";
@@ -22988,35 +22988,35 @@ var ProtocolError = class ProtocolError2 extends Error {
   /**
   * Factory method to create the appropriate error type based on the error code and data
   */
-  static fromError(code, message, data) {
+  static fromError(code, message2, data) {
     if (code === ProtocolErrorCode.UrlElicitationRequired && data) {
       const errorData = data;
-      if (errorData.elicitations) return new UrlElicitationRequiredError(errorData.elicitations, message);
+      if (errorData.elicitations) return new UrlElicitationRequiredError(errorData.elicitations, message2);
     }
     if (code === ProtocolErrorCode.UnsupportedProtocolVersion && data) {
       const errorData = data;
       if (Array.isArray(errorData.supported) && typeof errorData.requested === "string") return new UnsupportedProtocolVersionError({
         supported: errorData.supported,
         requested: errorData.requested
-      }, message);
+      }, message2);
     }
     if (code === ProtocolErrorCode.InvalidParams || code === ProtocolErrorCode.ResourceNotFound) {
       const errorData = data;
-      if (typeof errorData?.uri === "string" && (code === ProtocolErrorCode.ResourceNotFound || Object.keys(errorData).length === 1)) return new ResourceNotFoundError(errorData.uri, message);
+      if (typeof errorData?.uri === "string" && (code === ProtocolErrorCode.ResourceNotFound || Object.keys(errorData).length === 1)) return new ResourceNotFoundError(errorData.uri, message2);
     }
     if (code === ProtocolErrorCode.MissingRequiredClientCapability && data) {
       const errorData = data;
-      if (errorData.requiredCapabilities !== null && typeof errorData.requiredCapabilities === "object" && !Array.isArray(errorData.requiredCapabilities)) return new MissingRequiredClientCapabilityError({ requiredCapabilities: errorData.requiredCapabilities }, message);
+      if (errorData.requiredCapabilities !== null && typeof errorData.requiredCapabilities === "object" && !Array.isArray(errorData.requiredCapabilities)) return new MissingRequiredClientCapabilityError({ requiredCapabilities: errorData.requiredCapabilities }, message2);
     }
-    return new ProtocolError2(code, message, data);
+    return new ProtocolError2(code, message2, data);
   }
 };
 var ResourceNotFoundError = class extends ProtocolError {
   static {
     Object.defineProperty(this, "mcpBrand", { value: "mcp.ResourceNotFoundError" });
   }
-  constructor(uri, message = `Resource not found: ${uri}`) {
-    super(ProtocolErrorCode.InvalidParams, message, { uri });
+  constructor(uri, message2 = `Resource not found: ${uri}`) {
+    super(ProtocolErrorCode.InvalidParams, message2, { uri });
   }
   /** The URI that was requested and not found. */
   get uri() {
@@ -23027,8 +23027,8 @@ var UrlElicitationRequiredError = class extends ProtocolError {
   static {
     Object.defineProperty(this, "mcpBrand", { value: "mcp.UrlElicitationRequiredError" });
   }
-  constructor(elicitations, message = `URL elicitation${elicitations.length > 1 ? "s" : ""} required`) {
-    super(ProtocolErrorCode.UrlElicitationRequired, message, { elicitations });
+  constructor(elicitations, message2 = `URL elicitation${elicitations.length > 1 ? "s" : ""} required`) {
+    super(ProtocolErrorCode.UrlElicitationRequired, message2, { elicitations });
   }
   get elicitations() {
     return this.data?.elicitations ?? [];
@@ -23038,8 +23038,8 @@ var UnsupportedProtocolVersionError = class extends ProtocolError {
   static {
     Object.defineProperty(this, "mcpBrand", { value: "mcp.UnsupportedProtocolVersionError" });
   }
-  constructor(data, message = `Unsupported protocol version: ${data.requested}`) {
-    super(ProtocolErrorCode.UnsupportedProtocolVersion, message, data);
+  constructor(data, message2 = `Unsupported protocol version: ${data.requested}`) {
+    super(ProtocolErrorCode.UnsupportedProtocolVersion, message2, data);
   }
   /**
   * Protocol versions the receiver supports.
@@ -23058,8 +23058,8 @@ var MissingRequiredClientCapabilityError = class extends ProtocolError {
   static {
     Object.defineProperty(this, "mcpBrand", { value: "mcp.MissingRequiredClientCapabilityError" });
   }
-  constructor(data, message = `Missing required client capabilities: ${Object.keys(data.requiredCapabilities).join(", ")}`) {
-    super(ProtocolErrorCode.MissingRequiredClientCapability, message, data);
+  constructor(data, message2 = `Missing required client capabilities: ${Object.keys(data.requiredCapabilities).join(", ")}`) {
+    super(ProtocolErrorCode.MissingRequiredClientCapability, message2, data);
   }
   /**
   * The capabilities the server requires from the client to process the
@@ -24014,14 +24014,14 @@ function inputRequiredRoundsExceededMessage(method, maxRounds) {
   return `Multi-round-trip request '${method}' still required input after ${maxRounds} rounds (inputRequired.maxRounds)`;
 }
 function sleep(ms, signal) {
-  return new Promise((resolve2, reject) => {
+  return new Promise((resolve3, reject) => {
     if (signal?.aborted) {
       reject(signal.reason instanceof SdkError ? signal.reason : new SdkError(SdkErrorCode.RequestTimeout, String(signal.reason)));
       return;
     }
     const timer = setTimeout(() => {
       signal?.removeEventListener("abort", onAbort);
-      resolve2();
+      resolve3();
     }, ms);
     const onAbort = () => {
       clearTimeout(timer);
@@ -24248,17 +24248,17 @@ var RESERVED_ENVELOPE_META_KEYS = [
   LOG_LEVEL_META_KEY
 ];
 var RETRY_PARAMS_KEYS = ["inputResponses", "requestState"];
-function liftWireOnlyMaterial(message, kind) {
-  const params = message.params;
+function liftWireOnlyMaterial(message2, kind) {
+  const params = message2.params;
   if (!isPlainObject$1(params)) return {
-    message,
+    message: message2,
     lifted: {}
   };
   const meta3 = params._meta;
   const envelopeKeys = isPlainObject$1(meta3) ? RESERVED_ENVELOPE_META_KEYS.filter((key) => key in meta3) : [];
   const retryKeys = kind === "request" ? RETRY_PARAMS_KEYS.filter((key) => key in params) : [];
   if (envelopeKeys.length === 0 && retryKeys.length === 0) return {
-    message,
+    message: message2,
     lifted: {}
   };
   const lifted = {};
@@ -24281,7 +24281,7 @@ function liftWireOnlyMaterial(message, kind) {
   }
   return {
     message: {
-      ...message,
+      ...message2,
       params: nextParams
     },
     lifted
@@ -24406,12 +24406,12 @@ var Protocol = class {
   * byte-identical. User-supplied `_meta` keys are spread last so they win
   * over the auto-attached envelope keys.
   */
-  _envelopeOutbound(message) {
+  _envelopeOutbound(message2) {
     const envelope = this._outboundMetaEnvelope();
-    if (envelope === void 0) return message;
-    const params = message.params ?? {};
+    if (envelope === void 0) return message2;
+    const params = message2.params ?? {};
     return {
-      ...message,
+      ...message2,
       params: {
         ...params,
         _meta: {
@@ -24510,12 +24510,12 @@ var Protocol = class {
       this._onerror(error62);
     };
     const _onmessage = this._transport?.onmessage;
-    this._transport.onmessage = (message, extra) => {
-      _onmessage?.(message, extra);
-      if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) this._onresponse(message);
-      else if (isJSONRPCRequest(message)) this._onrequest(message, extra);
-      else if (isJSONRPCNotification(message)) this._onnotification(message, extra);
-      else this._onerror(/* @__PURE__ */ new Error(`Unknown message type: ${JSON.stringify(message)}`));
+    this._transport.onmessage = (message2, extra) => {
+      _onmessage?.(message2, extra);
+      if (isJSONRPCResultResponse(message2) || isJSONRPCErrorResponse(message2)) this._onresponse(message2);
+      else if (isJSONRPCRequest(message2)) this._onrequest(message2, extra);
+      else if (isJSONRPCNotification(message2)) this._onnotification(message2, extra);
+      else this._onerror(/* @__PURE__ */ new Error(`Unknown message type: ${JSON.stringify(message2)}`));
     };
     transport.setSupportedProtocolVersions?.(this._supportedProtocolVersions);
     await this._transport.start();
@@ -24577,13 +24577,13 @@ var Protocol = class {
       return;
     }
     const capturedTransport = this._transport;
-    const sendErrorResponse = (code, message, data) => {
+    const sendErrorResponse = (code, message2, data) => {
       const errorResponse = {
         jsonrpc: "2.0",
         id: request.id,
         error: {
           code,
-          message,
+          message: message2,
           ...data !== void 0 && { data }
         }
       };
@@ -24812,7 +24812,7 @@ var Protocol = class {
     const flowStartedAt = Date.now();
     let onAbort;
     let cleanupMessageId;
-    return new Promise((resolve2, reject) => {
+    return new Promise((resolve3, reject) => {
       const earlyReject = (error62) => {
         reject(error62);
       };
@@ -24880,7 +24880,7 @@ var Protocol = class {
         }
         if (decoded.kind === "invalid") return reject(decoded.error);
         if (decoded.kind === "input_required") {
-          if (options?.allowInputRequired === true) return resolve2(manualInputRequiredValue(decoded));
+          if (options?.allowInputRequired === true) return resolve3(manualInputRequiredValue(decoded));
           const flow = {
             codec: codec2,
             request,
@@ -24892,11 +24892,11 @@ var Protocol = class {
               params
             }, resultSchema, legOptions)
           };
-          return resolve2(this._resolveNonCompleteResult(decoded, flow));
+          return resolve3(this._resolveNonCompleteResult(decoded, flow));
         }
         const result = decoded.result;
         validateStandardSchema(resultSchema, result).then((parseResult) => {
-          if (parseResult.success) resolve2(parseResult.data);
+          if (parseResult.success) resolve3(parseResult.data);
           else reject(new SdkError(SdkErrorCode.InvalidResult, `Invalid result for ${request.method}: ${parseResult.error}`));
         }, reject);
       });
@@ -25169,8 +25169,8 @@ var ReadBuffer = class {
 function deserializeMessage(line) {
   return JSONRPCMessageSchema.parse(JSON.parse(line));
 }
-function serializeMessage(message) {
-  return JSON.stringify(message) + "\n";
+function serializeMessage(message2) {
+  return JSON.stringify(message2) + "\n";
 }
 var TOOL_NAME_REGEX = /^[A-Za-z0-9._-]{1,128}$/;
 function validateToolName(name) {
@@ -26421,11 +26421,11 @@ var require_errors = /* @__PURE__ */ __commonJSMin(((exports) => {
     if (schemaPath) schPath = (0, codegen_1.str)`${schPath}${(0, util_1.getErrorPath)(schemaPath, util_1.Type.Str)}`;
     return [E.schemaPath, schPath];
   }
-  function extraErrorProps(cxt, { params, message }, keyValues) {
+  function extraErrorProps(cxt, { params, message: message2 }, keyValues) {
     const { keyword, data, schemaValue, it } = cxt;
     const { opts, propertyName, topSchemaRef, schemaPath } = it;
     keyValues.push([E.keyword, keyword], [E.params, typeof params == "function" ? params(cxt) : params || (0, codegen_1._)`{}`]);
-    if (opts.messages) keyValues.push([E.message, typeof message == "function" ? message(cxt) : message]);
+    if (opts.messages) keyValues.push([E.message, typeof message2 == "function" ? message2(cxt) : message2]);
     if (opts.verbose) keyValues.push([E.schema, schemaValue], [E.parentSchema, (0, codegen_1._)`${topSchemaRef}${schemaPath}`], [names_1.default.data, data]);
     if (propertyName) keyValues.push([E.propertyName, propertyName]);
   }
@@ -27808,7 +27808,7 @@ var require_compile = /* @__PURE__ */ __commonJSMin(((exports) => {
     ref = (0, resolve_1.resolveUrl)(this.opts.uriResolver, baseId, ref);
     const schOrFunc = root.refs[ref];
     if (schOrFunc) return schOrFunc;
-    let _sch = resolve2.call(this, root, ref);
+    let _sch = resolve3.call(this, root, ref);
     if (_sch === void 0) {
       const schema = (_a3 = root.localRefs) === null || _a3 === void 0 ? void 0 : _a3[ref];
       const { schemaId } = this.opts;
@@ -27834,7 +27834,7 @@ var require_compile = /* @__PURE__ */ __commonJSMin(((exports) => {
   function sameSchemaEnv(s1, s2) {
     return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
   }
-  function resolve2(root, ref) {
+  function resolve3(root, ref) {
     let sch;
     while (typeof (sch = this.refs[ref]) == "string") ref = sch;
     return sch || this.schemas[ref] || resolveSchema.call(this, root, ref);
@@ -28284,47 +28284,47 @@ var require_fast_uri = /* @__PURE__ */ __commonJSMin(((exports, module) => {
     else if (typeof uri === "object") uri = parse3(serialize(uri, options), options);
     return uri;
   }
-  function resolve2(baseURI, relativeURI, options) {
+  function resolve3(baseURI, relativeURI, options) {
     const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
     const resolved = resolveComponent(parse3(baseURI, schemelessOptions), parse3(relativeURI, schemelessOptions), schemelessOptions, true);
     schemelessOptions.skipEscape = true;
     return serialize(resolved, schemelessOptions);
   }
-  function resolveComponent(base, relative, options, skipNormalization) {
+  function resolveComponent(base, relative2, options, skipNormalization) {
     const target = {};
     if (!skipNormalization) {
       base = parse3(serialize(base, options), options);
-      relative = parse3(serialize(relative, options), options);
+      relative2 = parse3(serialize(relative2, options), options);
     }
     options = options || {};
-    if (!options.tolerant && relative.scheme) {
-      target.scheme = relative.scheme;
-      target.userinfo = relative.userinfo;
-      target.host = relative.host;
-      target.port = relative.port;
-      target.path = removeDotSegments(relative.path || "");
-      target.query = relative.query;
+    if (!options.tolerant && relative2.scheme) {
+      target.scheme = relative2.scheme;
+      target.userinfo = relative2.userinfo;
+      target.host = relative2.host;
+      target.port = relative2.port;
+      target.path = removeDotSegments(relative2.path || "");
+      target.query = relative2.query;
     } else {
-      if (relative.userinfo !== void 0 || relative.host !== void 0 || relative.port !== void 0) {
-        target.userinfo = relative.userinfo;
-        target.host = relative.host;
-        target.port = relative.port;
-        target.path = removeDotSegments(relative.path || "");
-        target.query = relative.query;
+      if (relative2.userinfo !== void 0 || relative2.host !== void 0 || relative2.port !== void 0) {
+        target.userinfo = relative2.userinfo;
+        target.host = relative2.host;
+        target.port = relative2.port;
+        target.path = removeDotSegments(relative2.path || "");
+        target.query = relative2.query;
       } else {
-        if (!relative.path) {
+        if (!relative2.path) {
           target.path = base.path;
-          if (relative.query !== void 0) target.query = relative.query;
+          if (relative2.query !== void 0) target.query = relative2.query;
           else target.query = base.query;
         } else {
-          if (relative.path[0] === "/") target.path = removeDotSegments(relative.path);
+          if (relative2.path[0] === "/") target.path = removeDotSegments(relative2.path);
           else {
-            if ((base.userinfo !== void 0 || base.host !== void 0 || base.port !== void 0) && !base.path) target.path = "/" + relative.path;
-            else if (!base.path) target.path = relative.path;
-            else target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative.path;
+            if ((base.userinfo !== void 0 || base.host !== void 0 || base.port !== void 0) && !base.path) target.path = "/" + relative2.path;
+            else if (!base.path) target.path = relative2.path;
+            else target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative2.path;
             target.path = removeDotSegments(target.path);
           }
-          target.query = relative.query;
+          target.query = relative2.query;
         }
         target.userinfo = base.userinfo;
         target.host = base.host;
@@ -28332,7 +28332,7 @@ var require_fast_uri = /* @__PURE__ */ __commonJSMin(((exports, module) => {
       }
       target.scheme = base.scheme;
     }
-    target.fragment = relative.fragment;
+    target.fragment = relative2.fragment;
     return target;
   }
   function equal(uriA, uriB, options) {
@@ -28458,7 +28458,7 @@ var require_fast_uri = /* @__PURE__ */ __commonJSMin(((exports, module) => {
   const fastUri = {
     SCHEMES,
     normalize,
-    resolve: resolve2,
+    resolve: resolve3,
     resolveComponent,
     equal,
     serialize,
@@ -28749,9 +28749,9 @@ var require_core$3 = /* @__PURE__ */ __commonJSMin(((exports) => {
       }
       const valid = this.validate($schema, schema);
       if (!valid && throwOrLogError) {
-        const message = "schema is invalid: " + this.errorsText();
-        if (this.opts.validateSchema === "log") this.logger.error(message);
-        else throw new Error(message);
+        const message2 = "schema is invalid: " + this.errorsText();
+        if (this.opts.validateSchema === "log") this.logger.error(message2);
+        else throw new Error(message2);
       }
       return valid;
     }
@@ -32288,15 +32288,15 @@ function syntheticElicitationId() {
   const hex3 = [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
   return `${hex3.slice(0, 8)}-${hex3.slice(8, 12)}-${hex3.slice(12, 16)}-${hex3.slice(16, 20)}-${hex3.slice(20)}`;
 }
-function legacyShimFailure(method, message) {
+function legacyShimFailure(method, message2) {
   if (method === "tools/call") return {
     content: [{
       type: "text",
-      text: message
+      text: message2
     }],
     isError: true
   };
-  throw new ProtocolError(ProtocolErrorCode.InternalError, message);
+  throw new ProtocolError(ProtocolErrorCode.InternalError, message2);
 }
 var LegacyInputRequiredShim = class {
   constructor(_host) {
@@ -33622,9 +33622,9 @@ var StdioServerTransport = class {
   }
   processReadBuffer() {
     while (true) try {
-      const message = this._readBuffer.readMessage();
-      if (message === null) break;
-      this.onmessage?.(message);
+      const message2 = this._readBuffer.readMessage();
+      if (message2 === null) break;
+      this.onmessage?.(message2);
     } catch (error62) {
       this.onerror?.(error62);
     }
@@ -33639,10 +33639,10 @@ var StdioServerTransport = class {
     this._readBuffer.clear();
     this.onclose?.();
   }
-  send(message) {
+  send(message2) {
     if (this._closed) return Promise.reject(/* @__PURE__ */ new Error("StdioServerTransport is closed"));
-    return new Promise((resolve2, reject) => {
-      const json2 = serializeMessage(message);
+    return new Promise((resolve3, reject) => {
+      const json2 = serializeMessage(message2);
       let settled = false;
       const onError = (error62) => {
         if (settled) return;
@@ -33656,14 +33656,14 @@ var StdioServerTransport = class {
         settled = true;
         this._stdout.off("error", onError);
         this._stdout.off("drain", onDrain);
-        resolve2();
+        resolve3();
       };
       this._stdout.once("error", onError);
       if (this._stdout.write(json2)) {
         if (settled) return;
         settled = true;
         this._stdout.off("error", onError);
-        resolve2();
+        resolve3();
       } else if (!settled) this._stdout.once("drain", onDrain);
     });
   }
@@ -33684,9 +33684,9 @@ function G(B, Q, F, V, q) {
 
 // server.ts
 import { mkdir, readFile as readFile2, rename, rm, writeFile } from "node:fs/promises";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash as createHash2, randomUUID } from "node:crypto";
 import { homedir as homedir3 } from "node:os";
-import { basename, join as join3 } from "node:path";
+import { join as join3 } from "node:path";
 import { pathToFileURL } from "node:url";
 
 // git.ts
@@ -33733,9 +33733,7 @@ async function repository(repoPath) {
 async function repositoryInfo(repoPath) {
   const root = await repository(repoPath);
   const commonDir = await realpath((await git(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim());
-  const main = (await git(root, ["worktree", "list", "--porcelain", "-z"])).split("\0").find((field) => field.startsWith("worktree "));
-  if (!main) throw new Error("Git \u672A\u8FD4\u56DE\u4E3B\u5DE5\u4F5C\u6811\u3002");
-  return { root, commonDir, mainRoot: await realpath(main.slice("worktree ".length)) };
+  return { root, commonDir };
 }
 function parseCommits(raw) {
   if (!raw) return [];
@@ -33830,13 +33828,13 @@ async function commit({ repoPath, hash: hash3, parent = 0 }) {
     hash3,
     "--"
   ]);
-  const [id, parentText, author, email3, date5, message] = raw.split("\0");
+  const [id, parentText, author, email3, date5, message2] = raw.split("\0");
   const parents = parentText ? parentText.split(" ") : [];
   if (!Number.isInteger(parent) || parent < 0 || parent >= Math.max(parents.length, 1)) throw new Error("\u7236\u63D0\u4EA4\u9009\u62E9\u65E0\u6548\u3002");
   const base = parents[parent] || null;
   const args = base ? ["diff", "--name-status", "-z", "-M", base, hash3, "--"] : ["diff-tree", "--root", "--no-commit-id", "-r", "--name-status", "-z", "-M", hash3, "--"];
   const files = parseFiles(await git(repo, args));
-  return { repo, hash: id, parents, parent, base, author, email: email3, date: date5, message: message.trimEnd(), files };
+  return { repo, hash: id, parents, parent, base, author, email: email3, date: date5, message: message2.trimEnd(), files };
 }
 async function revisionFile(repo, hash3, path, exists) {
   const revision = { hash: hash3, path, exists, mode: null, content: "" };
@@ -33886,18 +33884,24 @@ async function workspaceFile(args) {
 }
 
 // project.ts
-import { readFile } from "node:fs/promises";
+import { readFile, realpath as realpath2 } from "node:fs/promises";
 import { homedir as homedir2 } from "node:os";
-import { join as join2 } from "node:path";
+import { basename as basename2, isAbsolute as isAbsolute3, join as join2, relative, resolve as resolve2, sep as sep2 } from "node:path";
+import { createHash } from "node:crypto";
 
 // codex.ts
-import { spawn } from "node:child_process";
+import { spawn, execFile as execFile2 } from "node:child_process";
 import { createInterface } from "node:readline";
-import { stat as stat2 } from "node:fs/promises";
+import { stat as stat2, access } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, isAbsolute as isAbsolute2, join } from "node:path";
+import { promisify as promisify2 } from "node:util";
 async function withCodex(run) {
-  const child = spawn("codex", ["app-server", "--listen", "stdio://"], { stdio: ["pipe", "pipe", "pipe"] });
+  const parent = process.env.CODEX_CLI_PATH || process.platform === "win32" ? "" : (await promisify2(execFile2)("ps", ["-p", String(process.ppid), "-o", "comm="])).stdout.trim();
+  const resources = process.env.CODEX_MCP_NODE_PATH?.match(/^(.*\.app\/Contents\/Resources)\//)?.[1];
+  const executable = process.env.CODEX_CLI_PATH || (isAbsolute2(parent) && basename(parent) === "codex" ? parent : resources ? join(resources, "codex") : "codex");
+  if (executable !== "codex") await access(executable);
+  const child = spawn(executable, ["app-server", "--listen", "stdio://"], { stdio: ["pipe", "pipe", "pipe"] });
   const pending = /* @__PURE__ */ new Map();
   let nextId = 0;
   let failure2;
@@ -33913,22 +33917,22 @@ async function withCodex(run) {
   const lines = createInterface({ input: child.stdout });
   lines.on("line", (line) => {
     try {
-      const message = JSON.parse(line), request2 = pending.get(message.id);
+      const message2 = JSON.parse(line), request2 = pending.get(message2.id);
       if (!request2) return;
-      pending.delete(message.id);
-      if (message.error) request2.reject(new Error(message.error.message));
-      else request2.resolve(message.result);
+      pending.delete(message2.id);
+      if (message2.error) request2.reject(new Error(message2.error.message));
+      else request2.resolve(message2.result);
     } catch (error62) {
       fail(error62);
     }
   });
-  const request = (method, params) => new Promise((resolve2, reject) => {
+  const request = (method, params) => new Promise((resolve3, reject) => {
     if (failure2) {
       reject(failure2);
       return;
     }
     const id = ++nextId;
-    pending.set(id, { resolve: resolve2, reject });
+    pending.set(id, { resolve: resolve3, reject });
     child.stdin.write(JSON.stringify({ id, method, params }) + "\n");
   });
   const timeout = setTimeout(() => {
@@ -33945,15 +33949,26 @@ async function withCodex(run) {
   }
 }
 var codeFontSizeSchema = external_exports.number().min(8).max(24).default(12);
-var chromeThemeSchema = external_exports.object({ ink: external_exports.string().regex(/^#[0-9a-f]{6}$/i).optional(), contrast: external_exports.number().min(0).max(100).optional() });
-function ghostHover(theme, dark) {
+var chromeThemeSchema = external_exports.object({ ink: external_exports.string().regex(/^#[0-9a-f]{6}$/i).optional(), surface: external_exports.string().regex(/^#[0-9a-f]{6}$/i).optional(), contrast: external_exports.number().min(0).max(100).optional() });
+function chromeColors(theme, dark) {
   const baseline = dark ? 60 : 45, contrast = theme?.contrast ?? baseline;
   const adjusted = contrast / 100 + (contrast - baseline) / 60 * 0.7;
   const normalized = contrast <= baseline ? adjusted : baseline / 100 + (adjusted - baseline / 100) * 2;
-  const alpha = Number(Math.min(1, Math.max(0, (dark ? 0.06 : 0.04) + normalized * 0.03)).toFixed(3));
+  const clamp = (value) => Math.min(1, Math.max(0, value));
+  const alpha = (value) => Number(clamp(value).toFixed(3));
   const ink = theme?.ink ?? (dark ? "#ffffff" : "#1a1c1f");
   const rgb = [1, 3, 5].map((offset) => parseInt(ink.slice(offset, offset + 2), 16));
-  return `rgba(${rgb.join(", ")}, ${alpha})`;
+  const surface = theme?.surface ?? (dark ? "#181818" : "#ffffff");
+  const mix = clamp(dark ? 0.06 + normalized * 0.05 : 0.09 + normalized * 0.04);
+  const control = [1, 3, 5].map((offset, index) => {
+    const channel = parseInt(surface.slice(offset, offset + 2), 16);
+    return Math.round(channel + ((dark ? rgb[index] : 255) - channel) * mix);
+  });
+  return {
+    ghostHover: `rgba(${rgb.join(", ")}, ${alpha((dark ? 0.06 : 0.04) + normalized * 0.03)})`,
+    primarySoft: `rgba(${control.join(", ")}, 0.96)`,
+    textTertiary: `rgba(${rgb.join(", ")}, ${alpha(dark ? 0.42 + normalized * 0.13 : 0.45 + normalized * 0.1)})`
+  };
 }
 function createAppearanceReader({
   configPath = join(process.env.CODEX_HOME || join(homedir(), ".codex"), "config.toml"),
@@ -33967,9 +33982,11 @@ function createAppearanceReader({
     });
     if (cached2?.stamp === stamp) return cached2.value;
     const { config: config2 } = external_exports.object({ config: external_exports.object({ desktop: external_exports.object({ codeFontSize: external_exports.unknown().optional(), appearanceDarkChromeTheme: chromeThemeSchema.optional(), appearanceLightChromeTheme: chromeThemeSchema.optional() }).nullish() }) }).parse(await readConfig());
+    const noticeColors = { light: chromeColors(config2.desktop?.appearanceLightChromeTheme, false), dark: chromeColors(config2.desktop?.appearanceDarkChromeTheme, true) };
     const value = {
+      noticeColors,
       codeFontSize: codeFontSizeSchema.parse(config2.desktop?.codeFontSize),
-      ghostHover: { light: ghostHover(config2.desktop?.appearanceLightChromeTheme, false), dark: ghostHover(config2.desktop?.appearanceDarkChromeTheme, true) }
+      ghostHover: { light: noticeColors.light.ghostHover, dark: noticeColors.dark.ghostHover }
     };
     cached2 = { stamp, value };
     return value;
@@ -33977,7 +33994,16 @@ function createAppearanceReader({
 }
 
 // project.ts
-var projectSchema = external_exports.object({ roots: external_exports.array(external_exports.object({ path: external_exports.string().min(1) })) });
+var pathSchema = external_exports.string().min(1).refine((path) => isAbsolute3(path) && !path.includes("\0"), "\u9700\u8981\u672C\u5730\u7EDD\u5BF9\u8DEF\u5F84");
+var workspaceSchema = external_exports.object({ cwd: pathSchema, projectSources: external_exports.array(pathSchema), runtimeWorkspaceRoots: external_exports.array(pathSchema) });
+var workspaceStateSchema = external_exports.object({ project: external_exports.unknown(), pending: workspaceSchema.nullable(), applied: workspaceSchema.nullable() });
+var threadSchema = external_exports.object({
+  projectId: external_exports.string().nullish(),
+  cwd: pathSchema,
+  environments: external_exports.array(external_exports.object({ cwd: pathSchema, runtimeWorkspaceRoots: external_exports.array(pathSchema).nullish() })).nullish()
+});
+var worktreeSchema = external_exports.object({ root: pathSchema, workspaceRoot: pathSchema });
+var message = (error62) => error62 instanceof Error ? error62.message : String(error62);
 async function readDesktopState(codexHome) {
   try {
     return JSON.parse(await readFile(join2(codexHome, ".codex-global-state.json"), "utf8"));
@@ -33986,41 +34012,140 @@ async function readDesktopState(codexHome) {
     throw error62;
   }
 }
-async function readProjectRoots(threadId, {
+async function readWorkspace(threadId, {
   codexHome = process.env.CODEX_HOME || join2(homedir2(), ".codex"),
-  home = homedir2(),
+  cwd = process.cwd(),
   readState = () => readDesktopState(codexHome),
   runWithCodex = withCodex
 } = {}) {
-  let desktop;
-  let useSelectedProject = !threadId;
-  const state = async () => desktop ??= await readState();
-  if (!threadId && (await state())?.["selected-project"]?.type !== "local") return [home];
+  const desktop = await readState();
+  const stored = threadId ? desktop["electron-persisted-atom-state"]?.[`thread-workspace-state-v1:${threadId}`] : void 0;
+  const state = stored == null ? null : workspaceStateSchema.parse(stored);
+  const result = { cwd, runtimeRoots: [cwd], sourceRoots: [], worktrees: [], notices: [] };
+  if (!threadId && desktop["selected-project"]?.type !== "local") return result;
   return runWithCodex(async (request) => {
-    let projectId;
+    let thread;
+    let useSelectedProject = !threadId;
     if (threadId) {
       try {
-        ({ thread: { projectId } } = external_exports.object({ thread: external_exports.object({ projectId: external_exports.string().nullish() }) }).parse(await request("thread/read", { threadId, includeTurns: false })));
+        thread = external_exports.object({ thread: threadSchema }).parse(await request("thread/read", { threadId, includeTurns: false })).thread;
       } catch (error62) {
-        if (!(error62 instanceof Error) || error62.message !== `thread not loaded: ${threadId}`) throw error62;
-        useSelectedProject = true;
+        if (message(error62) !== `thread not loaded: ${threadId}`) throw error62;
+        useSelectedProject = !state;
       }
     }
+    const environment = thread?.environments?.[0];
+    const workspace = state?.pending ?? (state?.project == null ? null : state.applied);
+    result.cwd = state?.pending?.cwd ?? state?.applied?.cwd ?? environment?.cwd ?? thread?.cwd ?? cwd;
+    result.runtimeRoots = state?.pending?.runtimeWorkspaceRoots ?? environment?.runtimeWorkspaceRoots ?? (environment ? [environment.cwd] : state?.applied?.runtimeWorkspaceRoots) ?? [result.cwd];
+    let projectId = thread?.projectId;
     if (!projectId) {
-      const data = await state();
-      const assignment = threadId ? data?.["thread-project-assignments"]?.[threadId] : void 0;
-      const selected = useSelectedProject ? data?.["selected-project"] : void 0;
+      const assignment = threadId ? desktop["thread-project-assignments"]?.[threadId] : void 0;
+      const selected = useSelectedProject ? desktop["selected-project"] : void 0;
       const localProjectId = assignment?.projectKind === "local" ? assignment.projectId : selected?.type === "local" ? selected.projectId : void 0;
       if (localProjectId) {
-        projectId = data["app-server-project-id-by-legacy-project-id-by-host"]?.[`local:${codexHome}`]?.[localProjectId];
-        if (!projectId) throw new Error("\u5F53\u524D\u9879\u76EE\u5173\u8054\u5C1A\u672A\u8FC1\u79FB\uFF0C\u8BF7\u5728 Codex \u4E2D\u91CD\u65B0\u9009\u62E9\u9879\u76EE\u3002");
+        projectId = desktop["app-server-project-id-by-legacy-project-id-by-host"]?.[`local:${codexHome}`]?.[localProjectId];
+        if (!projectId) result.notices.push("\u5F53\u524D\u9879\u76EE\u5173\u8054\u5C1A\u672A\u8FC1\u79FB\uFF0C\u8BF7\u5728 Codex \u4E2D\u91CD\u65B0\u9009\u62E9\u9879\u76EE\u3002");
       }
     }
-    if (!projectId) return [home];
-    const { project } = external_exports.object({ project: projectSchema }).parse(await request("project/read", { projectId }));
-    const roots = project.roots.map((root) => root.path);
-    return roots.length ? roots : [home];
+    if (projectId) {
+      try {
+        const { project } = external_exports.object({ project: external_exports.object({ roots: external_exports.array(external_exports.object({ path: pathSchema })) }) }).parse(await request("project/read", { projectId }));
+        result.sourceRoots = project.roots.map((root) => root.path);
+      } catch (error62) {
+        result.notices.push(`\u65E0\u6CD5\u8BFB\u53D6\u9879\u76EE\u76EE\u5F55\uFF1A${message(error62)}`);
+      }
+    }
+    if (state?.pending) result.sourceRoots = state.pending.projectSources;
+    else if (!projectId && workspace) result.sourceRoots = workspace.projectSources;
+    if (useSelectedProject && !thread && !workspace && result.sourceRoots.length) {
+      result.cwd = result.sourceRoots[0];
+      result.runtimeRoots = result.sourceRoots;
+    }
+    if (threadId && thread) {
+      try {
+        let cursor = null;
+        do {
+          const page = external_exports.object({ data: external_exports.array(external_exports.object({ attachmentType: external_exports.string(), payload: external_exports.unknown() })), nextCursor: external_exports.string().nullable() }).parse(await request("thread/attachment/list", { threadId, cursor, limit: 100 }));
+          for (const item of page.data) if (item.attachmentType === "worktree") {
+            const parsed = worktreeSchema.safeParse(item.payload);
+            if (parsed.success) result.worktrees.push(parsed.data);
+          }
+          cursor = page.nextCursor;
+        } while (cursor != null);
+      } catch (error62) {
+        result.notices.push(`\u65E0\u6CD5\u8BFB\u53D6\u4EFB\u52A1\u5DE5\u4F5C\u6811\uFF1A${message(error62)}`);
+      }
+    }
+    return result;
   });
+}
+var contains = (root, path) => {
+  const rel = relative(root, path);
+  return rel !== ".." && !rel.startsWith(`..${sep2}`) && !isAbsolute3(rel);
+};
+async function resolveRepositories(workspace) {
+  const notices = [...workspace.notices];
+  const origins = /* @__PURE__ */ new Map();
+  const paths = /* @__PURE__ */ new Map();
+  for (const path of /* @__PURE__ */ new Set([workspace.cwd, ...workspace.runtimeRoots, ...workspace.sourceRoots, ...workspace.worktrees.map((tree) => tree.workspaceRoot)])) {
+    try {
+      paths.set(path, await realpath2(path));
+      origins.set(path, await repositoryInfo(path));
+    } catch (error62) {
+      if (!/not a git repository/i.test(message(error62))) notices.push(`${path}\uFF1A${message(error62)}`);
+    }
+  }
+  const normalized = (path) => paths.get(path) ?? resolve2(path);
+  const cwd = normalized(workspace.cwd), runtimeRoots = workspace.runtimeRoots.map(normalized);
+  const sourceRoots = workspace.sourceRoots.map(normalized);
+  const groups = /* @__PURE__ */ new Map();
+  for (const path of [...workspace.runtimeRoots, ...workspace.sourceRoots]) {
+    const origin = origins.get(path);
+    if (!origin) continue;
+    const group = groups.get(origin.root) ?? { ...origin, workspaceRoots: [] };
+    group.workspaceRoots.push(normalized(path));
+    groups.set(origin.root, group);
+  }
+  const runtimeCommon = new Set([...groups.values()].filter((repo) => repo.workspaceRoots.some((path) => runtimeRoots.includes(path))).map((repo) => repo.commonDir));
+  const candidates = [...groups.values()].filter((repo) => repo.workspaceRoots.some((path) => runtimeRoots.includes(path)) || !runtimeCommon.has(repo.commonDir));
+  const sourceOrigins = workspace.sourceRoots.map((path) => origins.get(path));
+  const closest = (roots, path) => roots.reduce((best, root, index) => contains(root, path) && (best < 0 || root.length > roots[best].length) ? index : best, -1);
+  const directories = (sourceRoots.length ? sourceRoots : runtimeRoots).map((source, index) => {
+    const origin = sourceRoots.length ? sourceOrigins[index] : origins.get(workspace.runtimeRoots[index]);
+    const rel = origin ? relative(origin.root, source) : null;
+    const siblings = candidates.filter((repo) => repo.commonDir === origin?.commonDir);
+    const indexed = candidates.find((repo) => repo.workspaceRoots.includes(runtimeRoots[index]));
+    let preferred;
+    if (sourceRoots.length && origin && rel != null && siblings.length > 1 && !sourceOrigins.some((item) => item?.commonDir === origin.commonDir && item.root !== origin.root)) {
+      const current2 = siblings[closest(siblings.map((repo) => repo.root), cwd)];
+      if (current2) {
+        const sameSources = sourceRoots.filter((_, i) => sourceOrigins[i]?.root === origin.root);
+        const target = join2(current2.root, rel), sourceIndex = sameSources.indexOf(source);
+        const others = siblings.filter((repo) => repo !== current2 && repo.workspaceRoots.some((path) => contains(path, join2(repo.root, rel))));
+        preferred = others.find((repo) => repo.workspaceRoots.includes(join2(repo.root, rel))) ?? others[0];
+        if (current2.workspaceRoots.some((path) => contains(path, target) && (!preferred || path === target) || contains(target, path) && closest(sameSources, join2(origin.root, relative(current2.root, path))) === sourceIndex) && (closest(sameSources, join2(origin.root, relative(current2.root, cwd))) === sourceIndex || contains(cwd, target))) preferred = current2;
+      }
+    }
+    const repository2 = preferred ?? candidates.find((repo) => repo.workspaceRoots.includes(source) || repo.root === origin?.root) ?? siblings.find((repo) => repo === indexed) ?? siblings[0];
+    return { repository: repository2 };
+  });
+  const effective = /* @__PURE__ */ new Map();
+  for (const directory of directories) if (directory.repository) effective.set(directory.repository.root, directory.repository);
+  for (const tree of workspace.worktrees) {
+    const repo = origins.get(tree.workspaceRoot);
+    if (repo) effective.set(repo.root, repo);
+  }
+  const current = origins.get(workspace.cwd);
+  if (current) effective.set(current.root, current);
+  const repositories = [...effective.values()].map(({ root }) => ({
+    id: createHash("sha256").update(JSON.stringify(["local", root])).digest("hex"),
+    name: basename2(root),
+    path: root,
+    displayPath: root
+  }));
+  const defaultRoot = current?.root ?? directories.find((dir) => dir.repository)?.repository?.root;
+  return { repositories, defaultRepository: repositories.find((repo) => repo.path === defaultRoot)?.id, contextCwd: workspace.cwd, repositoryNotice: notices.join("\n") };
 }
 
 // layout.ts
@@ -34040,7 +34165,7 @@ var git_branch_dark_default = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/
 
 // server.ts
 var html = await readFile2(new URL("./window.html", import.meta.url), "utf8");
-var resourceUri = `ui://git-graph/window-${createHash("sha256").update(html).digest("hex").slice(0, 16)}.html`;
+var resourceUri = `ui://git-graph/window-${createHash2("sha256").update(html).digest("hex").slice(0, 16)}.html`;
 var hash2 = external_exports.string().regex(/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/);
 var repositoryId = external_exports.string().regex(/^[0-9a-f]{64}$/).optional();
 var annotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
@@ -34079,18 +34204,19 @@ async function saveLayout({ panels, preferencesDirectory: directory }) {
   await writePreference(directory, "panel-layout.json", panels, "\u9762\u677F\u5E03\u5C40");
   return { panels };
 }
-async function openGraph({ repositories, repositoryNotice, contextCwd = process.cwd() }) {
-  const result = repositories.length ? await history({ repoPath: repositories[0].path }) : { repo: null };
+async function openGraph({ repositories, repositoryNotice, contextCwd = process.cwd(), defaultRepository, selectedRepository: selected, branch }) {
+  const repo = repositories.find((repo2) => repo2.id === selected) ?? repositories.find((repo2) => repo2.id === defaultRepository) ?? repositories[0];
+  const result = repo ? await history({ repoPath: repo.path, branch: repo.id === selected ? branch : void 0 }) : { repo: null };
   return { ...result, contextCwd, repositories, repositoryNotice };
 }
 var readAppearance = createAppearanceReader();
 function defineTool(definition) {
   return { ...definition, async invoke(args, directory, context) {
     const input2 = definition.schema.parse(args);
-    let repoPath = context.repositories[0]?.path || process.cwd();
-    if (input2.repository) {
-      const selected = context.repositories.find((repo) => repo.id === input2.repository);
-      if (!selected) throw new Error("\u6240\u9009\u4ED3\u5E93\u4E0D\u5C5E\u4E8E\u5F53\u524D\u4EFB\u52A1\u7684\u9879\u76EE\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00 Git Graph\u3002");
+    let repoPath = context.repositories.find((repo) => repo.id === context.defaultRepository)?.path || context.repositories[0]?.path || process.cwd();
+    if ("repository" in definition.schema.shape) {
+      const selected = input2.repository ? context.repositories.find((repo) => repo.id === input2.repository) : context.repositories.find((repo) => repo.id === context.defaultRepository) ?? context.repositories[0];
+      if (!selected) throw new Error("\u6240\u9009\u4ED3\u5E93\u4E0D\u5C5E\u4E8E\u5F53\u524D\u4EFB\u52A1\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00 Git Graph\u3002");
       repoPath = await repository(selected.path);
       if (repoPath !== selected.path) throw new Error("\u6240\u9009\u4ED3\u5E93\u8DEF\u5F84\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00 Git Graph\u3002");
     }
@@ -34102,7 +34228,7 @@ var definitions = {
   git_graph: defineTool({
     title: "Git Graph",
     description: "Browse Git history for the current Codex task working directory. Read-only.",
-    schema: external_exports.strictObject({}),
+    schema: external_exports.strictObject({ selectedRepository: repositoryId, branch: external_exports.string().max(1024).optional() }),
     run: openGraph
   }),
   git_graph_history: defineTool({ title: "\u8BFB\u53D6\u63D0\u4EA4\u5386\u53F2", schema: external_exports.strictObject({
@@ -34147,7 +34273,7 @@ async function call(name, args, directory = preferencesDirectory, context = { re
     return { isError: true, content: [{ type: "text", text: error62 instanceof Error ? error62.message : String(error62) }] };
   }
 }
-function createServer({ preferencesDirectory: directory = preferencesDirectory, projectRoots = readProjectRoots } = {}) {
+function createServer({ preferencesDirectory: directory = preferencesDirectory, readContext = readWorkspace } = {}) {
   const contexts = /* @__PURE__ */ new Map();
   const server = new McpServer({ name: "git-graph", title: "Git Graph", version: "0.3.0", icons: [
     { src: git_branch_default, mimeType: "image/svg+xml", sizes: ["any"], theme: "light" },
@@ -34166,39 +34292,15 @@ function createServer({ preferencesDirectory: directory = preferencesDirectory, 
       } : { ui: { visibility: ["app"] } }
     }, async (args, request) => {
       const threadId = external_exports.string().optional().parse(request.mcpReq._meta?.threadId);
-      let context = contexts.get(threadId);
-      if (name === "git_graph") {
-        const notices = [];
-        let roots = [];
-        try {
-          roots = await projectRoots(threadId);
-        } catch (error62) {
-          notices.push(`\u65E0\u6CD5\u8BFB\u53D6\u9879\u76EE\u76EE\u5F55\uFF1A${error62 instanceof Error ? error62.message : String(error62)}`);
-        }
-        const identities = /* @__PURE__ */ new Map();
-        for (const path of new Set(roots.length ? roots : [process.cwd()])) {
-          try {
-            const info = await repositoryInfo(path);
-            if (!identities.has(info.commonDir)) identities.set(info.commonDir, info);
-          } catch (error62) {
-            if (!/not a git repository/i.test(error62 instanceof Error ? String(error62.cause?.stderr || "") : "")) notices.push(`${path}\uFF1A${error62 instanceof Error ? error62.message : String(error62)}`);
-          }
-        }
-        if (roots.length) {
-          try {
-            const current = await repositoryInfo(process.cwd());
-            if (identities.has(current.commonDir)) identities.set(current.commonDir, current);
-          } catch {
-          }
-        }
-        const repositories = [...identities.values()].map(({ root, commonDir, mainRoot }) => ({
-          id: createHash("sha256").update(commonDir).digest("hex"),
-          name: basename(mainRoot),
-          path: root,
-          displayPath: mainRoot
-        }));
-        context = { repositories, repositoryNotice: notices.join("\n"), contextCwd: roots[0] || process.cwd() };
-        contexts.set(threadId, context);
+      if (name === "git_graph") contexts.set(threadId, readContext(threadId).then(resolveRepositories));
+      let context;
+      try {
+        if (name === "git_graph" || "repository" in definition.schema.shape) context = await contexts.get(threadId);
+      } catch (error62) {
+        return { isError: true, content: [{ type: "text", text: `\u65E0\u6CD5\u8BFB\u53D6\u4EFB\u52A1\u76EE\u5F55\uFF1A${error62 instanceof Error ? error62.message : String(error62)}` }] };
+      }
+      if (!context?.repositories.length && ["git_graph_history", "git_graph_commit", "git_graph_diff", "git_graph_workspace_file"].includes(name)) {
+        return { isError: true, content: [{ type: "text", text: "\u8BF7\u91CD\u65B0\u6253\u5F00 Git Graph\uFF0C\u8BFB\u53D6\u5F53\u524D\u4EFB\u52A1\u4ED3\u5E93\u3002" }] };
       }
       return call(name, args, directory, context);
     });
