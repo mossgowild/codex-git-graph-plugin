@@ -26,6 +26,9 @@
   --radius-panel: var(--radius-card);
   --radius-ref: var(--radius-badge);
   --radius-notice: calc(var(--border-radius-xl) * 5 / 3);
+  --radius-tooltip: calc(var(--border-radius-xl) * 4 / 3);
+  --color-tooltip: light-dark(var(--fg), rgb(from var(--codex-primary-soft, var(--color-background-secondary)) r g b / 1));
+  --color-tooltip-content: light-dark(rgb(from var(--codex-primary-soft, var(--color-background-secondary)) r g b / 1), var(--fg));
   --font-ui: var(--font-sans);
   --font-code: var(--font-mono);
   --font-weight-ui-normal: var(--font-weight-normal);
@@ -112,12 +115,17 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
 input { @apply rounded-control bg-surface border border-solid border-transparent; }
 input::placeholder { @apply text-muted opacity-100; }
 @supports (corner-shape: superellipse(1.5)) {
-  button:not(.commit-row), input, #search-field, .commit-row::before, .ref, #detail, .error { corner-shape: superellipse(1.5) }
+  button:not(.commit-row), input, #search-field, .commit-row::before, .ref, #detail, .error, .codex-tooltip { corner-shape: superellipse(1.5) }
 }
 }
 }
 
 @layer components {
+.codex-tooltip {
+  /* Codex's 20rem uses a 16px root; this iframe's root follows the host UI font. */
+  @apply fixed m-0 w-max max-w-[min(320px,calc(100vw-16px))] max-h-[calc(100dvh-16px)] overflow-auto rounded-tooltip border border-solid bg-tooltip px-3 py-1.25 font-ui text-ui-sm leading-[18px] font-ui-normal text-tooltip-content text-center whitespace-pre-wrap wrap-anywhere select-none;
+  inset: auto; border-color: color-mix(in oklab, currentColor 5%, transparent); letter-spacing: -.15px; box-shadow: 0 8px 18px #0f172a33;
+}
 .codex-select, .codex-select::picker(select) { appearance: base-select }
 .codex-select {
   @apply inline-flex items-center gap-content min-w-0 max-w-full min-h-control px-control-x py-1 border-0 rounded-control text-content bg-transparent;
@@ -163,8 +171,10 @@ input::placeholder { @apply text-muted opacity-100; }
 }
 
 button svg { @apply size-icon flex-none; }
+#clear-search { @apply size-control flex-none rounded-item border border-solid border-transparent p-1 text-tertiary; }
+#clear-search svg { width: 18px; height: 18px }
+#clear-search:hover { @apply text-content; }
 #toggle-search[aria-expanded=true] { color: var(--fg); --button-surface: var(--selected) }
-#search::-webkit-search-cancel-button { appearance: none; width: var(--icon-size); height: var(--icon-size); background: var(--muted); mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%20fill%3D%22none%22%20aria-hidden%3D%22true%22%20data-codex-icon%3D%22xmark-md-light-16%22%3E%3Cpath%20d%3D%22M10.962%204.29539C11.1669%204.09057%2011.4992%204.09076%2011.7042%204.29539C11.9092%204.50039%2011.9091%204.83255%2011.7042%205.03758L8.74229%207.99949L11.7052%2010.9624C11.9097%2011.1673%2011.9097%2011.4996%2011.7052%2011.7046C11.5003%2011.9095%2011.168%2011.9093%2010.963%2011.7046L8.0001%208.74168L5.03721%2011.7046C4.83216%2011.9093%204.49994%2011.9095%204.29502%2011.7046C4.09047%2011.4996%204.09045%2011.1673%204.29502%2010.9624L7.25791%207.99949L4.296%205.03758C4.09101%204.83255%204.09099%204.5004%204.296%204.29539C4.50105%204.09079%204.8333%204.09054%205.03819%204.29539L8.0001%207.2573L10.962%204.29539Z%22%20fill%3D%22currentColor%22%2F%3E%3C%2Fsvg%3E") center / contain no-repeat }
 .step { @apply size-control flex-none rounded-control text-muted; padding: calc((var(--control-size) - var(--icon-size)) / 2); background: var(--button-surface, transparent); transition: background-color 150ms ease, color 150ms ease, opacity 150ms ease; }
 .step:not(:disabled):hover { @apply bg-hover; }
 .error { @apply @container relative isolate flex items-start gap-4 py-4 pr-3 pl-5 border-0 rounded-notice text-danger bg-native shadow-notice text-ui-sm leading-ui overflow-hidden; }

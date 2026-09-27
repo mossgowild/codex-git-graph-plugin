@@ -127,6 +127,8 @@ try {
   await initialFrame.locator('#diff-editor').waitFor({state:'visible'});
   assert.equal(editorCalls,2,'editor loading retries only after the first diff fails');
   assert.equal(await initialFrame.locator('#diff-skeleton').isVisible(),false,'diff skeleton clears after editor setup');
+  await initialFrame.locator('#diff-editor').hover({position:{x:100,y:20}});await page.waitForTimeout(300);
+  assert.equal(await initialFrame.locator('#codex-tooltip').isVisible(),false,'code never inherits a history tooltip');
   intercept = async request => request.name === 'git_graph' ? { isError:true, content:[{type:'text',text:'模拟首次加载失败'}] } : null;
   await page.goto(url);
   const failedFrame = page.frameLocator('iframe');
@@ -148,7 +150,105 @@ try {
   assert.equal(await failedFrame.locator('#app').evaluate(el=>el.scrollWidth <= el.clientWidth), true);
   await page.setViewportSize({width:1000,height:760});
   intercept = null;
+  const tooltipCommits: FixtureCommit[]=[
+    {hash:'a'.repeat(40),parents:['b'.repeat(40)],subject:'很长的提交说明 '.repeat(40),author:'Moss',email:'moss@example.invalid',date:'2026-09-20T00:00:00Z'},
+    {hash:'b'.repeat(40),parents:[],subject:'短标题',author:'Moss',email:'moss@example.invalid',date:'2026-09-20T00:00:00Z'},
+  ];
+  historyFixture={repo:root,branch:'',head:tooltipCommits[1].hash,headName:'main',hasMore:false,
+    tips:[tooltipCommits[0].hash],commits:tooltipCommits,refs:[{name:'refs/heads/main',hash:tooltipCommits[1].hash}]};
   let frame=await open();
+  const tooltip=frame.locator('#codex-tooltip');
+  for (const target of [frame.locator('.graph').first(),frame.locator('.subject').last(),frame.locator('.author').last(),frame.locator('.ref').first()]) {
+    await target.hover();await page.waitForTimeout(300);
+    assert.equal(await tooltip.isVisible(),false,`graph and untruncated text do not show tooltips: ${await target.getAttribute('class')}`);
+  }
+  const tooltipBounds=async()=>{
+    const bounds=await tooltip.evaluate(async el=>{
+      await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+      return {box:el.getBoundingClientRect().toJSON(),width:innerWidth,height:innerHeight,open:el.matches(':popover-open')};
+    });
+    const {box,width,height}=bounds;
+    assert.ok(bounds.open&&box.left>=8&&box.top>=8&&box.right<=width-8&&box.bottom<=height-8,JSON.stringify(bounds));
+    return true;
+  };
+  await frame.locator('#refresh').hover();
+  await tooltip.waitFor({state:'visible'});
+  assert.equal(await tooltip.innerText(),'重新读取仓库');
+  assert.equal(await frame.locator('#refresh').getAttribute('aria-describedby'),'codex-tooltip');
+  assert.equal(await frame.locator('#refresh').getAttribute('title'),null,'custom and browser tooltips never appear together');
+  assert.ok(await tooltipBounds(),'toolbar tooltip flips below the trigger and stays inside the panel');
+  assert.deepEqual(await tooltip.evaluate(el=>{
+    const context=document.createElement('canvas').getContext('2d')!;
+    context.fillStyle=getComputedStyle(el).backgroundColor;context.fillRect(0,0,1,1);
+    return Array.from(context.getImageData(0,0,1,1).data);
+  }),[33,37,42,255],'dark tooltip uses the opaque host control background');
+  assert.deepEqual(await tooltip.evaluate(el=>{
+    const style=getComputedStyle(el);return {radius:style.borderRadius,curve:style.cornerShape,padding:[style.paddingBlockStart,style.paddingInlineStart],lineHeight:style.lineHeight};
+  }),{radius:'16px',curve:'superellipse(1.5)',padding:['5px','12px'],lineHeight:'18px'});
+  if (process.env.UI_TEST_ARTIFACTS) {
+    await mkdir(process.env.UI_TEST_ARTIFACTS,{recursive:true});
+    await page.screenshot({path:join(process.env.UI_TEST_ARTIFACTS,'tooltip-dark.png')});
+  }
+  await tooltip.hover();await page.waitForTimeout(250);
+  assert.equal(await tooltip.isVisible(),true,'pointer can move into the tooltip');
+  await page.mouse.move(1,1);await tooltip.waitFor({state:'hidden'});
+  assert.equal(await frame.locator('#refresh').getAttribute('aria-describedby'),null);
+  await frame.locator('#toggle-search').focus();await page.keyboard.press('Tab');
+  await tooltip.waitFor({state:'visible'});
+  assert.equal(await tooltip.innerText(),'重新读取仓库','keyboard focus exposes the same description');
+  await frame.locator('#branch').hover();await page.waitForTimeout(250);
+  assert.equal(await tooltip.isVisible(),true,'unrelated pointer movement preserves keyboard descriptions');
+  await page.keyboard.press('Escape');await tooltip.waitFor({state:'hidden'});
+  await frame.locator('.commit-row').first().click();
+  await frame.locator('#expand-detail').waitFor({state:'visible'});
+  await page.keyboard.press('Tab');await tooltip.waitFor({state:'visible'});
+  assert.equal(await frame.locator('#expand-detail').evaluate(el=>el===document.activeElement),true);
+  await page.keyboard.press('Enter');await tooltip.waitFor({state:'hidden'});
+  await page.keyboard.press('Enter');
+  for (const target of [frame.locator('#detail-summary'),frame.locator('#changes-empty'),frame.locator('#summary-resize')]) {
+    await target.hover({position:{x:2,y:2}});await page.waitForTimeout(300);
+    assert.equal(await tooltip.isVisible(),false,'detail content, empty space and separators have no blanket tooltip');
+  }
+  await frame.locator('#detail-hash').hover();await tooltip.waitFor({state:'visible'});
+  assert.equal(await tooltip.innerText(),tooltipCommits[0].hash,'short hashes still expose the full identifier');
+  await frame.locator('#close-detail').click();
+  await frame.locator('#toggle-search').click();await frame.locator('#search').fill('clear-button-probe');
+  assert.deepEqual(await frame.locator('#clear-search').evaluate(el=>{
+    const rect=el.getBoundingClientRect(),icon=el.querySelector('svg')!.getBoundingClientRect();return [rect.width,rect.height,icon.width,icon.height];
+  }),[28,28,18,18]);
+  await frame.locator('#clear-search').focus();await page.keyboard.press('Enter');
+  assert.equal(await frame.locator('#search').inputValue(),'');
+  assert.equal(await frame.locator('#search').evaluate(el=>el===document.activeElement),true,'clearing returns focus to the search field');
+  assert.equal(await frame.locator('#clear-search').count(),0);
+  await frame.locator('#search').press('Escape');
+  await page.evaluate(()=>window.light());await frame.locator('html[data-theme="light"]').waitFor();
+  await frame.locator('#refresh').hover();await tooltip.waitFor({state:'visible'});
+  assert.equal(await tooltip.evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(32, 32, 32)','light tooltip uses the host foreground as its solid background');
+  if (process.env.UI_TEST_ARTIFACTS) await page.screenshot({path:join(process.env.UI_TEST_ARTIFACTS,'tooltip-light.png')});
+  await page.mouse.move(1,1);await tooltip.waitFor({state:'hidden'});
+  await frame.locator('#toggle-search').focus();await page.keyboard.press('Tab');
+  await tooltip.waitFor({state:'visible'});
+  await page.setViewportSize({width:360,height:760});
+  assert.ok(await tooltipBounds(),'an open tooltip follows panel resizing');
+  await page.evaluate(()=>window.codeFont({'--font-text-sm-size':'18px','--border-radius-xl':'15px'}));
+  await tooltip.evaluate(async el=>{
+    for (let attempt=0;attempt<60&&getComputedStyle(el).fontSize!=='18px';attempt++) await new Promise(requestAnimationFrame);
+  });
+  assert.deepEqual(await tooltip.evaluate(el=>[getComputedStyle(el).fontSize,getComputedStyle(el).borderRadius]),['18px','20px']);
+  assert.ok(await tooltipBounds(),'host font and radius updates keep the tooltip inside the panel');
+  await frame.locator('.subject').first().hover();await tooltip.waitFor({state:'visible'});
+  assert.equal(await tooltip.innerText(),tooltipCommits[0].subject,'truncated subjects expose their full text');
+  assert.ok(await tooltipBounds(),'long commit descriptions stay within narrow panels');
+  assert.equal(await tooltip.evaluate(el=>el.getBoundingClientRect().width),320,'tooltip width uses the native 16px rem baseline independently of UI font size');
+  await page.setViewportSize({width:360,height:160});
+  assert.ok(await tooltipBounds(),'long descriptions fit the available vertical space');
+  assert.equal(await tooltip.evaluate(el=>{
+    const tip=el.getBoundingClientRect(),anchor=document.querySelector('.subject')!.getBoundingClientRect();
+    return tip.bottom<=anchor.top-2||tip.top>=anchor.bottom+2;
+  }),true,'long tooltips never cover their trigger');
+  console.log(JSON.stringify({passed:true,checks:['Codex tooltip geometry and opaque theme colors','hover and keyboard descriptions','clear-search keyboard button','host font and radius updates','tooltip viewport bounds','no container or untruncated-text tooltips']}));
+  historyFixture=undefined;
+  await page.setViewportSize({width:1000,height:760});frame=await open();
   // Feedback stays with the operation that failed, and unrelated regions remain usable.
   intercept = async request => ['git_graph', 'git_graph_commit', 'git_graph_appearance'].includes(request.name)
     ? { isError: true, content: [{ type: 'text', text: `模拟失败 ${request.name}` }] } : null;
@@ -406,6 +506,11 @@ try {
     })));
     assert.ok(labels.every(label=>label.visible>0&&label.insideMessage),
       `branch names must remain distinguishable at ${width}px: ${JSON.stringify(labels)}`);
+    for (const [index,label] of labels.entries()) {
+      await frame.locator('#rows .ref').nth(index).hover();await page.waitForTimeout(300);
+      assert.equal(await tooltip.isVisible(),label.content>label.visible,'branch tooltips follow the visible label overflow');
+      await page.mouse.move(1,1);await tooltip.waitFor({state:'hidden'});
+    }
     await codexRows();
   }
   for (const [index,commit] of commits.entries()) {
@@ -413,7 +518,7 @@ try {
     await frame.locator('#commit-message').getByText(commit.subject,{exact:true}).waitFor();
     assert.equal(await frame.locator('#detail-hash').textContent(),commit.hash.slice(0,12));
     assert.deepEqual(await frame.locator('#commit-refs .ref').allTextContents(),[branchNames[index]]);
-    assert.equal(await frame.locator('#commit-refs .ref').getAttribute('title'),`refs/heads/${branchNames[index]}`);
+    assert.equal(await frame.locator('#commit-refs .ref').getAttribute('data-tooltip'),`refs/heads/${branchNames[index]}`);
     assert.equal(await frame.locator('#detail-header #commit-refs .ref').count(),1);
     assert.equal(await frame.locator('#commit-refs').innerText(),branchNames[index]);
     assert.equal(await frame.locator('#commit-refs').evaluate(element=>element.scrollWidth<=element.clientWidth),true);
@@ -751,9 +856,9 @@ try {
     for (const [index,name] of names.entries()) {
       await frame.locator('#branch').selectOption(name);await settled();
       assert.equal(await frame.locator('#branch').evaluate(el=>(el as HTMLSelectElement).selectedOptions[0].textContent),labels[index]);
-      const badge=frame.locator(`#rows .ref[title="${name}"]`);
+      const badge=frame.locator(`#rows .ref[data-tooltip="${name}"]`);
       assert.ok((await badge.getAttribute('aria-label'))!.includes(labels[index]));await badge.click();
-      assert.equal(await frame.locator(`#commit-refs .ref[title="${name}"]`).innerText(),labels[index]);
+      assert.equal(await frame.locator(`#commit-refs .ref[data-tooltip="${name}"]`).innerText(),labels[index]);
     }
 
     // Full revision models preserve text that used to be mistaken for patch headers.
@@ -1138,7 +1243,7 @@ try {
     const added=await save('new.txt','new\n','New commit during pagination');
     await frame.locator('#load-more').click();await frame.locator(`[data-hash="${added}"]`).waitFor();
     assert.equal(await frame.locator(`.current[data-hash="${added}"] .graph circle`).count(),2);
-    assert.equal(await frame.locator(`[data-hash="${added}"] .ref[title="refs/heads/main"]`).count(),1);
+    assert.equal(await frame.locator(`[data-hash="${added}"] .ref[data-tooltip="refs/heads/main"]`).count(),1);
     assert.equal(await frame.locator('.commit-row').count(),2,'a new snapshot starts at its first page');
     await frame.locator('#load-more').click();await frame.locator('.commit-row').nth(3).waitFor();
     assert.equal(new Set(await frame.locator('.commit-row').evaluateAll(rows=>rows.map(row=>row.dataset.hash))).size,4);
@@ -1200,6 +1305,13 @@ try {
   assert.equal(repositoryAppearance.iconColor,repositoryAppearance.muted,'repository icon follows the host secondary text color');
   assert.equal(repositoryAppearance.weight,repositoryAppearance.normalWeight,'selected repository keeps the host normal weight');
   assert.deepEqual([repositoryAppearance.selectedBackground,repositoryAppearance.triggerBackground],['rgba(0, 0, 0, 0)','rgba(0, 0, 0, 0)']);
+  await frame.locator('#repository').click();
+  await frame.locator('#repository option').first().hover();
+  await tooltip.waitFor({state:'visible'});
+  assert.equal(await tooltip.innerText(),'/project/web');
+  assert.equal(await frame.locator('#repository').evaluate(el=>el.matches(':open')),true,'repository descriptions keep the native picker open');
+  await frame.locator('#repository option').first().click();
+  await tooltip.waitFor({state:'hidden'});
   await codexRows();
   assert.equal(await frame.locator('#branch').isDisabled(),true);
   assert.equal(await frame.locator('#branch').inputValue(),'refs/heads/main');

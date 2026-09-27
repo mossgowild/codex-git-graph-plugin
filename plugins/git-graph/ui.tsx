@@ -8,6 +8,7 @@ import { panelsSchema } from './layout.ts';
 import { createPanels, type PanelView } from './panels.ts';
 import { Select, type SelectItem } from './select.tsx';
 import { Icon } from './icons.tsx';
+import { Tooltip } from './tooltip.tsx';
 import type { definitions } from './server.ts';
 import type { history, commit, diff } from './git.ts';
 import type * as Editor from './diff-editor.ts';
@@ -100,7 +101,7 @@ function Highlight({ parts, active }: { parts: Part[]; active: string }) {
   return <>{parts.map((part, index) => typeof part === 'string' ? part : <mark key={index} data-search-match="" data-match-key={part.key} data-active={part.key === active ? '' : undefined}>{part.text}</mark>)}</>;
 }
 function RefBadge({ reference: ref, refs, children }: { reference: Row['references'][number]; refs: GraphRef[]; children?: ComponentChildren }) {
-  return <span class="ref" title={ref.name} aria-label={refName(ref, refs)} style={ref.color ? { '--ref-color': ref.color } : {}}><span class="ref-name min-w-0 overflow-hidden text-ellipsis">{children ?? refName(ref, refs)}</span></span>;
+  return <span class="ref" data-tooltip={ref.name} data-tooltip-overflow=".ref-name" aria-label={refName(ref, refs)} style={ref.color ? { '--ref-color': ref.color } : {}}><span class="ref-name min-w-0 overflow-hidden text-ellipsis">{children ?? refName(ref, refs)}</span></span>;
 }
 function CommitRow({ row, selected, focused, open, first, refs, search, active, choose, onFocus }: {
   row: Row; selected: string; focused: string; open: boolean; first: boolean; refs: GraphRef[]; search: RowSearch; active: string; choose(hash: string, keyboard?: boolean): void; onFocus(hash: string): void;
@@ -111,16 +112,15 @@ function CommitRow({ row, selected, focused, open, first, refs, search, active, 
     data-hash={row.hash} data-selected={selected === row.hash ? '' : undefined} aria-expanded={open} aria-controls="detail-row"
     aria-label={`${row.subject}，${row.author}，${row.hash.slice(0, 8)}${row.references.length ? `，${row.references.map(ref => refName(ref, refs)).join('，')}` : ''}`}
     tabIndex={selected === row.hash || (!selected && first) ? 0 : -1}
-    title={`${row.subject}\n${row.author} <${row.email}>\n${new Date(row.date).toLocaleString('zh-CN')}\n${row.hash}`}
     onClick={() => choose(row.hash)} onFocus={() => onFocus(row.hash)}>
     <svg class="graph mr-[4px] block h-[30px] flex-none self-stretch" style={{ width: row.width }} width={row.width} height={30} aria-hidden="true">
       {paths.map((path, index) => <path key={index} d={path.d} stroke={path.color} fill="none" stroke-width="1" stroke-linecap="round" class={edge && index === paths.length - 1 ? 'node-edge' : undefined} />)}
       {row.kind === 'HEAD' ? <>{circle(7, 2)}{circle(2, 4, true)}</> : row.parents.length > 1 ? <>{circle(6, 2)}{circle(3, 2)}</> : circle(5, 2)}
     </svg>
     <span class="message flex min-w-0 flex-1 items-center gap-[8px] overflow-hidden"><span class="badges flex min-w-0 max-w-1/2 flex-initial items-center gap-[4px] overflow-hidden empty:hidden">{row.references.map((ref, i) => <RefBadge key={ref.name} reference={ref} refs={refs}><Highlight parts={search.refs[i]} active={active} /></RefBadge>)}</span>
-      <span class="subject flex-initial overflow-hidden text-ellipsis" title={row.subject}><Highlight parts={search.subject} active={active} /></span>
-      {search.context && <span class="search-context min-w-0 max-w-[45%] flex-initial overflow-hidden text-ellipsis text-ui-xs text-muted" title={search.context.title}>{search.context.label} <span><Highlight parts={search.context.parts} active={active} /></span></span>}
-    </span><span class="author ml-[12px] max-w-1/5 flex-initial overflow-hidden text-ellipsis text-ui-xs text-muted" title={`${row.author} <${row.email}>`}><Highlight parts={search.author} active={active} /></span>
+      <span class="subject flex-initial overflow-hidden text-ellipsis" data-tooltip={row.subject} data-tooltip-overflow=""><Highlight parts={search.subject} active={active} /></span>
+      {search.context && <span class="search-context min-w-0 max-w-[45%] flex-initial overflow-hidden text-ellipsis text-ui-xs text-muted" data-tooltip={search.context.title}>{search.context.label} <span><Highlight parts={search.context.parts} active={active} /></span></span>}
+    </span><span class="author ml-[12px] max-w-1/5 flex-initial overflow-hidden text-ellipsis text-ui-xs text-muted" data-tooltip={`${row.author} <${row.email}>`} data-tooltip-overflow=""><Highlight parts={search.author} active={active} /></span>
   </button>;
 }
 function Header({ history, repositories, repository, pending, busy, initial, searchOpen, query, match, count, onBranch, onRepository, refresh, toggleSearch, search, step }: {
@@ -136,20 +136,22 @@ function Header({ history, repositories, repository, pending, busy, initial, sea
     <div id="toolbar-skeleton" class="flex min-h-10 items-center gap-[8px] px-app py-content" hidden={!initial} role="status" aria-label="正在加载提交历史"><span class="skeleton-line h-[16px] w-[112px]" aria-hidden="true" /><span class="skeleton-block ml-auto size-[28px]" aria-hidden="true" /></div>
     <div id="toolbar" class="flex min-h-10 items-center gap-1 px-app py-content" hidden={!history}>
       <Select id="repository" class="max-w-[34%]" aria-label="切换任务仓库" icon="folder-light-16" value={pending?.repository ?? repository} disabled={repositories.length < 2}
-        title={repositories.find(repo => repo.id === repository)?.displayPath || history?.repo}
+        data-tooltip={repositories.find(repo => repo.id === repository)?.displayPath || history?.repo}
         items={repositories.map(repo => ({ label: repositories.some(other => other.id !== repo.id && other.name === repo.name) ? (repo.displayPath || repo.path) : repo.name, value: repo.id, title: repo.displayPath || repo.path }))}
         onChange={event => onRepository(event.currentTarget.value)} />
       <Select id="branch" class="max-w-1/2" aria-label="筛选分支" icon="branch-light-16" items={items} value={pending?.branch ?? history?.branch ?? ''}
         disabled={refs.length < 2 || (!!pending && pending.repository !== repository)} onChange={event => onBranch(event.currentTarget.value)} />
-      <span class="flex-1" /><button id="toggle-search" class="step" title="搜索提交" aria-label="搜索提交" aria-controls="searchbar" aria-expanded={searchOpen} onClick={toggleSearch}><Icon name="toggle-search" /></button>
-      <button id="refresh" class="step" title="重新读取仓库" aria-label="刷新" onClick={refresh}><Icon name="refresh" /></button>
+      <span class="flex-1" /><button id="toggle-search" class="step" data-tooltip="搜索提交" aria-label="搜索提交" aria-controls="searchbar" aria-expanded={searchOpen} onClick={toggleSearch}><Icon name="toggle-search" /></button>
+      <button id="refresh" class="step" data-tooltip="重新读取仓库" aria-label="刷新" onClick={refresh}><Icon name="refresh" /></button>
     </div>
     <div id="searchbar" class="flex items-center gap-1 px-app pb-2" hidden={!searchOpen} inert={busy && !!pending}>
-      <label id="search-field" class="flex h-control min-w-0 flex-1 items-center gap-content rounded-control border border-solid border-outline bg-soft-alpha pl-control-x text-ui-md leading-[18px] text-muted [&>svg]:size-icon [&>svg]:flex-none"><Icon name="toggle-search" /><input id="search" class="h-full min-h-0 w-full flex-1 rounded-none border-0 bg-transparent p-0 pr-content text-content outline-none" type="search" aria-label="搜索已加载的提交" placeholder="搜索提交、作者或 SHA" value={query}
-        onInput={event => search(event.currentTarget.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); step(event.shiftKey ? -1 : 1); } }} /></label>
+      <div id="search-field" class="flex h-control min-w-0 flex-1 items-center gap-content rounded-control border border-solid border-outline bg-soft-alpha pl-control-x text-ui-md leading-[18px] text-muted [&>svg]:size-icon [&>svg]:flex-none"><Icon name="toggle-search" /><input id="search" class="h-full min-h-0 w-full flex-1 rounded-none border-0 bg-transparent p-0 pr-content text-content outline-none" type="text" aria-label="搜索已加载的提交" placeholder="搜索提交、作者或 SHA" value={query}
+        onInput={event => search(event.currentTarget.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); step(event.shiftKey ? -1 : 1); } }} />
+        {query.length > 0 && <button id="clear-search" type="button" aria-label="清除搜索" data-tooltip="清除搜索" onClick={() => { search(''); $('search').focus(); }}><Icon name="clear-search" /></button>}
+      </div>
       <span id="search-count" class="text-ui-xs text-muted tabular-nums whitespace-nowrap empty:hidden" role="status">{query.trim() ? `${match < 0 ? 0 : match + 1}/${count} · 已加载历史` : ''}</span>
-      <button class="step" id="prev-match" disabled={!count} title="上一个匹配" aria-label="上一个匹配" onClick={() => step(-1)}><Icon name="prev-match" /></button>
-      <button class="step" id="next-match" disabled={!count} title="下一个匹配" aria-label="下一个匹配" onClick={() => step(1)}><Icon name="next-match" /></button>
+      <button class="step" id="prev-match" disabled={!count} data-tooltip="上一个匹配" aria-label="上一个匹配" onClick={() => step(-1)}><Icon name="prev-match" /></button>
+      <button class="step" id="next-match" disabled={!count} data-tooltip="下一个匹配" aria-label="下一个匹配" onClick={() => step(1)}><Icon name="next-match" /></button>
     </div>
   </header>;
 }
@@ -158,7 +160,7 @@ function ResizeHandle({ id, label, controls, view }: { id: string; label: string
   return <div id={`${id}-resize`} class="panel-resize" role="separator" tabIndex={view?.ready ? 0 : -1} hidden={handle?.hidden}
     aria-label={label} aria-controls={controls} aria-orientation={id === 'files' ? 'vertical' : 'horizontal'}
     aria-valuemin={handle?.min} aria-valuemax={handle?.max} aria-valuenow={handle?.now} aria-valuetext={`${handle?.now || 0} 像素`} aria-disabled={!view?.ready}
-    title="拖动调整大小；双击恢复默认；方向键微调" />;
+    aria-description="拖动调整大小；双击恢复默认；方向键微调" />;
 }
 
 function GitGraphApp() {
@@ -357,6 +359,7 @@ function GitGraphApp() {
   });
   const switching = !!pending && (pending.repository !== repository || pending.branch !== history?.branch);
   return <main id="app" class="flex h-dvh flex-col overflow-hidden bg-panel">
+    <Tooltip />
     <Header history={history} repositories={repositories} repository={repository} pending={pending} busy={busy} initial={initial} searchOpen={searchOpen} query={query} match={match} count={search.matches.length}
       onBranch={value => loadHistory(false, value)} onRepository={value => loadHistory(false, '', value)} refresh={refreshGraph} toggleSearch={() => toggleSearch(searchOpen && panelView?.maximized ? true : !searchOpen)} search={value => { setQuery(value); setMatchKey(''); }} step={step} />
     <Notice id="branch-notice" value={branchNotice} /><Notice id="connection-error" value={connectionNotice} /><Notice id="font-error" value={fontNotice} /><Notice id="layout-error" value={layoutNotice} />
@@ -364,7 +367,7 @@ function GitGraphApp() {
       <Notice id="repository-notice" value={repositoryNotice} /><Notice id="history-error" value={historyNotice} dismiss={() => setHistoryNotice(null)} />
       <div id="history-body" class="flex min-h-0 min-w-0 flex-1 flex-col"><div id="history-scroll" class="relative flex-1 overflow-auto overflow-x-hidden py-0.5 [overflow-anchor:none]">
         <div id="history-skeleton" class="px-[8px] py-[4px]" hidden={!initial && !(busy && switching)} aria-hidden="true">{Array.from({ length: 8 }, (_, index) => <div key={index} class="skeleton-row"><span class="skeleton-line" /></div>)}</div>
-        <div id="history-table" class="w-full" hidden={busy && switching}><div id="rows" class="w-full" role="list" aria-label="Git 提交列表" title="选择提交查看差异" onKeyDown={event => {
+        <div id="history-table" class="w-full" hidden={busy && switching}><div id="rows" class="w-full" role="list" aria-label="Git 提交列表" onKeyDown={event => {
           const row = (event.target as Element).closest<HTMLElement>('.commit-row'); if (!row) return;
           const index = graph.findIndex(item => item.hash === row.dataset.hash);
           const target = event.key === 'ArrowDown' ? graph[index + 1] : event.key === 'ArrowUp' ? graph[index - 1] : event.key === 'Home' ? graph[0] : event.key === 'End' ? graph.at(-1) : null;
@@ -412,9 +415,9 @@ function CommitDetail({ call, app, selected, open, repository, refreshVersion, r
       {row.output.map((lane, index) => <path key={index} d={`M${laneX(index)} 0V1`} stroke={lane.color} stroke-width={index === row.column && row.parents.length ? 3 : 1} vector-effect="non-scaling-stroke" />)}
     </svg>}</div>
     <section id="detail" class="sticky left-0 flex min-h-0 min-w-0 flex-col rounded-panel border-0 bg-panel p-card shadow-panel" aria-label="提交详情" style={{ '--detail-height': `${view?.detail || 480}px`, '--graph-width': `${row?.width || 0}px` }}>
-      <div id="detail-header" class="flex min-h-control flex-none flex-wrap items-center gap-1 [&_button]:text-ui-xs [&_button]:text-muted"><div id="detail-identity" class="flex min-w-0 flex-1 flex-wrap items-center gap-x-control-x gap-y-1 px-content"><code id="detail-hash" class="max-w-full flex-none truncate text-ui-xs text-muted" title={selected}>{selected.slice(0, 12)}</code><div id="commit-refs" class="flex min-w-0 flex-wrap items-baseline gap-x-[6px] gap-y-[4px] text-ui-xs text-muted empty:hidden" aria-label="分支与标签">{row?.references.map(ref => <RefBadge key={ref.name} reference={ref} refs={refs} />)}</div></div>
-        <button id="expand-detail" class="step" disabled={!view?.ready} aria-pressed={!!view?.maximized} title={view?.maximized ? '恢复历史与详情布局' : '放大详情'} aria-label={view?.maximized ? '恢复历史与详情布局' : '放大详情'} onClick={maximize}><Icon name="expand-detail" /></button>
-        <button id="close-detail" class="step" title="关闭提交详情" aria-label="关闭提交详情" onClick={close}><Icon name="close-detail" /></button>
+      <div id="detail-header" class="flex min-h-control flex-none flex-wrap items-center gap-1 [&_button]:text-ui-xs [&_button]:text-muted"><div id="detail-identity" class="flex min-w-0 flex-1 flex-wrap items-center gap-x-control-x gap-y-1 px-content"><code id="detail-hash" class="max-w-full flex-none truncate text-ui-xs text-muted" data-tooltip={selected}>{selected.slice(0, 12)}</code><div id="commit-refs" class="flex min-w-0 flex-wrap items-baseline gap-x-[6px] gap-y-[4px] text-ui-xs text-muted empty:hidden" aria-label="分支与标签">{row?.references.map(ref => <RefBadge key={ref.name} reference={ref} refs={refs} />)}</div></div>
+        <button id="expand-detail" class="step" disabled={!view?.ready} aria-pressed={!!view?.maximized} data-tooltip={view?.maximized ? '恢复历史与详情布局' : '放大详情'} aria-label={view?.maximized ? '恢复历史与详情布局' : '放大详情'} onClick={maximize}><Icon name="expand-detail" /></button>
+        <button id="close-detail" class="step" data-tooltip="关闭提交详情" aria-label="关闭提交详情" onClick={close}><Icon name="close-detail" /></button>
       </div>
       <div id="detail-content" class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <section id="summary-pane" class="flex min-h-0 min-w-0 flex-none flex-col overflow-hidden" aria-label="提交信息" aria-busy={loading} style={{ '--summary-height': view?.summary != null ? `${view.summary}px` : undefined }}>
@@ -439,7 +442,7 @@ function FileList({ detail, file, selectFile, view }: { detail: Detail | null; f
     if (next instanceof HTMLButtonElement) { event.preventDefault(); next.focus(); selectFile(next.dataset.path!); }
   }}>{detail?.files.map(item => {
     const title = item.oldPath ? `${item.oldPath} → ${item.path}` : item.path, slash = item.path.lastIndexOf('/');
-    return <button class="flex w-full justify-start gap-[8px] rounded-item px-[6px] py-[4px] text-left text-ui-sm aria-selected:bg-selected" key={item.path} data-path={item.path} role="option" aria-selected={file === item.path} tabIndex={file === item.path ? 0 : -1} title={title} aria-label={`${item.status[0]} ${title}`} onClick={() => selectFile(item.path)}>
+    return <button class="flex w-full justify-start gap-[8px] rounded-item px-[6px] py-[4px] text-left text-ui-sm aria-selected:bg-selected" key={item.path} data-path={item.path} role="option" aria-selected={file === item.path} tabIndex={file === item.path ? 0 : -1} data-tooltip={title} data-tooltip-overflow={item.oldPath ? undefined : '.file-path, .file-directory'} aria-label={`${item.status[0]} ${title}`} onClick={() => selectFile(item.path)}>
       <span class="file-path min-w-0 truncate">{item.path.slice(slash + 1)}</span>{slash !== -1 && <span class="file-directory min-w-0 max-w-[45%] truncate text-ui-xs text-muted">{item.path.slice(0, slash)}</span>}<span class={`file-status ml-auto flex-none font-code text-ui-xs ${item.status[0]} ${item.status[0] === 'A' ? 'text-success' : item.status[0] === 'D' ? 'text-danger' : 'text-muted'}`}>{item.status[0]}</span>
     </button>;
   })}</div></section>;
@@ -497,16 +500,16 @@ function ChangesPane({ call, app, detail, file, selectFile, view, hostTheme, fon
   const item = detail?.files.find(item => item.path === file), title = item?.oldPath ? `${item.oldPath} → ${file}` : file || '选择文件查看差异';
   const empty = !!detail && !detail.files.length;
   return <section id="changes-pane" class="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="变更文件">
-    <div id="changes-header" class="flex min-h-9 flex-none flex-wrap items-center gap-1 py-card"><div id="changes-heading" class="flex min-w-0 flex-1 items-center gap-content px-content py-card text-muted [&_span]:truncate"><span id="files-label" class="min-w-0 max-w-1/2 flex-initial">{detail ? `变更文件 · ${detail.files.length}${detail.parents.length > 1 ? ` · 相对父提交 ${detail.parent + 1}` : ''}` : '变更文件'}</span><span id="diff-title" class="min-w-0 flex-1 truncate text-ui-xs text-muted" hidden={empty} title={title}>{title}</span></div>
-      <button id="diff-mode" class="step" data-mode={split ? 'split' : 'inline'} disabled={!comparable} aria-label={split ? '切换为行内差异' : '切换为并排差异'} title={split ? '切换为行内差异' : '切换为并排差异'} onClick={() => { setSplit(!split); editor.current?.setSplit(!split); }}><Icon name="diff-mode" /></button>
-      <button id="prev-change" class="step" disabled={!status.canNavigate} title="上一处差异" aria-label="上一处差异" onClick={() => editor.current?.goToDiff('previous')}><Icon name="prev-change" /></button>
-      <button id="next-change" class="step" disabled={!status.canNavigate} title="下一处差异" aria-label="下一处差异" onClick={() => editor.current?.goToDiff('next')}><Icon name="next-change" /></button>
-      <button id="open-file" class="step" hidden={!canOpenFile} disabled={!detail || !file || opening} title="在 Codex 中打开工作区文件（当前内容）" aria-label="在 Codex 中打开工作区文件" onClick={openFile}><Icon name="open-file" /></button>
+    <div id="changes-header" class="flex min-h-9 flex-none flex-wrap items-center gap-1 py-card"><div id="changes-heading" class="flex min-w-0 flex-1 items-center gap-content px-content py-card text-muted [&_span]:truncate"><span id="files-label" class="min-w-0 max-w-1/2 flex-initial">{detail ? `变更文件 · ${detail.files.length}${detail.parents.length > 1 ? ` · 相对父提交 ${detail.parent + 1}` : ''}` : '变更文件'}</span><span id="diff-title" class="min-w-0 flex-1 truncate text-ui-xs text-muted" hidden={empty} data-tooltip={title} data-tooltip-overflow="">{title}</span></div>
+      <button id="diff-mode" class="step" data-mode={split ? 'split' : 'inline'} disabled={!comparable} aria-label={split ? '切换为行内差异' : '切换为并排差异'} data-tooltip={split ? '切换为行内差异' : '切换为并排差异'} onClick={() => { setSplit(!split); editor.current?.setSplit(!split); }}><Icon name="diff-mode" /></button>
+      <button id="prev-change" class="step" disabled={!status.canNavigate} data-tooltip="上一处差异" aria-label="上一处差异" onClick={() => editor.current?.goToDiff('previous')}><Icon name="prev-change" /></button>
+      <button id="next-change" class="step" disabled={!status.canNavigate} data-tooltip="下一处差异" aria-label="下一处差异" onClick={() => editor.current?.goToDiff('next')}><Icon name="next-change" /></button>
+      <button id="open-file" class="step" hidden={!canOpenFile} disabled={!detail || !file || opening} data-tooltip="在 Codex 中打开工作区文件（当前内容）" aria-label="在 Codex 中打开工作区文件" onClick={openFile}><Icon name="open-file" /></button>
     </div><Notice id="file-error" value={openNotice} />
     <EmptyState id="changes-empty" class="min-h-0 flex-1 overflow-auto" hidden={!empty} title="尚无文件更改" description="相对所选父提交没有文件更改。" />
     <div id="detail-body" class="flex min-h-0 min-w-0 flex-1" hidden={empty}><FileList detail={detail} file={file} selectFile={selectFile} view={view} /><ResizeHandle id="files" label="调整文件列表与差异大小" controls="files-pane diff-pane" view={view} />
       <section id="diff-pane" class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" aria-label="文件差异" aria-busy={loading}><div id="diff-content" class="flex min-h-0 min-w-0 flex-1 flex-col">
-        <div id="diff-revisions" class="flex flex-wrap gap-x-[16px] gap-y-[4px] px-[6px] py-[4px] text-ui-xs text-muted [&_span]:wrap-anywhere" hidden={!result}>{result && [result.original, result.modified].map((side, index) => <span key={index} id={index ? 'diff-modified' : 'diff-original'} title={`${side.hash || '空树'}\n${side.path}${side.mode ? `\n文件模式：${side.mode}` : ''}`}>
+        <div id="diff-revisions" class="flex flex-wrap gap-x-[16px] gap-y-[4px] px-[6px] py-[4px] text-ui-xs text-muted [&_span]:wrap-anywhere" hidden={!result}>{result && [result.original, result.modified].map((side, index) => <span key={index} id={index ? 'diff-modified' : 'diff-original'} data-tooltip={`${side.hash || '空树'}\n${side.path}${side.mode ? `\n文件模式：${side.mode}` : ''}`}>
           {`${index ? '目标' : '基准'} ${side.hash?.slice(0, 7) || '空树'}${side.exists ? '' : ' · 文件不存在'}${side.mode && result.original.mode !== result.modified.mode ? ` · ${side.mode}` : ''}`}
         </span>)}</div>
         <div id="diff-body" class="relative min-h-[80px] flex-1"><div id="diff-editor" class="absolute inset-0" hidden={!comparable} /><Notice id="diff-error" value={notice} />
