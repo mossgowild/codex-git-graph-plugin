@@ -1661,10 +1661,10 @@ function node(obj, key, make) {
   }
   return obj[key];
 }
-function flattenError(error62, mapper = (issue2) => issue2.message) {
+function flattenError(error63, mapper = (issue2) => issue2.message) {
   const fieldErrors = {};
   const formErrors = [];
-  for (const sub of error62.issues) {
+  for (const sub of error63.issues) {
     if (sub.path.length > 0) {
       node(fieldErrors, sub.path[0], () => []).push(mapper(sub));
     } else {
@@ -1673,10 +1673,10 @@ function flattenError(error62, mapper = (issue2) => issue2.message) {
   }
   return { formErrors, fieldErrors };
 }
-function formatError(error62, mapper = (issue2) => issue2.message) {
+function formatError(error63, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error63, path = []) => {
-    for (const issue2 of error63.issues) {
+  const processError = (error64, path = []) => {
+    for (const issue2 of error64.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
         issue2.errors.map((issues) => processError({ issues }, [...path, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
@@ -1718,14 +1718,14 @@ function formatError(error62, mapper = (issue2) => issue2.message) {
       }
     }
   };
-  processError(error62);
+  processError(error63);
   return fieldErrors;
 }
-function treeifyError(error62, mapper = (issue2) => issue2.message) {
+function treeifyError(error63, mapper = (issue2) => issue2.message) {
   const result = { errors: [] };
-  const processError = (error63, path = []) => {
+  const processError = (error64, path = []) => {
     var _a3;
-    for (const issue2 of error63.issues) {
+    for (const issue2 of error64.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
         issue2.errors.map((issues) => processError({ issues }, [...path, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
@@ -1767,7 +1767,7 @@ function treeifyError(error62, mapper = (issue2) => issue2.message) {
       }
     }
   };
-  processError(error62);
+  processError(error63);
   return result;
 }
 function toDotPath(_path) {
@@ -1788,9 +1788,9 @@ function toDotPath(_path) {
   }
   return segs.join("");
 }
-function prettifyError(error62) {
+function prettifyError(error63) {
   const lines = [];
-  const issues = [...error62.issues].sort((a, b) => (a.path ?? []).length - (b.path ?? []).length);
+  const issues = [...error63.issues].sort((a, b) => (a.path ?? []).length - (b.path ?? []).length);
   for (const issue2 of issues) {
     lines.push(`\u2716 ${issue2.message}`);
     if (issue2.path?.length)
@@ -1846,19 +1846,19 @@ var _safeParse = (_Err) => (schema, value, _ctx) => {
 };
 var safeParse = /* @__PURE__ */ _safeParse($ZodRealError);
 function failure(Err, issues, ctx) {
-  let error62;
+  let error63;
   return {
     success: false,
     get error() {
-      if (!error62) {
-        error62 = new Err(issues.map((iss) => finalizeIssue(iss, ctx, config())));
+      if (!error63) {
+        error63 = new Err(issues.map((iss) => finalizeIssue(iss, ctx, config())));
         issues = void 0;
         ctx = void 0;
       }
-      return error62;
+      return error63;
     },
     set error(e) {
-      error62 = e;
+      error63 = e;
       issues = void 0;
       ctx = void 0;
     }
@@ -13283,8 +13283,8 @@ function generateMultipleOfCheck(doc, ctx, def, accessor) {
   }
 }
 function generateNumberFormatCheck(doc, def, accessor) {
-  const format = def.format;
-  switch (format) {
+  const format2 = def.format;
+  switch (format2) {
     case "safeint":
       doc.write(`if (!Number.isSafeInteger(${accessor})) return INVALID;`);
       break;
@@ -13301,16 +13301,16 @@ function generateNumberFormatCheck(doc, def, accessor) {
       doc.write(`if (!Number.isFinite(${accessor})) return INVALID;`);
       break;
     default: {
-      void format;
-      throw new ZodCompileUnsupportedError(`number format ${format}`);
+      void format2;
+      throw new ZodCompileUnsupportedError(`number format ${format2}`);
     }
   }
 }
 function generateBigIntFormatCheck(doc, def, accessor) {
-  const format = def.format;
-  if (!format)
+  const format2 = def.format;
+  if (!format2)
     return;
-  switch (format) {
+  switch (format2) {
     case "int64":
       doc.write(`if (${accessor} < -9223372036854775808n || ${accessor} > 9223372036854775807n) return INVALID;`);
       break;
@@ -13318,8 +13318,8 @@ function generateBigIntFormatCheck(doc, def, accessor) {
       doc.write(`if (${accessor} < 0n || ${accessor} > 18446744073709551615n) return INVALID;`);
       break;
     default: {
-      void format;
-      throw new ZodCompileUnsupportedError(`bigint format ${format}`);
+      void format2;
+      throw new ZodCompileUnsupportedError(`bigint format ${format2}`);
     }
   }
 }
@@ -13500,8 +13500,8 @@ function generateStringFormatCheck(doc, ctx, def, accessor, needsValue = true) {
     doc.write(`if (!${patternConst}.test(${accessor})) return INVALID;`);
     return accessor;
   }
-  const format = def.format;
-  switch (format) {
+  const format2 = def.format;
+  switch (format2) {
     case "regex":
       throw new ZodCompileUnsupportedError("regex format without a pattern");
     case "lowercase":
@@ -13524,8 +13524,8 @@ function generateStringFormatCheck(doc, ctx, def, accessor, needsValue = true) {
       break;
     }
     default: {
-      void format;
-      throw new ZodCompileUnsupportedError(`string format ${format}`);
+      void format2;
+      throw new ZodCompileUnsupportedError(`string format ${format2}`);
     }
   }
   return accessor;
@@ -15608,12 +15608,12 @@ function _stringbool(Classes, _params) {
   return codec2;
 }
 // @__NO_SIDE_EFFECTS__
-function _stringFormat(Class2, format, fnOrRegex, _params = {}) {
+function _stringFormat(Class2, format2, fnOrRegex, _params = {}) {
   const params = normalizeParams(_params);
   const def = {
     check: "string_format",
     type: "string",
-    format,
+    format: format2,
     fn: typeof fnOrRegex === "function" ? fnOrRegex : (val) => fnOrRegex.test(val),
     ...params
   };
@@ -16179,9 +16179,9 @@ var addPattern = (agg, pattern) => {
 var intersectMime = (agg, mime) => {
   agg.mime = agg.mime ? agg.mime.filter((m) => mime.includes(m)) : [...mime];
 };
-var setFormat = (agg, format) => {
-  agg.format = format;
-  if (format.includes("int"))
+var setFormat = (agg, format2) => {
+  agg.format = format2;
+  if (format2.includes("int"))
     agg.isInt = true;
 };
 var minContributor = (agg, def) => narrowMin(agg, "minimum", def.minimum);
@@ -16259,16 +16259,16 @@ var exactPattern = (p) => exactPatterns.get(p) ?? p;
 var stringProcessor = (schema, ctx, _json, _params) => {
   const json2 = _json;
   json2.type = "string";
-  const { minimum, maximum, format, patterns, contentEncoding, laxFormat } = aggregateChecks(schema);
+  const { minimum, maximum, format: format2, patterns, contentEncoding, laxFormat } = aggregateChecks(schema);
   if (typeof minimum === "number")
     json2.minLength = minimum;
   if (typeof maximum === "number")
     json2.maxLength = maximum;
-  if (format) {
-    json2.format = formatMap[format] ?? format;
+  if (format2) {
+    json2.format = formatMap[format2] ?? format2;
     if (json2.format === "")
       delete json2.format;
-    if (format === "time" || laxFormat) {
+    if (format2 === "time" || laxFormat) {
       delete json2.format;
     }
   }
@@ -16646,7 +16646,7 @@ function stringifyKeyNames(bySchema, json2, visited) {
   const values = json2.enum ?? (json2.const !== void 0 ? [json2.const] : void 0);
   if (!numericType && !values?.some((v) => typeof v === "number"))
     return json2;
-  const { minimum, maximum, exclusiveMinimum, exclusiveMaximum, multipleOf, format, id, ...rest } = json2;
+  const { minimum, maximum, exclusiveMinimum, exclusiveMaximum, multipleOf, format: format2, id, ...rest } = json2;
   if (rest.enum)
     rest.enum = rest.enum.map((v) => typeof v === "number" ? String(v) : v);
   else if (typeof rest.const === "number")
@@ -17782,8 +17782,8 @@ var ZodCustomStringFormat = /* @__PURE__ */ $constructor("ZodCustomStringFormat"
   $ZodCustomStringFormat.init(inst, def);
   ZodStringFormat.init(inst, def);
 });
-function stringFormat(format, fnOrRegex, _params = {}) {
-  return _stringFormat(ZodCustomStringFormat, format, fnOrRegex, _params);
+function stringFormat(format2, fnOrRegex, _params = {}) {
+  return _stringFormat(ZodCustomStringFormat, format2, fnOrRegex, _params);
 }
 function hostname2(_params) {
   return _stringFormat(ZodCustomStringFormat, "hostname", hostname, _params);
@@ -17796,11 +17796,11 @@ function currencyCode2(_params) {
 }
 function hash(alg, params) {
   const enc = params?.enc ?? "hex";
-  const format = `${alg}_${enc}`;
-  const regex = regexes_exports[format];
+  const format2 = `${alg}_${enc}`;
+  const regex = regexes_exports[format2];
   if (!regex)
-    throw new Error(`Unrecognized hash format: ${format}`);
-  return _stringFormat(ZodCustomStringFormat, format, regex, params);
+    throw new Error(`Unrecognized hash format: ${format2}`);
+  return _stringFormat(ZodCustomStringFormat, format2, regex, params);
 }
 var ZodNumber = /* @__PURE__ */ $constructor(
   "ZodNumber",
@@ -19165,58 +19165,58 @@ function convertBaseSchema(schema, ctx) {
     case "string": {
       let stringSchema = z.string();
       if (schema.format) {
-        const format = schema.format;
-        if (format === "email") {
+        const format2 = schema.format;
+        if (format2 === "email") {
           stringSchema = stringSchema.check(z.email());
-        } else if (format === "uri" || format === "uri-reference") {
+        } else if (format2 === "uri" || format2 === "uri-reference") {
           stringSchema = stringSchema.check(z.url());
-        } else if (format === "uuid" || format === "guid") {
+        } else if (format2 === "uuid" || format2 === "guid") {
           stringSchema = stringSchema.check(z.uuid());
-        } else if (format === "date-time") {
+        } else if (format2 === "date-time") {
           stringSchema = stringSchema.check(z.iso.datetime({ offset: true }));
-        } else if (format === "date") {
+        } else if (format2 === "date") {
           stringSchema = stringSchema.check(z.iso.date());
-        } else if (format === "time") {
+        } else if (format2 === "time") {
           stringSchema = stringSchema.check(z.regex(fullTime));
-        } else if (format === "duration") {
+        } else if (format2 === "duration") {
           stringSchema = stringSchema.check(z.iso.duration());
-        } else if (format === "hostname") {
+        } else if (format2 === "hostname") {
           stringSchema = stringSchema.check(z.hostname());
-        } else if (format === "ipv4") {
+        } else if (format2 === "ipv4") {
           stringSchema = stringSchema.check(z.ipv4());
-        } else if (format === "ipv6") {
+        } else if (format2 === "ipv6") {
           stringSchema = stringSchema.check(z.ipv6());
-        } else if (format === "mac") {
+        } else if (format2 === "mac") {
           stringSchema = stringSchema.check(z.mac());
-        } else if (format === "cidr") {
+        } else if (format2 === "cidr") {
           stringSchema = stringSchema.check(z.cidrv4());
-        } else if (format === "cidr-v6") {
+        } else if (format2 === "cidr-v6") {
           stringSchema = stringSchema.check(z.cidrv6());
-        } else if (format === "base64") {
+        } else if (format2 === "base64") {
           stringSchema = stringSchema.check(z.base64());
-        } else if (format === "base64url") {
+        } else if (format2 === "base64url") {
           stringSchema = stringSchema.check(z.base64url());
-        } else if (format === "e164") {
+        } else if (format2 === "e164") {
           stringSchema = stringSchema.check(z.e164());
-        } else if (format === "credit_card") {
+        } else if (format2 === "credit_card") {
           stringSchema = stringSchema.check(z.creditCard());
-        } else if (format === "iban") {
+        } else if (format2 === "iban") {
           stringSchema = stringSchema.check(z.iban());
-        } else if (format === "jwt") {
+        } else if (format2 === "jwt") {
           stringSchema = stringSchema.check(z.jwt());
-        } else if (format === "emoji") {
+        } else if (format2 === "emoji") {
           stringSchema = stringSchema.check(z.emoji());
-        } else if (format === "nanoid") {
+        } else if (format2 === "nanoid") {
           stringSchema = stringSchema.check(z.nanoid());
-        } else if (format === "cuid") {
+        } else if (format2 === "cuid") {
           stringSchema = stringSchema.check(z.cuid());
-        } else if (format === "cuid2") {
+        } else if (format2 === "cuid2") {
           stringSchema = stringSchema.check(z.cuid2());
-        } else if (format === "ulid") {
+        } else if (format2 === "ulid") {
           stringSchema = stringSchema.check(z.ulid());
-        } else if (format === "xid") {
+        } else if (format2 === "xid") {
           stringSchema = stringSchema.check(z.xid());
-        } else if (format === "ksuid") {
+        } else if (format2 === "ksuid") {
           stringSchema = stringSchema.check(z.ksuid());
         }
       }
@@ -23845,9 +23845,9 @@ function datetimeReferenceSchemas(pattern) {
     precision
   }))));
 }
-function referencePatternsForFormat(format, pattern) {
+function referencePatternsForFormat(format2, pattern) {
   let referenceSchemas;
-  switch (format) {
+  switch (format2) {
     case "email":
       referenceSchemas = [email2()];
       break;
@@ -23863,9 +23863,9 @@ function referencePatternsForFormat(format, pattern) {
   }
   return new Set(referenceSchemas.map((schema) => zodEmittedPattern(schema)).filter((emitted) => emitted !== void 0));
 }
-function isLibraryFormatPattern(format, pattern, vendor) {
+function isLibraryFormatPattern(format2, pattern, vendor) {
   if (vendor !== "zod") return true;
-  return referencePatternsForFormat(format, pattern).has(pattern);
+  return referencePatternsForFormat(format2, pattern).has(pattern);
 }
 function promptArgumentsFromStandardSchema(schema) {
   const jsonSchema = standardSchemaToJsonSchema(schema, "input");
@@ -23883,8 +23883,8 @@ function isJsonObject(value) {
 function convertStandardElicitationSchema(schema) {
   try {
     return standardSchemaToJsonSchema(schema, "input");
-  } catch (error62) {
-    const detail = error62 instanceof Error ? error62.message : String(error62);
+  } catch (error63) {
+    const detail = error63 instanceof Error ? error63.message : String(error63);
     throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Elicitation requestedSchema must describe an object with flat primitive properties: ${detail}`);
   }
 }
@@ -23986,8 +23986,8 @@ var inputRequired = Object.assign(buildInputRequired, {
         method: "elicitation/create",
         params: normalizeElicitInputParams(params)
       };
-    } catch (error62) {
-      throw error62 instanceof ProtocolError ? new TypeError(error62.message, { cause: error62 }) : error62;
+    } catch (error63) {
+      throw error63 instanceof ProtocolError ? new TypeError(error63.message, { cause: error63 }) : error63;
     }
   },
   elicitUrl(params) {
@@ -24505,9 +24505,9 @@ var Protocol = class {
       }
     };
     const _onerror = this.transport?.onerror;
-    this._transport.onerror = (error62) => {
-      _onerror?.(error62);
-      this._onerror(error62);
+    this._transport.onerror = (error63) => {
+      _onerror?.(error63);
+      this._onerror(error63);
     };
     const _onmessage = this._transport?.onmessage;
     this._transport.onmessage = (message2, extra) => {
@@ -24534,17 +24534,17 @@ var Protocol = class {
     this._timeoutInfo.clear();
     const requestHandlerAbortControllers = this._requestHandlerAbortControllers;
     this._requestHandlerAbortControllers = /* @__PURE__ */ new Map();
-    const error62 = new SdkError(SdkErrorCode.ConnectionClosed, "Connection closed");
+    const error63 = new SdkError(SdkErrorCode.ConnectionClosed, "Connection closed");
     this._transport = void 0;
     try {
       this.onclose?.();
     } finally {
-      for (const handler of responseHandlers.values()) handler(error62);
-      for (const controller of requestHandlerAbortControllers.values()) controller.abort(error62);
+      for (const handler of responseHandlers.values()) handler(error63);
+      for (const controller of requestHandlerAbortControllers.values()) controller.abort(error63);
     }
   }
-  _onerror(error62) {
-    this.onerror?.(error62);
+  _onerror(error63) {
+    this.onerror?.(error63);
   }
   /**
   * Inbound-notification dispatch. Subclass overrides MUST delegate
@@ -24567,7 +24567,7 @@ var Protocol = class {
     const handler = this._notificationHandlers.get(notification.method);
     const fallback = this.fallbackNotificationHandler;
     if (handler === void 0 && fallback === void 0) return;
-    Promise.resolve().then(() => handler === void 0 ? fallback(notification) : handler(notification, codec2)).catch((error62) => this._onerror(/* @__PURE__ */ new Error(`Uncaught error in notification handler: ${error62}`)));
+    Promise.resolve().then(() => handler === void 0 ? fallback(notification) : handler(notification, codec2)).catch((error63) => this._onerror(/* @__PURE__ */ new Error(`Uncaught error in notification handler: ${error63}`)));
   }
   _onrequest(rawRequest, extra) {
     const { message: request, lifted } = liftWireOnlyMaterial(rawRequest, "request");
@@ -24587,7 +24587,7 @@ var Protocol = class {
           ...data !== void 0 && { data }
         }
       };
-      capturedTransport?.send(errorResponse).catch((error62) => this._onerror(/* @__PURE__ */ new Error(`Failed to send an error response: ${error62}`)));
+      capturedTransport?.send(errorResponse).catch((error63) => this._onerror(/* @__PURE__ */ new Error(`Failed to send an error response: ${error63}`)));
     };
     if (extra?.classification !== void 0) {
       const classified = classifiedWireEra(extra.classification);
@@ -24655,8 +24655,8 @@ var Protocol = class {
       let encoded;
       try {
         encoded = codec2.encodeResult(request.method, result, this._outboundServerInfo());
-      } catch (error62) {
-        this._onerror(/* @__PURE__ */ new Error(`Failed to encode result for ${request.method}: ${error62}`));
+      } catch (error63) {
+        this._onerror(/* @__PURE__ */ new Error(`Failed to encode result for ${request.method}: ${error63}`));
         sendErrorResponse(ProtocolErrorCode.InternalError, "Internal error");
         return;
       }
@@ -24666,20 +24666,20 @@ var Protocol = class {
         id: request.id
       };
       await capturedTransport?.send(response);
-    }, async (error62) => {
+    }, async (error63) => {
       if (abortController.signal.aborted) return;
-      const thrownCode = Number.isSafeInteger(error62["code"]) ? error62["code"] : ProtocolErrorCode.InternalError;
+      const thrownCode = Number.isSafeInteger(error63["code"]) ? error63["code"] : ProtocolErrorCode.InternalError;
       const errorResponse = {
         jsonrpc: "2.0",
         id: request.id,
         error: {
           code: codec2.encodeErrorCode(thrownCode),
-          message: error62.message ?? "Internal error",
-          ...error62["data"] !== void 0 && { data: error62["data"] }
+          message: error63.message ?? "Internal error",
+          ...error63["data"] !== void 0 && { data: error63["data"] }
         }
       };
       await capturedTransport?.send(errorResponse);
-    }).catch((error62) => this._onerror(/* @__PURE__ */ new Error(`Failed to send response: ${error62}`))).finally(() => {
+    }).catch((error63) => this._onerror(/* @__PURE__ */ new Error(`Failed to send response: ${error63}`))).finally(() => {
       if (this._requestHandlerAbortControllers.get(request.id) === abortController) this._requestHandlerAbortControllers.delete(request.id);
     });
   }
@@ -24695,11 +24695,11 @@ var Protocol = class {
     const timeoutInfo = this._timeoutInfo.get(messageId);
     if (timeoutInfo && responseHandler && timeoutInfo.resetTimeoutOnProgress) try {
       this._resetTimeout(messageId);
-    } catch (error62) {
+    } catch (error63) {
       this._responseHandlers.delete(messageId);
       this._progressHandlers.delete(messageId);
       this._cleanupTimeout(messageId);
-      responseHandler(error62);
+      responseHandler(error63);
       return;
     }
     handler(params);
@@ -24813,8 +24813,8 @@ var Protocol = class {
     let onAbort;
     let cleanupMessageId;
     return new Promise((resolve3, reject) => {
-      const earlyReject = (error62) => {
-        reject(error62);
+      const earlyReject = (error63) => {
+        reject(error63);
       };
       if (!this._transport) {
         earlyReject(/* @__PURE__ */ new Error("Not connected"));
@@ -24822,8 +24822,8 @@ var Protocol = class {
       }
       if (this._options?.enforceStrictCapabilities === true) try {
         this.assertCapabilityForMethod(request.method);
-      } catch (error62) {
-        earlyReject(error62);
+      } catch (error63) {
+        earlyReject(error63);
         return;
       }
       if (options?.signal?.aborted) {
@@ -24864,7 +24864,7 @@ var Protocol = class {
           relatedRequestId,
           resumptionToken,
           onresumptiontoken
-        }).catch((error62) => this._onerror(/* @__PURE__ */ new Error(`Failed to send cancellation: ${error62}`)));
+        }).catch((error63) => this._onerror(/* @__PURE__ */ new Error(`Failed to send cancellation: ${error63}`)));
         else requestAbort.abort();
         reject(reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestTimeout, String(reason)));
       };
@@ -24875,8 +24875,8 @@ var Protocol = class {
         let decoded;
         try {
           decoded = codec2.decodeResult(request.method, response.result);
-        } catch (error62) {
-          return reject(error62 instanceof Error ? error62 : new Error(String(error62)));
+        } catch (error63) {
+          return reject(error63 instanceof Error ? error63 : new Error(String(error63)));
         }
         if (decoded.kind === "invalid") return reject(decoded.error);
         if (decoded.kind === "input_required") {
@@ -24911,9 +24911,9 @@ var Protocol = class {
         onresumptiontoken,
         headers,
         requestSignal: requestAbort?.signal
-      }).catch((error62) => {
+      }).catch((error63) => {
         this._progressHandlers.delete(messageId);
-        reject(error62);
+        reject(error63);
       });
     }).finally(() => {
       if (onAbort) options?.signal?.removeEventListener("abort", onAbort);
@@ -24951,7 +24951,7 @@ var Protocol = class {
       Promise.resolve().then(() => {
         this._pendingDebouncedNotifications.delete(notification.method);
         if (!this._transport) return;
-        this._transport?.send(jsonrpcNotification, options).catch((error62) => this._onerror(error62));
+        this._transport?.send(jsonrpcNotification, options).catch((error63) => this._onerror(error63));
       });
       return;
     }
@@ -25155,9 +25155,9 @@ var ReadBuffer = class {
       this._buffer = this._buffer.subarray(index + 1);
       try {
         return deserializeMessage(line);
-      } catch (error62) {
-        if (error62 instanceof SyntaxError) continue;
-        throw error62;
+      } catch (error63) {
+        if (error63 instanceof SyntaxError) continue;
+        throw error63;
       }
     }
     return null;
@@ -25674,9 +25674,9 @@ var require_codegen = /* @__PURE__ */ __commonJSMin(((exports) => {
     }
   };
   var Throw = class extends Node {
-    constructor(error62) {
+    constructor(error63) {
       super();
-      this.error = error62;
+      this.error = error63;
     }
     render({ _n }) {
       return `throw ${this.error};` + _n;
@@ -25894,9 +25894,9 @@ var require_codegen = /* @__PURE__ */ __commonJSMin(((exports) => {
     }
   };
   var Catch = class extends BlockNode {
-    constructor(error62) {
+    constructor(error63) {
       super();
-      this.error = error62;
+      this.error = error63;
     }
     render(opts) {
       return `catch(${this.error})` + super.render(opts);
@@ -26050,9 +26050,9 @@ var require_codegen = /* @__PURE__ */ __commonJSMin(((exports) => {
       this._blockNode(node2);
       this.code(tryBody);
       if (catchCode) {
-        const error62 = this.name("e");
-        this._currNode = node2.catch = new Catch(error62);
-        catchCode(error62);
+        const error63 = this.name("e");
+        this._currNode = node2.catch = new Catch(error63);
+        catchCode(error63);
       }
       if (finallyCode) {
         this._currNode = node2.finally = new Finally();
@@ -26060,8 +26060,8 @@ var require_codegen = /* @__PURE__ */ __commonJSMin(((exports) => {
       }
       return this._endBlockNode(Catch, Finally);
     }
-    throw(error62) {
-      return this._leafNode(new Throw(error62));
+    throw(error63) {
+      return this._leafNode(new Throw(error63));
     }
     block(body, nodeCount) {
       this._blockStarts.push(this._nodes.length);
@@ -26306,11 +26306,11 @@ var require_util = /* @__PURE__ */ __commonJSMin(((exports) => {
     return jsPropertySyntax ? (0, codegen_1.getProperty)(dataProp).toString() : "/" + escapeJsonPointer(dataProp);
   }
   exports.getErrorPath = getErrorPath;
-  function checkStrictMode(it, msg, mode = it.opts.strictSchema) {
+  function checkStrictMode(it, msg2, mode = it.opts.strictSchema) {
     if (!mode) return;
-    msg = `strict mode: ${msg}`;
-    if (mode === true) throw new Error(msg);
-    it.self.logger.warn(msg);
+    msg2 = `strict mode: ${msg2}`;
+    if (mode === true) throw new Error(msg2);
+    it.self.logger.warn(msg2);
   }
   exports.checkStrictMode = checkStrictMode;
 }));
@@ -26345,18 +26345,18 @@ var require_errors = /* @__PURE__ */ __commonJSMin(((exports) => {
   const names_1 = require_names();
   exports.keywordError = { message: ({ keyword }) => (0, codegen_1.str)`must pass "${keyword}" keyword validation` };
   exports.keyword$DataError = { message: ({ keyword, schemaType }) => schemaType ? (0, codegen_1.str)`"${keyword}" keyword must be ${schemaType} ($data)` : (0, codegen_1.str)`"${keyword}" keyword is invalid ($data)` };
-  function reportError(cxt, error62 = exports.keywordError, errorPaths, overrideAllErrors) {
+  function reportError(cxt, error63 = exports.keywordError, errorPaths, overrideAllErrors) {
     const { it } = cxt;
     const { gen, compositeRule, allErrors } = it;
-    const errObj = errorObjectCode(cxt, error62, errorPaths);
+    const errObj = errorObjectCode(cxt, error63, errorPaths);
     if (overrideAllErrors !== null && overrideAllErrors !== void 0 ? overrideAllErrors : compositeRule || allErrors) addError(gen, errObj);
     else returnErrors(it, (0, codegen_1._)`[${errObj}]`);
   }
   exports.reportError = reportError;
-  function reportExtraError(cxt, error62 = exports.keywordError, errorPaths) {
+  function reportExtraError(cxt, error63 = exports.keywordError, errorPaths) {
     const { it } = cxt;
     const { gen, compositeRule, allErrors } = it;
-    addError(gen, errorObjectCode(cxt, error62, errorPaths));
+    addError(gen, errorObjectCode(cxt, error63, errorPaths));
     if (!(compositeRule || allErrors)) returnErrors(it, names_1.default.vErrors);
   }
   exports.reportExtraError = reportExtraError;
@@ -26401,15 +26401,15 @@ var require_errors = /* @__PURE__ */ __commonJSMin(((exports) => {
     schema: new codegen_1.Name("schema"),
     parentSchema: new codegen_1.Name("parentSchema")
   };
-  function errorObjectCode(cxt, error62, errorPaths) {
+  function errorObjectCode(cxt, error63, errorPaths) {
     const { createErrors } = cxt.it;
     if (createErrors === false) return (0, codegen_1._)`{}`;
-    return errorObject(cxt, error62, errorPaths);
+    return errorObject(cxt, error63, errorPaths);
   }
-  function errorObject(cxt, error62, errorPaths = {}) {
+  function errorObject(cxt, error63, errorPaths = {}) {
     const { gen, it } = cxt;
     const keyValues = [errorInstancePath(it, errorPaths), errorSchemaPath(cxt, errorPaths)];
-    extraErrorProps(cxt, error62, keyValues);
+    extraErrorProps(cxt, error63, keyValues);
     return gen.object(...keyValues);
   }
   function errorInstancePath({ errorPath }, { instancePath }) {
@@ -26949,9 +26949,9 @@ var require_keyword = /* @__PURE__ */ __commonJSMin(((exports) => {
     if (deps === null || deps === void 0 ? void 0 : deps.some((kwd) => !Object.prototype.hasOwnProperty.call(schema, kwd))) throw new Error(`parent schema must have dependencies of ${keyword}: ${deps.join(",")}`);
     if (def.validateSchema) {
       if (!def.validateSchema(schema[keyword])) {
-        const msg = `keyword "${keyword}" value is invalid at path "${errSchemaPath}": ` + self.errorsText(def.validateSchema.errors);
-        if (opts.validateSchema === "log") self.logger.error(msg);
-        else throw new Error(msg);
+        const msg2 = `keyword "${keyword}" value is invalid at path "${errSchemaPath}": ` + self.errorsText(def.validateSchema.errors);
+        if (opts.validateSchema === "log") self.logger.error(msg2);
+        else throw new Error(msg2);
       }
     }
   }
@@ -27376,12 +27376,12 @@ var require_validate = /* @__PURE__ */ __commonJSMin(((exports) => {
     if (it.schema.$async && !it.schemaEnv.$async) throw new Error("async schema in sync schema");
   }
   function commentKeyword({ gen, schemaEnv, schema, errSchemaPath, opts }) {
-    const msg = schema.$comment;
-    if (opts.$comment === true) gen.code((0, codegen_1._)`${names_1.default.self}.logger.log(${msg})`);
+    const msg2 = schema.$comment;
+    if (opts.$comment === true) gen.code((0, codegen_1._)`${names_1.default.self}.logger.log(${msg2})`);
     else if (typeof opts.$comment == "function") {
       const schemaPath = (0, codegen_1.str)`${errSchemaPath}/$comment`;
       const rootName = gen.scopeValue("root", { ref: schemaEnv.root });
-      gen.code((0, codegen_1._)`${names_1.default.self}.opts.$comment(${msg}, ${schemaPath}, ${rootName}.schema)`);
+      gen.code((0, codegen_1._)`${names_1.default.self}.opts.$comment(${msg2}, ${schemaPath}, ${rootName}.schema)`);
     }
   }
   function returnResults(it) {
@@ -27472,10 +27472,10 @@ var require_validate = /* @__PURE__ */ __commonJSMin(((exports) => {
     else if (withTypes.includes("integer") && t === "number") ts.push("integer");
     it.dataTypes = ts;
   }
-  function strictTypesError(it, msg) {
+  function strictTypesError(it, msg2) {
     const schemaPath = it.schemaEnv.baseId + it.errSchemaPath;
-    msg += ` at "${schemaPath}" (strictTypes)`;
-    (0, util_1.checkStrictMode)(it, msg, it.opts.strictTypes);
+    msg2 += ` at "${schemaPath}" (strictTypes)`;
+    (0, util_1.checkStrictMode)(it, msg2, it.opts.strictTypes);
   }
   var KeywordCxt = class {
     constructor(it, def, keyword) {
@@ -27681,8 +27681,8 @@ var require_ref_error = /* @__PURE__ */ __commonJSMin(((exports) => {
   Object.defineProperty(exports, "__esModule", { value: true });
   const resolve_1 = require_resolve();
   var MissingRefError = class extends Error {
-    constructor(resolver, baseId, ref, msg) {
-      super(msg || `can't resolve reference ${ref} from id ${baseId}`);
+    constructor(resolver, baseId, ref, msg2) {
+      super(msg2 || `can't resolve reference ${ref} from id ${baseId}`);
       this.missingRef = (0, resolve_1.resolveUrl)(resolver, baseId, ref);
       this.missingSchema = (0, resolve_1.normalizeId)((0, resolve_1.getFullPath)(resolver, this.missingRef));
     }
@@ -28290,41 +28290,41 @@ var require_fast_uri = /* @__PURE__ */ __commonJSMin(((exports, module) => {
     schemelessOptions.skipEscape = true;
     return serialize(resolved, schemelessOptions);
   }
-  function resolveComponent(base, relative2, options, skipNormalization) {
+  function resolveComponent(base, relative3, options, skipNormalization) {
     const target = {};
     if (!skipNormalization) {
       base = parse3(serialize(base, options), options);
-      relative2 = parse3(serialize(relative2, options), options);
+      relative3 = parse3(serialize(relative3, options), options);
     }
     options = options || {};
-    if (!options.tolerant && relative2.scheme) {
-      target.scheme = relative2.scheme;
-      target.userinfo = relative2.userinfo;
-      target.host = relative2.host;
-      target.port = relative2.port;
-      target.path = removeDotSegments(relative2.path || "");
-      target.query = relative2.query;
+    if (!options.tolerant && relative3.scheme) {
+      target.scheme = relative3.scheme;
+      target.userinfo = relative3.userinfo;
+      target.host = relative3.host;
+      target.port = relative3.port;
+      target.path = removeDotSegments(relative3.path || "");
+      target.query = relative3.query;
     } else {
-      if (relative2.userinfo !== void 0 || relative2.host !== void 0 || relative2.port !== void 0) {
-        target.userinfo = relative2.userinfo;
-        target.host = relative2.host;
-        target.port = relative2.port;
-        target.path = removeDotSegments(relative2.path || "");
-        target.query = relative2.query;
+      if (relative3.userinfo !== void 0 || relative3.host !== void 0 || relative3.port !== void 0) {
+        target.userinfo = relative3.userinfo;
+        target.host = relative3.host;
+        target.port = relative3.port;
+        target.path = removeDotSegments(relative3.path || "");
+        target.query = relative3.query;
       } else {
-        if (!relative2.path) {
+        if (!relative3.path) {
           target.path = base.path;
-          if (relative2.query !== void 0) target.query = relative2.query;
+          if (relative3.query !== void 0) target.query = relative3.query;
           else target.query = base.query;
         } else {
-          if (relative2.path[0] === "/") target.path = removeDotSegments(relative2.path);
+          if (relative3.path[0] === "/") target.path = removeDotSegments(relative3.path);
           else {
-            if ((base.userinfo !== void 0 || base.host !== void 0 || base.port !== void 0) && !base.path) target.path = "/" + relative2.path;
-            else if (!base.path) target.path = relative2.path;
-            else target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative2.path;
+            if ((base.userinfo !== void 0 || base.host !== void 0 || base.port !== void 0) && !base.path) target.path = "/" + relative3.path;
+            else if (!base.path) target.path = relative3.path;
+            else target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative3.path;
             target.path = removeDotSegments(target.path);
           }
-          target.query = relative2.query;
+          target.query = relative3.query;
         }
         target.userinfo = base.userinfo;
         target.host = base.host;
@@ -28332,7 +28332,7 @@ var require_fast_uri = /* @__PURE__ */ __commonJSMin(((exports, module) => {
       }
       target.scheme = base.scheme;
     }
-    target.fragment = relative2.fragment;
+    target.fragment = relative3.fragment;
     return target;
   }
   function equal(uriA, uriB, options) {
@@ -28849,14 +28849,14 @@ var require_core$3 = /* @__PURE__ */ __commonJSMin(((exports) => {
       }
       return this;
     }
-    addFormat(name, format) {
-      if (typeof format == "string") format = new RegExp(format);
-      this.formats[name] = format;
+    addFormat(name, format2) {
+      if (typeof format2 == "string") format2 = new RegExp(format2);
+      this.formats[name] = format2;
       return this;
     }
     errorsText(errors = this.errors, { separator = ", ", dataVar = "data" } = {}) {
       if (!errors || errors.length === 0) return "No errors";
-      return errors.map((e) => `${dataVar}${e.instancePath} ${e.message}`).reduce((text, msg) => text + separator + msg);
+      return errors.map((e) => `${dataVar}${e.instancePath} ${e.message}`).reduce((text, msg2) => text + separator + msg2);
     }
     $dataMetaSchema(metaSchema, keywordsJsonPointers) {
       const rules = this.RULES.all;
@@ -28934,10 +28934,10 @@ var require_core$3 = /* @__PURE__ */ __commonJSMin(((exports) => {
   Ajv2.ValidationError = validation_error_1.default;
   Ajv2.MissingRefError = ref_error_1.default;
   exports.default = Ajv2;
-  function checkOptions(checkOpts, options, msg, log = "error") {
+  function checkOptions(checkOpts, options, msg2, log = "error") {
     for (const key in checkOpts) {
       const opt = key;
-      if (opt in options) this.logger[log](`${msg}: option ${key}. ${checkOpts[opt]}`);
+      if (opt in options) this.logger[log](`${msg2}: option ${key}. ${checkOpts[opt]}`);
     }
   }
   function getSchEnv(keyRef) {
@@ -28952,8 +28952,8 @@ var require_core$3 = /* @__PURE__ */ __commonJSMin(((exports) => {
   }
   function addInitialFormats() {
     for (const name in this.opts.formats) {
-      const format = this.opts.formats[name];
-      if (format) this.addFormat(name, format);
+      const format2 = this.opts.formats[name];
+      if (format2) this.addFormat(name, format2);
     }
   }
   function addInitialKeywords(defs) {
@@ -29360,8 +29360,8 @@ var require_required = /* @__PURE__ */ __commonJSMin(((exports) => {
         const props = cxt.parentSchema.properties;
         const { definedProperties } = cxt.it;
         for (const requiredKey of schema) if ((props === null || props === void 0 ? void 0 : props[requiredKey]) === void 0 && !definedProperties.has(requiredKey)) {
-          const msg = `required property "${requiredKey}" is not defined at "${it.schemaEnv.baseId + it.errSchemaPath}" (strictRequired)`;
-          (0, util_1.checkStrictMode)(it, msg, it.opts.strictRequired);
+          const msg2 = `required property "${requiredKey}" is not defined at "${it.schemaEnv.baseId + it.errSchemaPath}" (strictRequired)`;
+          (0, util_1.checkStrictMode)(it, msg2, it.opts.strictRequired);
         }
       }
       function allErrorsMode() {
@@ -29679,8 +29679,8 @@ var require_items = /* @__PURE__ */ __commonJSMin(((exports) => {
       const l = schArr.length;
       const fullTuple = l === sch.minItems && (l === sch.maxItems || sch[extraItems] === false);
       if (opts.strictTuples && !fullTuple) {
-        const msg = `"${keyword}" is ${l}-tuple, but minItems or maxItems/${extraItems} are not specified or different at path "${errSchemaPath}"`;
-        (0, util_1.checkStrictMode)(it, msg, opts.strictTuples);
+        const msg2 = `"${keyword}" is ${l}-tuple, but minItems or maxItems/${extraItems} are not specified or different at path "${errSchemaPath}"`;
+        (0, util_1.checkStrictMode)(it, msg2, opts.strictTuples);
       }
     }
   }
@@ -30342,17 +30342,17 @@ var require_format$2 = /* @__PURE__ */ __commonJSMin(((exports) => {
         });
         const fDef = gen.const("fDef", (0, codegen_1._)`${fmts}[${schemaCode}]`);
         const fType = gen.let("fType");
-        const format = gen.let("format");
-        gen.if((0, codegen_1._)`typeof ${fDef} == "object" && !(${fDef} instanceof RegExp)`, () => gen.assign(fType, (0, codegen_1._)`${fDef}.type || "string"`).assign(format, (0, codegen_1._)`${fDef}.validate`), () => gen.assign(fType, (0, codegen_1._)`"string"`).assign(format, fDef));
+        const format2 = gen.let("format");
+        gen.if((0, codegen_1._)`typeof ${fDef} == "object" && !(${fDef} instanceof RegExp)`, () => gen.assign(fType, (0, codegen_1._)`${fDef}.type || "string"`).assign(format2, (0, codegen_1._)`${fDef}.validate`), () => gen.assign(fType, (0, codegen_1._)`"string"`).assign(format2, fDef));
         cxt.fail$data((0, codegen_1.or)(unknownFmt(), invalidFmt()));
         function unknownFmt() {
           if (opts.strictSchema === false) return codegen_1.nil;
-          return (0, codegen_1._)`${schemaCode} && !${format}`;
+          return (0, codegen_1._)`${schemaCode} && !${format2}`;
         }
         function invalidFmt() {
-          const callFormat = schemaEnv.$async ? (0, codegen_1._)`(${fDef}.async ? await ${format}(${data}) : ${format}(${data}))` : (0, codegen_1._)`${format}(${data})`;
-          const validData = (0, codegen_1._)`(typeof ${format} == "function" ? ${callFormat} : ${format}.test(${data}))`;
-          return (0, codegen_1._)`${format} && ${format} !== true && ${fType} === ${ruleType} && !${validData}`;
+          const callFormat = schemaEnv.$async ? (0, codegen_1._)`(${fDef}.async ? await ${format2}(${data}) : ${format2}(${data}))` : (0, codegen_1._)`${format2}(${data})`;
+          const validData = (0, codegen_1._)`(typeof ${format2} == "function" ? ${callFormat} : ${format2}.test(${data}))`;
+          return (0, codegen_1._)`${format2} && ${format2} !== true && ${fType} === ${ruleType} && !${validData}`;
         }
       }
       function validateFormat() {
@@ -30362,7 +30362,7 @@ var require_format$2 = /* @__PURE__ */ __commonJSMin(((exports) => {
           return;
         }
         if (formatDef === true) return;
-        const [fmtType, format, fmtRef] = getFormat(formatDef);
+        const [fmtType, format2, fmtRef] = getFormat(formatDef);
         if (fmtType === ruleType) cxt.pass(validCondition());
         function unknownFormat() {
           if (opts.strictSchema === false) {
@@ -30397,7 +30397,7 @@ var require_format$2 = /* @__PURE__ */ __commonJSMin(((exports) => {
             if (!schemaEnv.$async) throw new Error("async format in sync schema");
             return (0, codegen_1._)`await ${fmtRef}(${data})`;
           }
-          return typeof format == "function" ? (0, codegen_1._)`${fmtRef}(${data})` : (0, codegen_1._)`${fmtRef}.test(${data})`;
+          return typeof format2 == "function" ? (0, codegen_1._)`${fmtRef}(${data})` : (0, codegen_1._)`${fmtRef}.test(${data})`;
         }
       }
     }
@@ -30406,8 +30406,8 @@ var require_format$2 = /* @__PURE__ */ __commonJSMin(((exports) => {
 }));
 var require_format$1 = /* @__PURE__ */ __commonJSMin(((exports) => {
   Object.defineProperty(exports, "__esModule", { value: true });
-  const format = [require_format$2().default];
-  exports.default = format;
+  const format2 = [require_format$2().default];
+  exports.default = format2;
 }));
 var require_metadata = /* @__PURE__ */ __commonJSMin(((exports) => {
   Object.defineProperty(exports, "__esModule", { value: true });
@@ -31308,7 +31308,7 @@ var require_json_schema_2019_09 = /* @__PURE__ */ __commonJSMin(((exports) => {
   const applicator = require_applicator$1();
   const content = require_content$1();
   const core = require_core$1();
-  const format = require_format();
+  const format2 = require_format();
   const metadata = require_meta_data$1();
   const validation = require_validation$1();
   const META_SUPPORT_DATA = ["/properties"];
@@ -31318,7 +31318,7 @@ var require_json_schema_2019_09 = /* @__PURE__ */ __commonJSMin(((exports) => {
       applicator,
       content,
       core,
-      with$data(this, format),
+      with$data(this, format2),
       metadata,
       with$data(this, validation)
     ].forEach((sch) => this.addMetaSchema(sch, void 0, false));
@@ -31758,7 +31758,7 @@ var require_json_schema_2020_12 = /* @__PURE__ */ __commonJSMin(((exports) => {
   const unevaluated = require_unevaluated();
   const content = require_content();
   const core = require_core();
-  const format = require_format_annotation();
+  const format2 = require_format_annotation();
   const metadata = require_meta_data();
   const validation = require_validation();
   const META_SUPPORT_DATA = ["/properties"];
@@ -31769,7 +31769,7 @@ var require_json_schema_2020_12 = /* @__PURE__ */ __commonJSMin(((exports) => {
       unevaluated,
       content,
       core,
-      with$data(this, format),
+      with$data(this, format2),
       metadata,
       with$data(this, validation)
     ].forEach((sch) => this.addMetaSchema(sch, void 0, false));
@@ -31880,10 +31880,10 @@ var require__2020 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 var require_formats = /* @__PURE__ */ __commonJSMin(((exports) => {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.formatNames = exports.fastFormats = exports.fullFormats = void 0;
-  function fmtDef(validate2, compare) {
+  function fmtDef(validate2, compare2) {
     return {
       validate: validate2,
-      compare
+      compare: compare2
     };
   }
   exports.fullFormats = {
@@ -32091,7 +32091,7 @@ var require_limit = /* @__PURE__ */ __commonJSMin(((exports) => {
       fail: ops.LTE
     }
   };
-  const error62 = {
+  const error63 = {
     message: ({ keyword, schemaCode }) => (0, codegen_1.str)`should be ${KWDs[keyword].okStr} ${schemaCode}`,
     params: ({ keyword, schemaCode }) => (0, codegen_1._)`{comparison: ${KWDs[keyword].okStr}, limit: ${schemaCode}}`
   };
@@ -32100,7 +32100,7 @@ var require_limit = /* @__PURE__ */ __commonJSMin(((exports) => {
     type: "string",
     schemaType: "string",
     $data: true,
-    error: error62,
+    error: error63,
     code(cxt) {
       const { gen, data, schemaCode, keyword, it } = cxt;
       const { opts, self } = it;
@@ -32117,14 +32117,14 @@ var require_limit = /* @__PURE__ */ __commonJSMin(((exports) => {
         cxt.fail$data((0, codegen_1.or)((0, codegen_1._)`typeof ${fmt} != "object"`, (0, codegen_1._)`${fmt} instanceof RegExp`, (0, codegen_1._)`typeof ${fmt}.compare != "function"`, compareCode(fmt)));
       }
       function validateFormat() {
-        const format = fCxt.schema;
-        const fmtDef = self.formats[format];
+        const format2 = fCxt.schema;
+        const fmtDef = self.formats[format2];
         if (!fmtDef || fmtDef === true) return;
-        if (typeof fmtDef != "object" || fmtDef instanceof RegExp || typeof fmtDef.compare != "function") throw new Error(`"${keyword}": format "${format}" does not define "compare" function`);
+        if (typeof fmtDef != "object" || fmtDef instanceof RegExp || typeof fmtDef.compare != "function") throw new Error(`"${keyword}": format "${format2}" does not define "compare" function`);
         const fmt = gen.scopeValue("formats", {
-          key: format,
+          key: format2,
           ref: fmtDef,
-          code: opts.code.formats ? (0, codegen_1._)`${opts.code.formats}${(0, codegen_1.getProperty)(format)}` : void 0
+          code: opts.code.formats ? (0, codegen_1._)`${opts.code.formats}${(0, codegen_1.getProperty)(format2)}` : void 0
         });
         cxt.fail$data(compareCode(fmt));
       }
@@ -32337,15 +32337,15 @@ var LegacyInputRequiredShim = class {
           const fulfilled = await Promise.all(coerced.map(async ([key, embedded]) => {
             try {
               return [key, await this._dispatchLeg(embedded, legOptions)];
-            } catch (error62) {
-              roundAbort.abort(error62);
-              throw error62;
+            } catch (error63) {
+              roundAbort.abort(error63);
+              throw error63;
             }
           }));
           responses = Object.fromEntries(fulfilled);
-        } catch (error62) {
-          if (outerSignal.aborted) throw error62;
-          return legacyShimFailure(method, `Fulfilling input required by '${method}' failed: ${error62 instanceof Error ? error62.message : String(error62)}`);
+        } catch (error63) {
+          if (outerSignal.aborted) throw error63;
+          return legacyShimFailure(method, `Fulfilling input required by '${method}' failed: ${error63 instanceof Error ? error63.message : String(error63)}`);
         } finally {
           roundAbort.dispose();
         }
@@ -32604,12 +32604,12 @@ var Server = class extends Protocol {
     let result;
     try {
       result = await handler(request, ctxForHandler);
-    } catch (error62) {
-      if (error62 instanceof ProtocolError && error62.code === ProtocolErrorCode.UrlElicitationRequired) {
-        if (!servedModern) throw error62;
+    } catch (error63) {
+      if (error63 instanceof ProtocolError && error63.code === ProtocolErrorCode.UrlElicitationRequired) {
+        if (!servedModern) throw error63;
         throw new ProtocolError(ProtocolErrorCode.InternalError, `URL elicitation cannot be signalled by throwing UrlElicitationRequiredError on protocol revision ${this._negotiatedProtocolVersion}: return inputRequired({ inputRequests: { \u2026: inputRequired.elicitUrl(...) } }) from the handler instead. The urlElicitationRequired error (-32042) of earlier revisions is not available on this revision.`);
       }
-      throw error62;
+      throw error63;
     }
     if (!isInputRequiredResult(result)) return result;
     if (!servedModern) {
@@ -32640,8 +32640,8 @@ var Server = class extends Protocol {
     if (this._requestStateVerify === void 0) return;
     try {
       return await this._requestStateVerify(state, ctx);
-    } catch (error62) {
-      this.onerror?.(/* @__PURE__ */ new Error(`requestState verification rejected ${method}: ${error62 instanceof Error ? error62.message : String(error62)}`));
+    } catch (error63) {
+      this.onerror?.(/* @__PURE__ */ new Error(`requestState verification rejected ${method}: ${error63 instanceof Error ? error63.message : String(error63)}`));
       throw new ProtocolError(ProtocolErrorCode.InvalidParams, "Invalid or expired requestState", { reason: "invalid_request_state" });
     }
   }
@@ -32925,9 +32925,9 @@ var Server = class extends Protocol {
         if (validateAcceptedContent && result.action === "accept" && result.content && formParams.requestedSchema) try {
           const validationResult = this._jsonSchemaValidator.getValidator(formParams.requestedSchema)(result.content);
           if (!validationResult.valid) throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Elicitation response content does not match requested schema: ${validationResult.errorMessage}`);
-        } catch (error62) {
-          if (error62 instanceof ProtocolError) throw error62;
-          throw new ProtocolError(ProtocolErrorCode.InternalError, `Error validating elicitation response: ${error62 instanceof Error ? error62.message : String(error62)}`);
+        } catch (error63) {
+          if (error63 instanceof ProtocolError) throw error63;
+          throw new ProtocolError(ProtocolErrorCode.InternalError, `Error validating elicitation response: ${error63 instanceof Error ? error63.message : String(error63)}`);
         }
         return result;
       }
@@ -33099,9 +33099,9 @@ var McpServer = class {
         await this.validateToolOutput(tool, result, request.params.name);
         if (isInputRequiredResult(result)) return result;
         return this.server.projectCallToolResult(result, tool.outputSchemaJson);
-      } catch (error62) {
-        if (error62 instanceof ProtocolError && error62.code === ProtocolErrorCode.UrlElicitationRequired) throw error62;
-        return this.createToolError(error62 instanceof Error ? error62.message : String(error62));
+      } catch (error63) {
+        if (error63 instanceof ProtocolError && error63.code === ProtocolErrorCode.UrlElicitationRequired) throw error63;
+        return this.createToolError(error63 instanceof Error ? error63.message : String(error63));
       }
     });
     this._toolHandlersInitialized = true;
@@ -33596,17 +33596,17 @@ var StdioServerTransport = class {
     try {
       this._readBuffer.append(chunk);
       this.processReadBuffer();
-    } catch (error62) {
-      this.onerror?.(error62);
+    } catch (error63) {
+      this.onerror?.(error63);
       this.close().catch(() => {
       });
     }
   };
-  _onerror = (error62) => {
-    this.onerror?.(error62);
+  _onerror = (error63) => {
+    this.onerror?.(error63);
   };
-  _onstdouterror = (error62) => {
-    this.onerror?.(error62);
+  _onstdouterror = (error63) => {
+    this.onerror?.(error63);
     this.close().catch(() => {
     });
   };
@@ -33625,8 +33625,8 @@ var StdioServerTransport = class {
       const message2 = this._readBuffer.readMessage();
       if (message2 === null) break;
       this.onmessage?.(message2);
-    } catch (error62) {
-      this.onerror?.(error62);
+    } catch (error63) {
+      this.onerror?.(error63);
     }
   }
   async close() {
@@ -33644,12 +33644,12 @@ var StdioServerTransport = class {
     return new Promise((resolve3, reject) => {
       const json2 = serializeMessage(message2);
       let settled = false;
-      const onError = (error62) => {
+      const onError = (error63) => {
         if (settled) return;
         settled = true;
         this._stdout.off("error", onError);
         this._stdout.off("drain", onDrain);
-        reject(error62);
+        reject(error63);
       };
       const onDrain = () => {
         if (settled) return;
@@ -33683,8 +33683,8 @@ function G(B, Q, F, V, q) {
 }
 
 // server.ts
-import { mkdir, readFile as readFile2, rename, rm, writeFile } from "node:fs/promises";
-import { createHash as createHash2, randomUUID } from "node:crypto";
+import { mkdir, readFile as readFile2, realpath as realpath4, rename, rm, writeFile } from "node:fs/promises";
+import { createHash as createHash2, randomUUID as randomUUID2 } from "node:crypto";
 import { homedir as homedir3 } from "node:os";
 import { join as join3 } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -33694,8 +33694,212 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute, resolve, sep } from "node:path";
+
+// i18n.ts
+var catalog = {
+  "ui.treeView": { en: "Switch to tree view", "zh-CN": "\u5207\u6362\u5230\u6811\u5F62\u89C6\u56FE" },
+  "ui.listView": { en: "Switch to list view", "zh-CN": "\u5207\u6362\u5230\u5217\u8868\u89C6\u56FE" },
+  "ui.fileTree": { en: "Changed file tree", "zh-CN": "\u53D8\u66F4\u6587\u4EF6\u6811" },
+  "ui.directory": { en: "Directory {path}", "zh-CN": "\u76EE\u5F55 {path}" },
+  "backend.external": { en: "{diagnostic}", "zh-CN": "{diagnostic}" },
+  "backend.join": { en: "{messages}", "zh-CN": "{messages}" },
+  "backend.git.outputLimit": { en: "The result exceeds 16 MB. Select one file or narrow the history range.", "zh-CN": "\u7ED3\u679C\u8D85\u8FC7 16 MB\uFF0C\u8BF7\u9009\u62E9\u5355\u4E2A\u6587\u4EF6\u6216\u7F29\u5C0F\u5386\u53F2\u8303\u56F4\u3002" },
+  "backend.git.timeout": { en: "The Git query exceeded 20 seconds. Narrow the range and try again.", "zh-CN": "Git \u67E5\u8BE2\u8D85\u8FC7 20 \u79D2\uFF0C\u8BF7\u7F29\u5C0F\u8303\u56F4\u540E\u91CD\u8BD5\u3002" },
+  "backend.git.failure": { en: "Git query failed: {diagnostic}", "zh-CN": "Git \u67E5\u8BE2\u5931\u8D25\uFF1A{diagnostic}" },
+  "backend.path.absolute": { en: "Enter an absolute path to a local repository.", "zh-CN": "\u8BF7\u8F93\u5165\u672C\u5730\u4ED3\u5E93\u7684\u7EDD\u5BF9\u8DEF\u5F84\u3002" },
+  "backend.git.invalidCommits": { en: "Git returned invalid commit records.", "zh-CN": "Git \u8FD4\u56DE\u7684\u63D0\u4EA4\u8BB0\u5F55\u683C\u5F0F\u65E0\u6548\u3002" },
+  "backend.git.invalidSnapshot": { en: "The commit snapshot is invalid. Refresh the graph.", "zh-CN": "\u63D0\u4EA4\u5FEB\u7167\u65E0\u6548\uFF0C\u8BF7\u5237\u65B0\u3002" },
+  "backend.git.invalidRetained": { en: "The retained commit IDs are invalid.", "zh-CN": "\u9700\u8981\u4FDD\u7559\u7684\u63D0\u4EA4 ID \u65E0\u6548\u3002" },
+  "backend.git.invalidHash": { en: "The commit ID is invalid.", "zh-CN": "\u63D0\u4EA4 ID \u65E0\u6548\u3002" },
+  "backend.git.invalidFiles": { en: "Git returned an invalid file list.", "zh-CN": "Git \u8FD4\u56DE\u7684\u6587\u4EF6\u5217\u8868\u683C\u5F0F\u65E0\u6548\u3002" },
+  "backend.git.invalidParent": { en: "The selected parent commit is invalid.", "zh-CN": "\u7236\u63D0\u4EA4\u9009\u62E9\u65E0\u6548\u3002" },
+  "backend.file.missingObject": { en: "The historical file object does not exist.", "zh-CN": "\u5386\u53F2\u6587\u4EF6\u5BF9\u8C61\u4E0D\u5B58\u5728\u3002" },
+  "backend.file.notHistoricalFile": { en: "The selected historical path is not a file.", "zh-CN": "\u6240\u9009\u5386\u53F2\u8DEF\u5F84\u4E0D\u662F\u6587\u4EF6\u3002" },
+  "backend.file.tooLarge": { en: "The file exceeds 2 MiB and was not loaded for text comparison.", "zh-CN": "\u6587\u4EF6\u8D85\u8FC7 2 MiB\uFF0C\u672A\u8F7D\u5165\u6587\u672C\u6BD4\u8F83\u3002" },
+  "backend.file.binary": { en: "This is a binary file and cannot be shown as a text diff.", "zh-CN": "\u4E8C\u8FDB\u5236\u6587\u4EF6\uFF0C\u65E0\u6CD5\u663E\u793A\u6587\u672C\u5DEE\u5F02\u3002" },
+  "backend.file.encoding": { en: "The file is not valid UTF-8 text and cannot be shown as a text diff.", "zh-CN": "\u6587\u4EF6\u4E0D\u662F\u6709\u6548\u7684 UTF-8 \u6587\u672C\uFF0C\u65E0\u6CD5\u663E\u793A\u6587\u672C\u5DEE\u5F02\u3002" },
+  "backend.file.outsideRange": { en: "This file is not among the changes in the selected range.", "zh-CN": "\u8FD9\u4E2A\u6587\u4EF6\u4E0D\u5728\u6240\u9009\u8303\u56F4\u7684\u53D8\u66F4\u4E2D\u3002" },
+  "backend.file.baseAndParent": { en: "A range comparison cannot also specify a parent commit.", "zh-CN": "\u8303\u56F4\u6BD4\u8F83\u4E0D\u80FD\u540C\u65F6\u6307\u5B9A\u7236\u63D0\u4EA4\u3002" },
+  "backend.file.missingWorkspace": { en: "This file no longer exists in the working directory. Its historical diff is still available here.", "zh-CN": "\u5F53\u524D\u5DE5\u4F5C\u533A\u4E2D\u5DF2\u6CA1\u6709\u8FD9\u4E2A\u6587\u4EF6\uFF1B\u4ECD\u53EF\u5728\u8FD9\u91CC\u67E5\u770B\u5386\u53F2\u5DEE\u5F02\u3002" },
+  "backend.file.outsideRepository": { en: "The file resolves outside the current repository and cannot be opened from Git Graph.", "zh-CN": "\u6587\u4EF6\u6307\u5411\u5F53\u524D\u4ED3\u5E93\u4E4B\u5916\uFF0C\u4E0D\u80FD\u4ECE Git Graph \u6253\u5F00\u3002" },
+  "backend.file.notRegular": { en: "The selected path is not a regular file.", "zh-CN": "\u6240\u9009\u8DEF\u5F84\u4E0D\u662F\u666E\u901A\u6587\u4EF6\u3002" },
+  "backend.watch.sessionRequired": { en: "File watching requires the current MCP session. Reopen Git Graph.", "zh-CN": "\u6587\u4EF6\u76D1\u542C\u9700\u8981\u5F53\u524D MCP \u4F1A\u8BDD\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00 Git Graph\u3002" },
+  "backend.watch.outsideTask": { en: "The watched repository no longer belongs to the current task. Reopen Git Graph.", "zh-CN": "\u76D1\u542C\u7684\u4ED3\u5E93\u5DF2\u4E0D\u5C5E\u4E8E\u5F53\u524D\u4EFB\u52A1\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00 Git Graph\u3002" },
+  "backend.watch.stopped": { en: "The watch has stopped or expired. Start a new watch.", "zh-CN": "\u76D1\u542C\u5DF2\u505C\u6B62\u6216\u8FC7\u671F\uFF0C\u8BF7\u91CD\u65B0\u5EFA\u7ACB\u76D1\u542C\u3002" },
+  "backend.watch.cancelled": { en: "Waiting for changes was cancelled.", "zh-CN": "\u7B49\u5F85\u53D8\u5316\u5DF2\u53D6\u6D88\u3002" },
+  "backend.watch.invalidTiming": { en: "The watch wait, lease or debounce duration is invalid.", "zh-CN": "\u76D1\u542C\u7B49\u5F85\u3001\u79DF\u671F\u4E0E\u4E8B\u4EF6\u5408\u5E76\u65F6\u9650\u65E0\u6548\u3002" },
+  "backend.watch.failure": { en: "Could not watch repository changes: {diagnostic}", "zh-CN": "\u65E0\u6CD5\u76D1\u542C\u4ED3\u5E93\u53D8\u5316\uFF1A{diagnostic}" },
+  "backend.watch.rootChanged": { en: "The repository root has changed. Reload the task repositories.", "zh-CN": "\u4ED3\u5E93\u6839\u8DEF\u5F84\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u8BFB\u53D6\u4EFB\u52A1\u4ED3\u5E93\u3002" },
+  "backend.watch.invalidRevision": { en: "The watch revision is invalid. Start a new watch.", "zh-CN": "\u76D1\u542C\u7248\u672C\u65E0\u6548\uFF0C\u8BF7\u91CD\u65B0\u5EFA\u7ACB\u76D1\u542C\u3002" },
+  "backend.preference.layout": { en: "panel layout", "zh-CN": "\u9762\u677F\u5E03\u5C40" },
+  "backend.preference.read": { en: "Could not read {label}: {diagnostic}", "zh-CN": "\u8BFB\u53D6{label}\u5931\u8D25\uFF1A{diagnostic}" },
+  "backend.preference.save": { en: "Could not save {label}: {diagnostic}", "zh-CN": "\u4FDD\u5B58{label}\u5931\u8D25\uFF1A{diagnostic}" },
+  "backend.repository.outsideTask": { en: "The selected repository does not belong to the current task. Reopen Git Graph.", "zh-CN": "\u6240\u9009\u4ED3\u5E93\u4E0D\u5C5E\u4E8E\u5F53\u524D\u4EFB\u52A1\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00 Git Graph\u3002" },
+  "backend.repository.pathChanged": { en: "The selected repository path has changed. Reopen Git Graph.", "zh-CN": "\u6240\u9009\u4ED3\u5E93\u8DEF\u5F84\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00 Git Graph\u3002" },
+  "backend.repository.read": { en: "{path}: {diagnostic}", "zh-CN": "{path}\uFF1A{diagnostic}" },
+  "backend.task.read": { en: "Could not read the task directories: {diagnostic}", "zh-CN": "\u65E0\u6CD5\u8BFB\u53D6\u4EFB\u52A1\u76EE\u5F55\uFF1A{diagnostic}" },
+  "backend.task.unopened": { en: "Reopen Git Graph to load the current task repositories.", "zh-CN": "\u8BF7\u91CD\u65B0\u6253\u5F00 Git Graph\uFF0C\u8BFB\u53D6\u5F53\u524D\u4EFB\u52A1\u4ED3\u5E93\u3002" },
+  "backend.project.unmigrated": { en: "The project association has not been migrated. Select the project again in Codex.", "zh-CN": "\u5F53\u524D\u9879\u76EE\u5173\u8054\u5C1A\u672A\u8FC1\u79FB\uFF0C\u8BF7\u5728 Codex \u4E2D\u91CD\u65B0\u9009\u62E9\u9879\u76EE\u3002" },
+  "backend.project.read": { en: "Could not read project directories: {diagnostic}", "zh-CN": "\u65E0\u6CD5\u8BFB\u53D6\u9879\u76EE\u76EE\u5F55\uFF1A{diagnostic}" },
+  "backend.project.worktrees": { en: "Could not read task worktrees: {diagnostic}", "zh-CN": "\u65E0\u6CD5\u8BFB\u53D6\u4EFB\u52A1\u5DE5\u4F5C\u6811\uFF1A{diagnostic}" },
+  "backend.tool.unknown": { en: "Unknown Git Graph operation.", "zh-CN": "\u672A\u77E5\u7684 Git Graph \u64CD\u4F5C\u3002" },
+  "backend.tool.completed": { en: "Git Graph operation completed.", "zh-CN": "Git Graph \u64CD\u4F5C\u5B8C\u6210\u3002" },
+  "backend.tool.invalidInput": { en: "The Git Graph request is invalid: {diagnostic}", "zh-CN": "Git Graph \u8BF7\u6C42\u53C2\u6570\u65E0\u6548\uFF1A{diagnostic}" },
+  "backend.codex.exited": { en: "The Codex service has exited.", "zh-CN": "Codex \u670D\u52A1\u5DF2\u9000\u51FA\u3002" },
+  "backend.codex.timeout": { en: "Reading Codex configuration or projects exceeded 15 seconds. Try again.", "zh-CN": "\u8BFB\u53D6 Codex \u914D\u7F6E\u6216\u9879\u76EE\u8D85\u8FC7 15 \u79D2\uFF0C\u8BF7\u91CD\u8BD5\u3002" },
+  "backend.codex.configuration": { en: "Could not read Codex configuration: {diagnostic}", "zh-CN": "\u65E0\u6CD5\u8BFB\u53D6 Codex \u914D\u7F6E\uFF1A{diagnostic}" },
+  "backend.tool.readAppearance": { en: "Read Codex font sizes and hover colors", "zh-CN": "\u8BFB\u53D6 Codex \u5B57\u53F7\u4E0E\u60AC\u505C\u914D\u8272" },
+  "backend.tool.readHistory": { en: "Read commit history", "zh-CN": "\u8BFB\u53D6\u63D0\u4EA4\u5386\u53F2" },
+  "backend.tool.readCommit": { en: "View commit", "zh-CN": "\u67E5\u770B\u63D0\u4EA4" },
+  "backend.tool.readRange": { en: "View commit range", "zh-CN": "\u67E5\u770B\u63D0\u4EA4\u8303\u56F4" },
+  "backend.tool.readDiff": { en: "View file diff", "zh-CN": "\u67E5\u770B\u6587\u4EF6\u5DEE\u5F02" },
+  "backend.tool.readRangeDiff": { en: "View range file diff", "zh-CN": "\u67E5\u770B\u8303\u56F4\u6587\u4EF6\u5DEE\u5F02" },
+  "backend.tool.locateFile": { en: "Locate working directory file", "zh-CN": "\u5B9A\u4F4D\u5DE5\u4F5C\u533A\u6587\u4EF6" },
+  "backend.tool.startWatch": { en: "Watch current repository changes", "zh-CN": "\u76D1\u542C\u5F53\u524D\u4ED3\u5E93\u53D8\u5316" },
+  "backend.tool.waitWatch": { en: "Wait for repository changes", "zh-CN": "\u7B49\u5F85\u4ED3\u5E93\u53D8\u5316" },
+  "backend.tool.stopWatch": { en: "Stop this panel repository watch", "zh-CN": "\u505C\u6B62\u672C\u9762\u677F\u4ED3\u5E93\u76D1\u542C" },
+  "backend.tool.readLayout": { en: "Read Git Graph layout", "zh-CN": "\u8BFB\u53D6 Git Graph \u5E03\u5C40" },
+  "backend.tool.readEditor": { en: "Load historical diff editor", "zh-CN": "\u52A0\u8F7D\u5386\u53F2\u5DEE\u5F02\u7F16\u8F91\u5668" },
+  "backend.tool.saveLayout": { en: "Save Git Graph layout", "zh-CN": "\u4FDD\u5B58 Git Graph \u5E03\u5C40" },
+  "ui.retry": { en: "Retry", "zh-CN": "\u91CD\u8BD5" },
+  "ui.dismissNotice": { en: "Dismiss notice", "zh-CN": "\u5173\u95ED\u63D0\u793A" },
+  "ui.local": { en: "Local", "zh-CN": "\u672C\u5730" },
+  "ui.remote": { en: "Remote", "zh-CN": "\u8FDC\u7A0B" },
+  "ui.tag": { en: "Tag", "zh-CN": "\u6807\u7B7E" },
+  "ui.noSubject": { en: "(No commit subject)", "zh-CN": "\uFF08\u65E0\u63D0\u4EA4\u6807\u9898\uFF09" },
+  "ui.email": { en: "Email", "zh-CN": "\u90AE\u7BB1" },
+  "ui.reference": { en: "Reference", "zh-CN": "\u5F15\u7528" },
+  "ui.localBranches": { en: "Local branches", "zh-CN": "\u672C\u5730\u5206\u652F" },
+  "ui.remoteBranches": { en: "Remote branches", "zh-CN": "\u8FDC\u7A0B\u5206\u652F" },
+  "ui.allRefs": { en: "All branches and tags", "zh-CN": "\u6240\u6709\u5206\u652F\u4E0E\u6807\u7B7E" },
+  "ui.loadingHistory": { en: "Loading commit history", "zh-CN": "\u6B63\u5728\u52A0\u8F7D\u63D0\u4EA4\u5386\u53F2" },
+  "ui.repository": { en: "Switch task repository", "zh-CN": "\u5207\u6362\u4EFB\u52A1\u4ED3\u5E93" },
+  "ui.branch": { en: "Filter branches", "zh-CN": "\u7B5B\u9009\u5206\u652F" },
+  "ui.search": { en: "Search commits", "zh-CN": "\u641C\u7D22\u63D0\u4EA4" },
+  "ui.refresh": { en: "Refresh", "zh-CN": "\u5237\u65B0" },
+  "ui.refreshHint": { en: "Reload repository", "zh-CN": "\u91CD\u65B0\u8BFB\u53D6\u4ED3\u5E93" },
+  "ui.searchLoaded": { en: "Search loaded commits", "zh-CN": "\u641C\u7D22\u5DF2\u52A0\u8F7D\u7684\u63D0\u4EA4" },
+  "ui.searchPlaceholder": { en: "Search commits, author or SHA", "zh-CN": "\u641C\u7D22\u63D0\u4EA4\u3001\u4F5C\u8005\u6216 SHA" },
+  "ui.clearSearch": { en: "Clear search", "zh-CN": "\u6E05\u9664\u641C\u7D22" },
+  "ui.previousMatch": { en: "Previous match", "zh-CN": "\u4E0A\u4E00\u4E2A\u5339\u914D" },
+  "ui.nextMatch": { en: "Next match", "zh-CN": "\u4E0B\u4E00\u4E2A\u5339\u914D" },
+  "ui.resizeHint": { en: "Drag to resize; double-click to reset; use arrow keys to adjust", "zh-CN": "\u62D6\u52A8\u8C03\u6574\u5927\u5C0F\uFF1B\u53CC\u51FB\u6062\u590D\u9ED8\u8BA4\uFF1B\u65B9\u5411\u952E\u5FAE\u8C03" },
+  "ui.history": { en: "Commit history", "zh-CN": "\u63D0\u4EA4\u5386\u53F2" },
+  "ui.commitList": { en: "Git commit list", "zh-CN": "Git \u63D0\u4EA4\u5217\u8868" },
+  "ui.noRepository": { en: "This directory is not in a Git repository", "zh-CN": "\u5F53\u524D\u76EE\u5F55\u4E0D\u5C5E\u4E8E Git \u4ED3\u5E93" },
+  "ui.noCommits": { en: "This repository has no commits", "zh-CN": "\u8FD9\u4E2A\u4ED3\u5E93\u8FD8\u6CA1\u6709\u63D0\u4EA4" },
+  "ui.firstCommit": { en: "Commits will appear automatically after the first commit.", "zh-CN": "\u521B\u5EFA\u63D0\u4EA4\u540E\u4F1A\u81EA\u52A8\u663E\u793A\u3002" },
+  "ui.commitDetail": { en: "Commit details", "zh-CN": "\u63D0\u4EA4\u8BE6\u60C5" },
+  "ui.rangeDetail": { en: "Commit range details", "zh-CN": "\u63D0\u4EA4\u8303\u56F4\u8BE6\u60C5" },
+  "ui.refs": { en: "Branches and tags", "zh-CN": "\u5206\u652F\u4E0E\u6807\u7B7E" },
+  "ui.restoreLayout": { en: "Restore history and details layout", "zh-CN": "\u6062\u590D\u5386\u53F2\u4E0E\u8BE6\u60C5\u5E03\u5C40" },
+  "ui.expandDetail": { en: "Expand details", "zh-CN": "\u653E\u5927\u8BE6\u60C5" },
+  "ui.closeDetail": { en: "Close commit details", "zh-CN": "\u5173\u95ED\u63D0\u4EA4\u8BE6\u60C5" },
+  "ui.commitInfo": { en: "Commit information", "zh-CN": "\u63D0\u4EA4\u4FE1\u606F" },
+  "ui.noMessage": { en: "(No commit message)", "zh-CN": "\uFF08\u65E0\u63D0\u4EA4\u8BF4\u660E\uFF09" },
+  "ui.parentSelect": { en: "Choose comparison parent", "zh-CN": "\u9009\u62E9\u5BF9\u6BD4\u7684\u7236\u63D0\u4EA4" },
+  "ui.resizeSummary": { en: "Resize commit information and changed files", "zh-CN": "\u8C03\u6574\u63D0\u4EA4\u4FE1\u606F\u4E0E\u53D8\u66F4\u6587\u4EF6\u5927\u5C0F" },
+  "ui.resizeDetail": { en: "Resize commit details height", "zh-CN": "\u8C03\u6574\u63D0\u4EA4\u8BE6\u60C5\u9AD8\u5EA6" },
+  "ui.files": { en: "Changed files", "zh-CN": "\u53D8\u66F4\u6587\u4EF6" },
+  "ui.fileList": { en: "File list", "zh-CN": "\u6587\u4EF6\u5217\u8868" },
+  "ui.selectFile": { en: "Select a file to view its diff", "zh-CN": "\u9009\u62E9\u6587\u4EF6\u67E5\u770B\u5DEE\u5F02" },
+  "ui.inline": { en: "Switch to inline diff", "zh-CN": "\u5207\u6362\u4E3A\u884C\u5185\u5DEE\u5F02" },
+  "ui.split": { en: "Switch to side-by-side diff", "zh-CN": "\u5207\u6362\u4E3A\u5E76\u6392\u5DEE\u5F02" },
+  "ui.previousChange": { en: "Previous change", "zh-CN": "\u4E0A\u4E00\u5904\u5DEE\u5F02" },
+  "ui.nextChange": { en: "Next change", "zh-CN": "\u4E0B\u4E00\u5904\u5DEE\u5F02" },
+  "ui.openFileHint": { en: "Open the current workspace file in Codex", "zh-CN": "\u5728 Codex \u4E2D\u6253\u5F00\u5DE5\u4F5C\u533A\u6587\u4EF6\uFF08\u5F53\u524D\u5185\u5BB9\uFF09" },
+  "ui.openFile": { en: "Open workspace file in Codex", "zh-CN": "\u5728 Codex \u4E2D\u6253\u5F00\u5DE5\u4F5C\u533A\u6587\u4EF6" },
+  "ui.noFiles": { en: "No changed files", "zh-CN": "\u5C1A\u65E0\u6587\u4EF6\u66F4\u6539" },
+  "ui.noRangeFiles": { en: "The selected commit range has no changed files.", "zh-CN": "\u6240\u9009\u63D0\u4EA4\u8303\u56F4\u6CA1\u6709\u6587\u4EF6\u66F4\u6539\u3002" },
+  "ui.noParentFiles": { en: "There are no changed files relative to the selected parent.", "zh-CN": "\u76F8\u5BF9\u6240\u9009\u7236\u63D0\u4EA4\u6CA1\u6709\u6587\u4EF6\u66F4\u6539\u3002" },
+  "ui.resizeFiles": { en: "Resize file list and diff", "zh-CN": "\u8C03\u6574\u6587\u4EF6\u5217\u8868\u4E0E\u5DEE\u5F02\u5927\u5C0F" },
+  "ui.fileDiff": { en: "File diff", "zh-CN": "\u6587\u4EF6\u5DEE\u5F02" },
+  "ui.original": { en: "Base", "zh-CN": "\u57FA\u51C6" },
+  "ui.modified": { en: "Target", "zh-CN": "\u76EE\u6807" },
+  "ui.emptyTree": { en: "Empty tree", "zh-CN": "\u7A7A\u6811" },
+  "ui.missingSuffix": { en: " \xB7 File does not exist", "zh-CN": " \xB7 \u6587\u4EF6\u4E0D\u5B58\u5728" },
+  "ui.loadingDiff": { en: "Loading file diff", "zh-CN": "\u6B63\u5728\u52A0\u8F7D\u6587\u4EF6\u5DEE\u5F02" },
+  "ui.unavailableDiff": { en: "Cannot display file diff", "zh-CN": "\u65E0\u6CD5\u663E\u793A\u6587\u4EF6\u5DEE\u5F02" },
+  "ui.distinguishedRef": { en: "{kind} \xB7 {name}", "zh-CN": "{kind} \xB7 {name}" },
+  "ui.loadedMatches": { en: "{current}/{count} \xB7 Loaded history", "zh-CN": "{current}/{count} \xB7 \u5DF2\u52A0\u8F7D\u5386\u53F2" },
+  "ui.parentLabel": { en: "Compare parent commit", "zh-CN": "\u5BF9\u6BD4\u7236\u63D0\u4EA4" },
+  "ui.loadMore": { en: "Load more", "zh-CN": "\u52A0\u8F7D\u66F4\u591A" },
+  "ui.incoming": { en: "Incoming Changes", "zh-CN": "\u4F20\u5165\u7684\u66F4\u6539" },
+  "ui.outgoing": { en: "Outgoing Changes", "zh-CN": "\u4F20\u51FA\u7684\u66F4\u6539" },
+  "ui.externalError": { en: "Request failed: {diagnostic}", "zh-CN": "\u8BF7\u6C42\u5931\u8D25\uFF1A{diagnostic}" },
+  "ui.notConnected": { en: "Not connected to Codex. Reopen the Git Graph window.", "zh-CN": "\u5C1A\u672A\u8FDE\u63A5\u5230 Codex\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00 Git Graph \u7A97\u53E3\u3002" },
+  "ui.queryFailure": { en: "Git query failed: {diagnostic}", "zh-CN": "Git \u67E5\u8BE2\u5931\u8D25\uFF1A{diagnostic}" },
+  "ui.invalidData": { en: "Git Graph returned invalid data.", "zh-CN": "Git Graph \u8FD4\u56DE\u4E86\u65E0\u6548\u7684\u6570\u636E\u3002" },
+  "ui.appearanceFailure": { en: "Could not read Codex appearance: {diagnostic}", "zh-CN": "\u65E0\u6CD5\u8BFB\u53D6 Codex \u5916\u89C2\uFF1A{diagnostic}" },
+  "ui.missingBranchOnly": { en: 'The selected branch or tag "{name}" no longer exists. Switched to "{destination}".', "zh-CN": "\u6240\u9009\u5206\u652F\u6216\u6807\u7B7E\u201C{name}\u201D\u5DF2\u4E0D\u5B58\u5728\uFF0C\u5DF2\u5207\u6362\u5230\u201C{destination}\u201D" },
+  "ui.missingBranchAll": { en: 'The selected branch or tag "{name}" no longer exists. Showing all branches and tags.', "zh-CN": "\u6240\u9009\u5206\u652F\u6216\u6807\u7B7E\u201C{name}\u201D\u5DF2\u4E0D\u5B58\u5728\uFF0C\u5DF2\u663E\u793A\u6240\u6709\u5206\u652F\u4E0E\u6807\u7B7E" },
+  "ui.layoutReadFailure": { en: "Could not read the saved layout. {diagnostic}", "zh-CN": "\u65E0\u6CD5\u8BFB\u53D6\u5DF2\u4FDD\u5B58\u7684\u5E03\u5C40\u3002{diagnostic}" },
+  "ui.layoutSaveFailure": { en: "The layout has not been saved. {diagnostic}", "zh-CN": "\u5E03\u5C40\u5C1A\u672A\u4FDD\u5B58\u3002{diagnostic}" },
+  "ui.watchStopFailure": { en: "Could not stop repository watching: {diagnostic}", "zh-CN": "\u505C\u6B62\u4ED3\u5E93\u76D1\u542C\u5931\u8D25\uFF1A{diagnostic}" },
+  "ui.watchFailure": { en: "Could not watch repository changes: {diagnostic}", "zh-CN": "\u65E0\u6CD5\u76D1\u542C\u4ED3\u5E93\u53D8\u5316\uFF1A{diagnostic}" },
+  "ui.openFailure": { en: "Could not open Git Graph", "zh-CN": "\u6253\u5F00\u5931\u8D25" },
+  "ui.connectionFailure": { en: "{diagnostic} Reopen the Git Graph window.", "zh-CN": "{diagnostic} \u8BF7\u91CD\u65B0\u6253\u5F00 Git Graph \u7A97\u53E3\u3002" },
+  "ui.missingBase": { en: "The commit range has no common ancestor.", "zh-CN": "\u63D0\u4EA4\u8303\u56F4\u7F3A\u5C11\u5171\u540C\u7956\u5148\u3002" },
+  "ui.closed": { en: "Git Graph has closed.", "zh-CN": "Git Graph \u5DF2\u5173\u95ED\u3002" },
+  "ui.editorLoadFailure": { en: "Could not load the diff editor.", "zh-CN": "\u5DEE\u5F02\u7F16\u8F91\u5668\u52A0\u8F7D\u5931\u8D25\u3002" },
+  "ui.noFileOpening": { en: "This Codex host does not support opening workspace files.", "zh-CN": "\u5F53\u524D Codex \u5BBF\u4E3B\u4E0D\u652F\u6301\u6253\u5F00\u5DE5\u4F5C\u533A\u6587\u4EF6\u3002" },
+  "ui.fileOpenFailure": { en: "Codex could not open the workspace file.", "zh-CN": "Codex \u672A\u80FD\u6253\u5F00\u5DE5\u4F5C\u533A\u6587\u4EF6\u3002" },
+  "ui.filesCount": { en: "Changed files \xB7 {count}", "zh-CN": "\u53D8\u66F4\u6587\u4EF6 \xB7 {count}" },
+  "ui.filesParent": { en: "Changed files \xB7 {count} \xB7 Relative to parent {parent}", "zh-CN": "\u53D8\u66F4\u6587\u4EF6 \xB7 {count} \xB7 \u76F8\u5BF9\u7236\u63D0\u4EA4 {parent}" },
+  "ui.revision": { en: "{label} {hash}{missing}{mode}", "zh-CN": "{label} {hash}{missing}{mode}" },
+  "ui.fileMode": { en: "File mode: {mode}", "zh-CN": "\u6587\u4EF6\u6A21\u5F0F\uFF1A{mode}" },
+  "ui.reason": { en: "{label}: {reason}", "zh-CN": "{label}\uFF1A{reason}" },
+  "ui.pixels": { en: "{size} pixels", "zh-CN": "{size} \u50CF\u7D20" },
+  "editor.status.pending": { en: "Comparing\u2026", "zh-CN": "\u6B63\u5728\u6BD4\u8F83\u2026" },
+  "editor.status.uncomputed": { en: "Diff is not ready", "zh-CN": "\u5DEE\u5F02\u5C1A\u672A\u7B97\u51FA" },
+  "editor.status.change": { en: "{count} change", "zh-CN": "{count} \u5904\u5DEE\u5F02" },
+  "editor.status.changes": { en: "{count} changes", "zh-CN": "{count} \u5904\u5DEE\u5F02" },
+  "editor.status.same": { en: "File contents are identical", "zh-CN": "\u6587\u4EF6\u5185\u5BB9\u76F8\u540C" },
+  "editor.status.lineEnding": { en: "Text is identical; line endings or BOM differ", "zh-CN": "\u6587\u672C\u76F8\u540C\uFF1B\u6362\u884C\u7B26\u6216 BOM \u6709\u53D8\u5316" },
+  "editor.status.incomplete": { en: "The diff could not be fully computed", "zh-CN": "\u672A\u80FD\u5B8C\u6574\u8BA1\u7B97\u5DEE\u5F02" },
+  "editor.aria.original": { en: "Original version, read-only", "zh-CN": "\u57FA\u51C6\u7248\u672C\uFF0C\u53EA\u8BFB" },
+  "editor.aria.modified": { en: "Modified version, read-only", "zh-CN": "\u76EE\u6807\u7248\u672C\uFF0C\u53EA\u8BFB" },
+  "editor.error.shadow": { en: "Could not parse the Codex widget shadow color", "zh-CN": "\u65E0\u6CD5\u89E3\u6790 Codex \u6D6E\u5C42\u9634\u5F71\u989C\u8272" }
+};
+var msg = (key, params) => params ? { key, params } : { key };
+function isMessage(value) {
+  if (value == null || typeof value !== "object" || !("key" in value) || typeof value.key !== "string" || !Object.hasOwn(catalog, value.key)) return false;
+  const valid = (param) => param === null || ["string", "number", "boolean"].includes(typeof param) || (Array.isArray(param) ? param.every(valid) : isMessage(param));
+  return !("params" in value) || value.params != null && typeof value.params === "object" && !Array.isArray(value.params) && Object.values(value.params).every(valid);
+}
+function format(message2, locale) {
+  if (typeof message2 === "string") return message2;
+  const value = (param) => param == null ? "" : isMessage(param) ? format(param, locale) : Array.isArray(param) ? param.map(value).join(", ") : String(param);
+  if (message2.key === "backend.join") {
+    const messages = message2.params?.messages;
+    return Array.isArray(messages) ? messages.map(value).join(value(message2.params?.separator)) : value(messages);
+  }
+  const template = catalog[message2.key][locale];
+  return template.replace(/\{(\w+)\}/g, (_, name) => value(message2.params?.[name]));
+}
+function toMessage(value) {
+  if (isMessage(value)) return value;
+  if (value != null && typeof value === "object" && "messageDescriptor" in value && isMessage(value.messageDescriptor)) return value.messageDescriptor;
+  if (value instanceof Error && "issues" in value && Array.isArray(value.issues)) {
+    const issues = value.issues.filter((issue2) => issue2 != null && typeof issue2 === "object" && "message" in issue2 && typeof issue2.message === "string");
+    if (issues.some((issue2) => Object.hasOwn(catalog, issue2.message))) return msg("backend.join", {
+      messages: issues.map((issue2) => Object.hasOwn(catalog, issue2.message) ? msg(issue2.message) : msg("backend.external", { diagnostic: issue2.message })),
+      separator: "\n",
+      diagnostic: value.message
+    });
+  }
+  return msg("backend.external", { diagnostic: value != null && typeof value === "object" && "message" in value && typeof value.message === "string" ? value.message : String(value) });
+}
+var joinMessages = (messages, separator = "\n") => msg("backend.join", { messages: messages.map(toMessage), separator });
+function error62(key, params, cause) {
+  const messageDescriptor = msg(key, params);
+  return Object.assign(new Error(format(messageDescriptor, "en"), cause === void 0 ? void 0 : { cause }), { messageDescriptor });
+}
+
+// git.ts
 var exec = promisify(execFile);
 var objectId = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
+var maxTextSize = 2 * 1024 * 1024;
 async function git(repo, args, encoding = "utf8") {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
   try {
@@ -33718,14 +33922,14 @@ async function git(repo, args, encoding = "utf8") {
     });
     return stdout;
   } catch (caught) {
-    const error62 = caught;
-    if (error62.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") throw new Error("\u7ED3\u679C\u8D85\u8FC7 16 MB\uFF0C\u8BF7\u9009\u62E9\u5355\u4E2A\u6587\u4EF6\u6216\u7F29\u5C0F\u5386\u53F2\u8303\u56F4\u3002");
-    if (error62.killed) throw new Error("Git \u67E5\u8BE2\u8D85\u8FC7 20 \u79D2\uFF0C\u8BF7\u7F29\u5C0F\u8303\u56F4\u540E\u91CD\u8BD5\u3002");
-    throw new Error(String(error62.stderr || "").trim() || error62.message, { cause: error62 });
+    const error63 = caught;
+    if (error63.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") throw error62("backend.git.outputLimit");
+    if (error63.killed) throw error62("backend.git.timeout");
+    throw error62("backend.git.failure", { diagnostic: String(error63.stderr || "").trim() || error63.message }, error63);
   }
 }
 async function repository(repoPath) {
-  if (!isAbsolute(repoPath) || repoPath.includes("\0")) throw new Error("\u8BF7\u8F93\u5165\u672C\u5730\u4ED3\u5E93\u7684\u7EDD\u5BF9\u8DEF\u5F84\u3002");
+  if (!isAbsolute(repoPath) || repoPath.includes("\0")) throw error62("backend.path.absolute");
   const path = await realpath(repoPath);
   const root = (await git(path, ["rev-parse", "--show-toplevel"])).replace(/\n$/, "");
   return await realpath(root);
@@ -33738,7 +33942,7 @@ async function repositoryInfo(repoPath) {
 function parseCommits(raw) {
   if (!raw) return [];
   const fields = raw.replace(/\0$/, "").split("\0");
-  if (fields.length % 6) throw new Error("Git \u8FD4\u56DE\u7684\u63D0\u4EA4\u8BB0\u5F55\u683C\u5F0F\u65E0\u6548\u3002");
+  if (fields.length % 6) throw error62("backend.git.invalidCommits");
   const result = [];
   for (let i = 0; i < fields.length; i += 6) {
     const [hash3, parentText, author, email3, date5, subject] = fields.slice(i, i + 6);
@@ -33746,7 +33950,36 @@ function parseCommits(raw) {
   }
   return result;
 }
-async function history({ repoPath, branch = "", offset = 0, tips, limit = 250 }) {
+async function optionalGit(repo, args) {
+  return git(repo, args).catch((error63) => {
+    if (error63.cause?.code !== 1) throw error63;
+    return "";
+  });
+}
+async function branchBase(repo, current, refs, symbolic) {
+  const sameName = (a, b) => ["darwin", "win32"].includes(process.platform) ? a.toLowerCase() === b.toLowerCase() : a === b;
+  const findBranch = (name) => refs.find((ref) => /^(refs\/heads\/|refs\/remotes\/)/.test(ref.name) && (sameName(ref.name, name) || sameName(ref.name, `refs/heads/${name}`) || sameName(ref.name, `refs/remotes/${name}`)));
+  const remoteBranch = (ref) => ref?.name.startsWith("refs/remotes/") ? ref : null;
+  const configured = (await optionalGit(repo, ["config", "--get", `branch.${current.name.slice("refs/heads/".length)}.vscode-merge-base`])).trim();
+  const stored = remoteBranch(findBranch(configured));
+  if (stored) return stored;
+  const entries = (await git(repo, ["reflog", current.name, "--format=%gs", "--grep-reflog=branch: Created from *."])).trimEnd().split("\n").filter(Boolean);
+  if (entries.length === 1) {
+    let sourceName = entries[0].match(/^branch: Created from (.*)$/)?.[1];
+    if (sourceName === "HEAD") {
+      const checkouts = (await git(repo, ["reflog", "HEAD", "--format=%gs"])).trimEnd().split("\n").map((entry) => entry.match(/^checkout: moving from ([^\s]+) to (.*)$/)).filter((match) => match?.[2] === current.name.slice("refs/heads/".length));
+      sourceName = checkouts.at(-1)?.[1];
+    }
+    const source = sourceName ? findBranch(sourceName) : void 0;
+    const fromReflog = remoteBranch(source) || (source?.upstream ? remoteBranch(findBranch(source.upstream)) : null);
+    if (fromReflog) return fromReflog;
+  }
+  const remotes = (await git(repo, ["remote"])).trimEnd().split("\n").filter(Boolean);
+  const remote = remotes.includes("origin") ? "origin" : remotes[0];
+  const defaultName = remote && symbolic.find((ref) => ref.name === `refs/remotes/${remote}/HEAD`)?.symbolic;
+  return defaultName ? remoteBranch(findBranch(defaultName)) : null;
+}
+async function history({ repoPath, branch = "", offset = 0, tips, limit = 250, retain }) {
   const repo = await repository(repoPath);
   const refText = await git(repo, [
     "for-each-ref",
@@ -33755,19 +33988,19 @@ async function history({ repoPath, branch = "", offset = 0, tips, limit = 250 })
     "refs/remotes",
     "refs/tags"
   ]);
-  const refs = refText.trimEnd().split("\n").filter(Boolean).map((line) => {
+  const allRefs = refText.trimEnd().split("\n").filter(Boolean).map((line) => {
     const [name, hash3, peeled, symbolic, type, peeledType, upstream] = line.split("\0");
     return { name, hash: peeled || hash3, symbolic, type: peeledType || type, upstream };
-  }).filter((ref) => !ref.symbolic && ["commit", "tag"].includes(ref.type));
-  const headRaw = await git(repo, ["rev-parse", "--verify", "--quiet", "HEAD"]).catch((error62) => {
-    if (refs.length || error62.cause?.code !== 1) throw error62;
-    return "";
   });
-  const head = headRaw.trim();
-  const headName = (await git(repo, ["symbolic-ref", "--quiet", "--short", "HEAD"]).catch((error62) => {
-    if (error62.cause?.code !== 1) throw error62;
-    return "";
-  })).trim();
+  const refs = allRefs.filter((ref) => !ref.symbolic && ["commit", "tag"].includes(ref.type));
+  const head = (await optionalGit(repo, ["rev-parse", "--verify", "--quiet", "HEAD"])).trim();
+  const headRef = (await optionalGit(repo, ["symbolic-ref", "--quiet", "HEAD"])).trim();
+  const headName = headRef.replace(/^refs\/heads\//, "");
+  const currentRef = head ? refs.find((ref) => ref.name === headRef) || { name: head, hash: head } : null;
+  const upstreamRef = currentRef?.upstream ? refs.find((ref) => ref.name === currentRef.upstream) || null : null;
+  const resolvedBase = currentRef?.name.startsWith("refs/heads/") ? await branchBase(repo, currentRef, refs, allRefs) : null;
+  const baseRef = resolvedBase?.name !== upstreamRef?.name ? resolvedBase : null;
+  const mergeBase = currentRef && upstreamRef ? (await optionalGit(repo, ["merge-base", currentRef.hash, upstreamRef.hash])).trim() || null : null;
   const missingBranch = branch && !refs.some((ref) => ref.name === branch) ? branch : "";
   if (missingBranch) {
     branch = "";
@@ -33785,7 +34018,7 @@ async function history({ repoPath, branch = "", offset = 0, tips, limit = 250 })
     if (!branch && head) resolved.unshift(head);
   }
   const snapshot = tips || [...new Set(resolved)];
-  if (snapshot.some((hash3) => !objectId.test(hash3))) throw new Error("\u63D0\u4EA4\u5FEB\u7167\u65E0\u6548\uFF0C\u8BF7\u5237\u65B0\u3002");
+  if (snapshot.some((hash3) => !objectId.test(hash3))) throw error62("backend.git.invalidSnapshot");
   const raw = snapshot.length ? await git(repo, [
     "log",
     "--topo-order",
@@ -33798,10 +34031,42 @@ async function history({ repoPath, branch = "", offset = 0, tips, limit = 250 })
     "--"
   ]) : "";
   const commits = parseCommits(raw);
-  return { repo, head, headName, refs, branch, missingBranch, tips: snapshot, offset, commits: commits.slice(0, limit), hasMore: commits.length > limit };
+  const retained = [];
+  if (retain) {
+    if (retain.length > 2 || retain.some((hash3) => !objectId.test(hash3))) throw error62("backend.git.invalidRetained");
+    for (const hash3 of new Set(retain)) {
+      for (const tip of snapshot) {
+        const reachable = await git(repo, ["merge-base", "--is-ancestor", hash3, tip]).then(() => true).catch((error63) => {
+          if (error63.cause?.code !== 1) throw error63;
+          return false;
+        });
+        if (reachable) {
+          retained.push(hash3);
+          break;
+        }
+      }
+    }
+  }
+  return {
+    repo,
+    head,
+    headName,
+    refs,
+    branch,
+    missingBranch,
+    tips: snapshot,
+    offset,
+    commits: commits.slice(0, limit),
+    hasMore: commits.length > limit,
+    currentRef,
+    upstreamRef,
+    baseRef,
+    mergeBase,
+    ...retain ? { retained } : {}
+  };
 }
 async function verifyCommit(repo, hash3) {
-  if (!objectId.test(hash3)) throw new Error("\u63D0\u4EA4 ID \u65E0\u6548\u3002");
+  if (!objectId.test(hash3)) throw error62("backend.git.invalidHash");
   return (await git(repo, ["rev-parse", "--verify", `${hash3}^{commit}`])).trim();
 }
 function parseFiles(raw) {
@@ -33812,7 +34077,7 @@ function parseFiles(raw) {
     const status = parts[i++];
     const oldPath = /^[RC]/.test(status) ? parts[i++] : null;
     const path = parts[i++];
-    if (path == null) throw new Error("Git \u8FD4\u56DE\u7684\u6587\u4EF6\u5217\u8868\u683C\u5F0F\u65E0\u6548\u3002");
+    if (path == null) throw error62("backend.git.invalidFiles");
     files.push({ status, path, oldPath });
   }
   return files;
@@ -33830,38 +34095,55 @@ async function commit({ repoPath, hash: hash3, parent = 0 }) {
   ]);
   const [id, parentText, author, email3, date5, message2] = raw.split("\0");
   const parents = parentText ? parentText.split(" ") : [];
-  if (!Number.isInteger(parent) || parent < 0 || parent >= Math.max(parents.length, 1)) throw new Error("\u7236\u63D0\u4EA4\u9009\u62E9\u65E0\u6548\u3002");
+  if (!Number.isInteger(parent) || parent < 0 || parent >= Math.max(parents.length, 1)) throw error62("backend.git.invalidParent");
   const base = parents[parent] || null;
   const args = base ? ["diff", "--name-status", "-z", "-M", base, hash3, "--"] : ["diff-tree", "--root", "--no-commit-id", "-r", "--name-status", "-z", "-M", hash3, "--"];
   const files = parseFiles(await git(repo, args));
   return { repo, hash: id, parents, parent, base, author, email: email3, date: date5, message: message2.trimEnd(), files };
+}
+async function compare({ repoPath, base, hash: hash3 }) {
+  const repo = await repository(repoPath);
+  [base, hash3] = await Promise.all([verifyCommit(repo, base), verifyCommit(repo, hash3)]);
+  const files = parseFiles(await git(repo, ["diff", "--name-status", "-z", "-M", base, hash3, "--"]));
+  return { repo, hash: hash3, base, parents: [], parent: 0, message: "", author: "", email: "", date: "", files };
 }
 async function revisionFile(repo, hash3, path, exists) {
   const revision = { hash: hash3, path, exists, mode: null, content: "" };
   if (!exists) return revision;
   const entry = await git(repo, ["ls-tree", "-z", hash3, "--", path]);
   const tab = entry.indexOf("	");
-  if (tab === -1 || entry.slice(tab + 1) !== `${path}\0`) throw new Error("\u5386\u53F2\u6587\u4EF6\u5BF9\u8C61\u4E0D\u5B58\u5728\u3002");
+  if (tab === -1 || entry.slice(tab + 1) !== `${path}\0`) throw error62("backend.file.missingObject");
   const [mode, type, id] = entry.slice(0, tab).split(" ");
   revision.mode = mode;
   if (mode === "160000") return { ...revision, content: `Subproject commit ${id}
 ` };
-  if (type !== "blob") throw new Error("\u6240\u9009\u5386\u53F2\u8DEF\u5F84\u4E0D\u662F\u6587\u4EF6\u3002");
+  if (type !== "blob") throw error62("backend.file.notHistoricalFile");
   const size = Number((await git(repo, ["cat-file", "-s", id])).trim());
-  if (size > 2 * 1024 * 1024) return { ...revision, reason: "\u6587\u4EF6\u8D85\u8FC7 2 MiB\uFF0C\u672A\u8F7D\u5165\u6587\u672C\u6BD4\u8F83\u3002" };
+  if (size > maxTextSize) return { ...revision, reason: msg("backend.file.tooLarge") };
   const bytes = await git(repo, ["cat-file", "blob", id], null);
-  if (bytes.includes(0)) return { ...revision, reason: "\u4E8C\u8FDB\u5236\u6587\u4EF6\uFF0C\u65E0\u6CD5\u663E\u793A\u6587\u672C\u5DEE\u5F02\u3002" };
+  return revisionText(revision, bytes);
+}
+function revisionText(revision, bytes) {
+  if (bytes.length > maxTextSize) return { ...revision, reason: msg("backend.file.tooLarge") };
+  if (bytes.includes(0)) return { ...revision, reason: msg("backend.file.binary") };
   try {
     revision.content = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
   } catch {
-    return { ...revision, reason: "\u6587\u4EF6\u4E0D\u662F\u6709\u6548\u7684 UTF-8 \u6587\u672C\uFF0C\u65E0\u6CD5\u663E\u793A\u6587\u672C\u5DEE\u5F02\u3002" };
+    return { ...revision, reason: msg("backend.file.encoding") };
   }
   return revision;
 }
 async function diff(args) {
   const detail = await commit(args);
-  const file2 = detail.files.find((file3) => file3.path === args.path);
-  if (!file2) throw new Error("\u8FD9\u4E2A\u6587\u4EF6\u4E0D\u5728\u6240\u9009\u63D0\u4EA4\u7684\u53D8\u66F4\u4E2D\u3002");
+  return fileDiff(detail, args.path);
+}
+async function compareDiff(args) {
+  const detail = await compare(args);
+  return fileDiff(detail, args.path);
+}
+async function fileDiff(detail, path) {
+  const file2 = detail.files.find((file3) => file3.path === path);
+  if (!file2) throw error62("backend.file.outsideRange");
   const [original, modified] = await Promise.all([
     revisionFile(detail.repo, detail.base, file2.oldPath || file2.path, Boolean(detail.base) && file2.status[0] !== "A"),
     revisionFile(detail.repo, detail.hash, file2.path, file2.status[0] !== "D")
@@ -33869,24 +34151,186 @@ async function diff(args) {
   return { hash: detail.hash, base: detail.base, ...file2, original, modified };
 }
 async function workspaceFile(args) {
-  const detail = await commit(args);
-  if (!detail.files.some((file2) => file2.path === args.path)) throw new Error("\u8FD9\u4E2A\u6587\u4EF6\u4E0D\u5728\u6240\u9009\u63D0\u4EA4\u7684\u53D8\u66F4\u4E2D\u3002");
+  if (args.base !== void 0 && args.parent !== void 0) throw error62("backend.file.baseAndParent");
+  const detail = args.base === void 0 ? await commit(args) : await compare({ ...args, base: args.base });
+  if (!detail.files.some((file2) => file2.path === args.path)) throw error62("backend.file.outsideRange");
+  return { path: await currentFilePath(detail.repo, args.path) };
+}
+async function currentFilePath(repo, relativePath) {
   let path;
   try {
-    path = await realpath(resolve(detail.repo, args.path));
-  } catch (error62) {
-    if (["ENOENT", "ENOTDIR"].includes(error62.code || "")) throw new Error("\u5F53\u524D\u5DE5\u4F5C\u533A\u4E2D\u5DF2\u6CA1\u6709\u8FD9\u4E2A\u6587\u4EF6\uFF1B\u4ECD\u53EF\u5728\u8FD9\u91CC\u67E5\u770B\u5386\u53F2\u5DEE\u5F02\u3002");
-    throw error62;
+    path = await realpath(resolve(repo, relativePath));
+  } catch (error63) {
+    if (["ENOENT", "ENOTDIR"].includes(error63.code || "")) throw error62("backend.file.missingWorkspace");
+    throw error63;
   }
-  if (!path.startsWith(`${detail.repo}${sep}`)) throw new Error("\u6587\u4EF6\u6307\u5411\u5F53\u524D\u4ED3\u5E93\u4E4B\u5916\uFF0C\u4E0D\u80FD\u4ECE Git Graph \u6253\u5F00\u3002");
-  if (!(await stat(path)).isFile()) throw new Error("\u6240\u9009\u8DEF\u5F84\u4E0D\u662F\u666E\u901A\u6587\u4EF6\u3002");
-  return { path };
+  if (!path.startsWith(`${repo}${sep}`)) throw error62("backend.file.outsideRepository");
+  if (!(await stat(path)).isFile()) throw error62("backend.file.notRegular");
+  return path;
+}
+
+// watch.ts
+import { watch } from "node:fs";
+import { realpath as realpath2 } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { isAbsolute as isAbsolute2, relative, sep as sep2 } from "node:path";
+var contains = (parent, path) => {
+  const child = relative(parent, path);
+  return child !== ".." && !child.startsWith(`..${sep2}`) && !isAbsolute2(child);
+};
+var stopped = () => error62("backend.watch.stopped");
+var abortError = () => Object.assign(new DOMException(format(msg("backend.watch.cancelled"), "en"), "AbortError"), { messageDescriptor: msg("backend.watch.cancelled") });
+function createWatchers({ waitMs = 2e4, leaseMs = 6e4, debounceMs = 75 } = {}) {
+  if (![waitMs, leaseMs, debounceMs].every((value) => Number.isFinite(value) && value > 0) || leaseMs <= waitMs + debounceMs) {
+    throw error62("backend.watch.invalidTiming");
+  }
+  const sessions = /* @__PURE__ */ new Map();
+  let closed = false;
+  function get(owner, id) {
+    const session = sessions.get(id);
+    if (!session || session.owner !== owner || session.closed) throw stopped();
+    return session;
+  }
+  function dispose(session, error63 = stopped()) {
+    session.closed = true;
+    clearTimeout(session.timer);
+    clearTimeout(session.lease);
+    for (const watcher of session.watchers) watcher.close();
+    session.watchers = [];
+    for (const waiter of [...session.waiters]) waiter.finish(error63);
+    sessions.delete(session.watchId);
+  }
+  function renew(session) {
+    clearTimeout(session.lease);
+    session.lease = setTimeout(() => dispose(session), leaseMs);
+    session.lease.unref();
+  }
+  function fail(session, caught) {
+    if (session.closed || session.failure) return;
+    session.failure = error62("backend.watch.failure", { diagnostic: toMessage(caught) }, caught);
+    clearTimeout(session.timer);
+    for (const watcher of session.watchers) watcher.close();
+    session.watchers = [];
+    for (const waiter of [...session.waiters]) waiter.finish(session.failure);
+  }
+  function queue(session, relocate) {
+    if (session.closed || session.failure) return;
+    session.dirty = true;
+    session.relocate ||= relocate;
+    if (!session.timer && !session.processing) session.timer = setTimeout(() => {
+      void flush(session);
+    }, debounceMs);
+  }
+  async function bind(session) {
+    const root = await repository(session.repoPath);
+    if (root !== session.repoPath) throw error62("backend.watch.rootChanged");
+    const directories = await Promise.all(["--absolute-git-dir", "--git-common-dir"].map(async (flag) => realpath2((await git(root, ["rev-parse", "--path-format=absolute", flag])).replace(/\n$/, ""))));
+    if (session.closed || session.failure) return;
+    const paths = [.../* @__PURE__ */ new Set([root, ...directories])];
+    const roots = paths.filter((path) => !paths.some((other) => other !== path && contains(other, path)));
+    const next = [];
+    try {
+      for (const path of roots) {
+        const watcher = watch(path, { recursive: true }, (event, filename) => {
+          const name = filename?.toString().replaceAll("\\", "/");
+          queue(session, event === "rename" || name == null || [".git", "gitdir", "commondir"].includes(name.split("/").at(-1)));
+        });
+        watcher.on("error", (error63) => fail(session, error63));
+        watcher.unref();
+        next.push(watcher);
+      }
+    } catch (error63) {
+      for (const watcher of next) watcher.close();
+      throw error63;
+    }
+    for (const watcher of session.watchers) watcher.close();
+    session.watchers = next;
+  }
+  async function flush(session) {
+    session.timer = void 0;
+    if (session.closed || session.failure) return;
+    session.processing = true;
+    session.dirty = false;
+    const relocate = session.relocate;
+    session.relocate = false;
+    try {
+      if (relocate) await bind(session);
+      if (session.closed || session.failure) return;
+      ++session.revision;
+      for (const waiter of [...session.waiters]) waiter.finish();
+    } catch (error63) {
+      fail(session, error63);
+    } finally {
+      session.processing = false;
+      if (session.dirty) queue(session, session.relocate);
+    }
+  }
+  return {
+    async start(owner, repoPath) {
+      if (closed) throw stopped();
+      const root = await repository(repoPath);
+      const session = {
+        watchId: randomUUID(),
+        owner,
+        repoPath: root,
+        revision: 0,
+        watchers: [],
+        waiters: /* @__PURE__ */ new Set(),
+        closed: false,
+        dirty: false,
+        relocate: false,
+        processing: false
+      };
+      try {
+        await bind(session);
+        if (closed) throw stopped();
+        sessions.set(session.watchId, session);
+        renew(session);
+        return { watchId: session.watchId, revision: session.revision };
+      } catch (error63) {
+        dispose(session);
+        throw error63;
+      }
+    },
+    async wait(owner, id, revision, signal) {
+      const session = get(owner, id);
+      if (session.failure) throw session.failure;
+      if (!Number.isInteger(revision) || revision < 0 || revision > session.revision) throw error62("backend.watch.invalidRevision");
+      if (signal?.aborted) throw abortError();
+      renew(session);
+      if (revision < session.revision) return { watchId: id, revision: session.revision, changed: true };
+      return new Promise((resolve3, reject) => {
+        const cancel = () => waiter.finish(abortError());
+        const timer = setTimeout(() => waiter.finish(), waitMs);
+        const waiter = { finish(error63) {
+          if (!session.waiters.delete(waiter)) return;
+          clearTimeout(timer);
+          signal?.removeEventListener("abort", cancel);
+          if (error63) reject(error63);
+          else resolve3({ watchId: id, revision: session.revision, changed: session.revision !== revision });
+        } };
+        session.waiters.add(waiter);
+        signal?.addEventListener("abort", cancel, { once: true });
+      });
+    },
+    stop(owner, id) {
+      if (!sessions.has(id)) return;
+      dispose(get(owner, id));
+    },
+    getRepoPath(owner, id) {
+      return get(owner, id).repoPath;
+    },
+    close() {
+      closed = true;
+      for (const session of [...sessions.values()]) dispose(session);
+    }
+  };
 }
 
 // project.ts
-import { readFile, realpath as realpath2 } from "node:fs/promises";
+import { readFile, realpath as realpath3 } from "node:fs/promises";
 import { homedir as homedir2 } from "node:os";
-import { basename as basename2, isAbsolute as isAbsolute3, join as join2, relative, resolve as resolve2, sep as sep2 } from "node:path";
+import { basename as basename2, isAbsolute as isAbsolute4, join as join2, relative as relative2, resolve as resolve2, sep as sep3 } from "node:path";
 import { createHash } from "node:crypto";
 
 // codex.ts
@@ -33894,24 +34338,24 @@ import { spawn, execFile as execFile2 } from "node:child_process";
 import { createInterface } from "node:readline";
 import { stat as stat2, access } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, isAbsolute as isAbsolute2, join } from "node:path";
+import { basename, isAbsolute as isAbsolute3, join } from "node:path";
 import { promisify as promisify2 } from "node:util";
 async function withCodex(run) {
   const parent = process.env.CODEX_CLI_PATH || process.platform === "win32" ? "" : (await promisify2(execFile2)("ps", ["-p", String(process.ppid), "-o", "comm="])).stdout.trim();
   const resources = process.env.CODEX_MCP_NODE_PATH?.match(/^(.*\.app\/Contents\/Resources)\//)?.[1];
-  const executable = process.env.CODEX_CLI_PATH || (isAbsolute2(parent) && basename(parent) === "codex" ? parent : resources ? join(resources, "codex") : "codex");
+  const executable = process.env.CODEX_CLI_PATH || (isAbsolute3(parent) && basename(parent) === "codex" ? parent : resources ? join(resources, "codex") : "codex");
   if (executable !== "codex") await access(executable);
   const child = spawn(executable, ["app-server", "--listen", "stdio://"], { stdio: ["pipe", "pipe", "pipe"] });
   const pending = /* @__PURE__ */ new Map();
   let nextId = 0;
-  let failure2;
-  const fail = (error62) => {
-    failure2 = error62;
-    for (const request2 of pending.values()) request2.reject(error62);
+  let failure3;
+  const fail = (error63) => {
+    failure3 = error63;
+    for (const request2 of pending.values()) request2.reject(error63);
     pending.clear();
   };
   child.on("error", fail);
-  child.on("exit", () => fail(new Error("Codex \u670D\u52A1\u5DF2\u9000\u51FA\u3002")));
+  child.on("exit", () => fail(error62("backend.codex.exited")));
   child.stdin.on("error", fail);
   child.stderr.resume();
   const lines = createInterface({ input: child.stdout });
@@ -33922,13 +34366,13 @@ async function withCodex(run) {
       pending.delete(message2.id);
       if (message2.error) request2.reject(new Error(message2.error.message));
       else request2.resolve(message2.result);
-    } catch (error62) {
-      fail(error62);
+    } catch (error63) {
+      fail(error63);
     }
   });
   const request = (method, params) => new Promise((resolve3, reject) => {
-    if (failure2) {
-      reject(failure2);
+    if (failure3) {
+      reject(failure3);
       return;
     }
     const id = ++nextId;
@@ -33936,7 +34380,7 @@ async function withCodex(run) {
     child.stdin.write(JSON.stringify({ id, method, params }) + "\n");
   });
   const timeout = setTimeout(() => {
-    fail(new Error("\u8BFB\u53D6 Codex \u914D\u7F6E\u6216\u9879\u76EE\u8D85\u8FC7 15 \u79D2\uFF0C\u8BF7\u91CD\u8BD5\u3002"));
+    fail(error62("backend.codex.timeout"));
     child.kill();
   }, 15e3);
   try {
@@ -33976,25 +34420,29 @@ function createAppearanceReader({
 } = {}) {
   let cached2;
   return async () => {
-    const stamp = await stat2(configPath).then((file2) => `${file2.mtimeMs}:${file2.ctimeMs}:${file2.size}`, (error62) => {
-      if (error62.code === "ENOENT") return "missing";
-      throw error62;
+    const stamp = await stat2(configPath).then((file2) => `${file2.mtimeMs}:${file2.ctimeMs}:${file2.size}`, (error63) => {
+      if (error63.code === "ENOENT") return "missing";
+      throw error63;
     });
     if (cached2?.stamp === stamp) return cached2.value;
-    const { config: config2 } = external_exports.object({ config: external_exports.object({ desktop: external_exports.object({ codeFontSize: external_exports.unknown().optional(), appearanceDarkChromeTheme: chromeThemeSchema.optional(), appearanceLightChromeTheme: chromeThemeSchema.optional() }).nullish() }) }).parse(await readConfig());
-    const noticeColors = { light: chromeColors(config2.desktop?.appearanceLightChromeTheme, false), dark: chromeColors(config2.desktop?.appearanceDarkChromeTheme, true) };
-    const value = {
-      noticeColors,
-      codeFontSize: codeFontSizeSchema.parse(config2.desktop?.codeFontSize),
-      ghostHover: { light: noticeColors.light.ghostHover, dark: noticeColors.dark.ghostHover }
-    };
-    cached2 = { stamp, value };
-    return value;
+    try {
+      const { config: config2 } = external_exports.object({ config: external_exports.object({ desktop: external_exports.object({ codeFontSize: external_exports.unknown().optional(), appearanceDarkChromeTheme: chromeThemeSchema.optional(), appearanceLightChromeTheme: chromeThemeSchema.optional() }).nullish() }) }).parse(await readConfig());
+      const noticeColors = { light: chromeColors(config2.desktop?.appearanceLightChromeTheme, false), dark: chromeColors(config2.desktop?.appearanceDarkChromeTheme, true) };
+      const value = {
+        noticeColors,
+        codeFontSize: codeFontSizeSchema.parse(config2.desktop?.codeFontSize),
+        ghostHover: { light: noticeColors.light.ghostHover, dark: noticeColors.dark.ghostHover }
+      };
+      cached2 = { stamp, value };
+      return value;
+    } catch (caught) {
+      throw error62("backend.codex.configuration", { diagnostic: toMessage(caught) }, caught);
+    }
   };
 }
 
 // project.ts
-var pathSchema = external_exports.string().min(1).refine((path) => isAbsolute3(path) && !path.includes("\0"), "\u9700\u8981\u672C\u5730\u7EDD\u5BF9\u8DEF\u5F84");
+var pathSchema = external_exports.string().min(1).refine((path) => isAbsolute4(path) && !path.includes("\0"), "backend.path.absolute");
 var workspaceSchema = external_exports.object({ cwd: pathSchema, projectSources: external_exports.array(pathSchema), runtimeWorkspaceRoots: external_exports.array(pathSchema) });
 var workspaceStateSchema = external_exports.object({ project: external_exports.unknown(), pending: workspaceSchema.nullable(), applied: workspaceSchema.nullable() });
 var threadSchema = external_exports.object({
@@ -34003,13 +34451,13 @@ var threadSchema = external_exports.object({
   environments: external_exports.array(external_exports.object({ cwd: pathSchema, runtimeWorkspaceRoots: external_exports.array(pathSchema).nullish() })).nullish()
 });
 var worktreeSchema = external_exports.object({ root: pathSchema, workspaceRoot: pathSchema });
-var message = (error62) => error62 instanceof Error ? error62.message : String(error62);
+var message = (error63) => format(toMessage(error63), "en");
 async function readDesktopState(codexHome) {
   try {
     return JSON.parse(await readFile(join2(codexHome, ".codex-global-state.json"), "utf8"));
-  } catch (error62) {
-    if (error62.code === "ENOENT") return {};
-    throw error62;
+  } catch (error63) {
+    if (error63.code === "ENOENT") return {};
+    throw error63;
   }
 }
 async function readWorkspace(threadId, {
@@ -34029,8 +34477,8 @@ async function readWorkspace(threadId, {
     if (threadId) {
       try {
         thread = external_exports.object({ thread: threadSchema }).parse(await request("thread/read", { threadId, includeTurns: false })).thread;
-      } catch (error62) {
-        if (message(error62) !== `thread not loaded: ${threadId}`) throw error62;
+      } catch (error63) {
+        if (message(error63) !== `thread not loaded: ${threadId}`) throw error63;
         useSelectedProject = !state;
       }
     }
@@ -34045,15 +34493,15 @@ async function readWorkspace(threadId, {
       const localProjectId = assignment?.projectKind === "local" ? assignment.projectId : selected?.type === "local" ? selected.projectId : void 0;
       if (localProjectId) {
         projectId = desktop["app-server-project-id-by-legacy-project-id-by-host"]?.[`local:${codexHome}`]?.[localProjectId];
-        if (!projectId) result.notices.push("\u5F53\u524D\u9879\u76EE\u5173\u8054\u5C1A\u672A\u8FC1\u79FB\uFF0C\u8BF7\u5728 Codex \u4E2D\u91CD\u65B0\u9009\u62E9\u9879\u76EE\u3002");
+        if (!projectId) result.notices.push(msg("backend.project.unmigrated"));
       }
     }
     if (projectId) {
       try {
         const { project } = external_exports.object({ project: external_exports.object({ roots: external_exports.array(external_exports.object({ path: pathSchema })) }) }).parse(await request("project/read", { projectId }));
         result.sourceRoots = project.roots.map((root) => root.path);
-      } catch (error62) {
-        result.notices.push(`\u65E0\u6CD5\u8BFB\u53D6\u9879\u76EE\u76EE\u5F55\uFF1A${message(error62)}`);
+      } catch (error63) {
+        result.notices.push(msg("backend.project.read", { diagnostic: toMessage(error63) }));
       }
     }
     if (state?.pending) result.sourceRoots = state.pending.projectSources;
@@ -34073,16 +34521,16 @@ async function readWorkspace(threadId, {
           }
           cursor = page.nextCursor;
         } while (cursor != null);
-      } catch (error62) {
-        result.notices.push(`\u65E0\u6CD5\u8BFB\u53D6\u4EFB\u52A1\u5DE5\u4F5C\u6811\uFF1A${message(error62)}`);
+      } catch (error63) {
+        result.notices.push(msg("backend.project.worktrees", { diagnostic: toMessage(error63) }));
       }
     }
     return result;
   });
 }
-var contains = (root, path) => {
-  const rel = relative(root, path);
-  return rel !== ".." && !rel.startsWith(`..${sep2}`) && !isAbsolute3(rel);
+var contains2 = (root, path) => {
+  const rel = relative2(root, path);
+  return rel !== ".." && !rel.startsWith(`..${sep3}`) && !isAbsolute4(rel);
 };
 async function resolveRepositories(workspace) {
   const notices = [...workspace.notices];
@@ -34090,10 +34538,10 @@ async function resolveRepositories(workspace) {
   const paths = /* @__PURE__ */ new Map();
   for (const path of /* @__PURE__ */ new Set([workspace.cwd, ...workspace.runtimeRoots, ...workspace.sourceRoots, ...workspace.worktrees.map((tree) => tree.workspaceRoot)])) {
     try {
-      paths.set(path, await realpath2(path));
+      paths.set(path, await realpath3(path));
       origins.set(path, await repositoryInfo(path));
-    } catch (error62) {
-      if (!/not a git repository/i.test(message(error62))) notices.push(`${path}\uFF1A${message(error62)}`);
+    } catch (error63) {
+      if (!/not a git repository/i.test(message(error63))) notices.push(msg("backend.repository.read", { path, diagnostic: toMessage(error63) }));
     }
   }
   const normalized = (path) => paths.get(path) ?? resolve2(path);
@@ -34110,10 +34558,10 @@ async function resolveRepositories(workspace) {
   const runtimeCommon = new Set([...groups.values()].filter((repo) => repo.workspaceRoots.some((path) => runtimeRoots.includes(path))).map((repo) => repo.commonDir));
   const candidates = [...groups.values()].filter((repo) => repo.workspaceRoots.some((path) => runtimeRoots.includes(path)) || !runtimeCommon.has(repo.commonDir));
   const sourceOrigins = workspace.sourceRoots.map((path) => origins.get(path));
-  const closest = (roots, path) => roots.reduce((best, root, index) => contains(root, path) && (best < 0 || root.length > roots[best].length) ? index : best, -1);
+  const closest = (roots, path) => roots.reduce((best, root, index) => contains2(root, path) && (best < 0 || root.length > roots[best].length) ? index : best, -1);
   const directories = (sourceRoots.length ? sourceRoots : runtimeRoots).map((source, index) => {
     const origin = sourceRoots.length ? sourceOrigins[index] : origins.get(workspace.runtimeRoots[index]);
-    const rel = origin ? relative(origin.root, source) : null;
+    const rel = origin ? relative2(origin.root, source) : null;
     const siblings = candidates.filter((repo) => repo.commonDir === origin?.commonDir);
     const indexed = candidates.find((repo) => repo.workspaceRoots.includes(runtimeRoots[index]));
     let preferred;
@@ -34122,9 +34570,9 @@ async function resolveRepositories(workspace) {
       if (current2) {
         const sameSources = sourceRoots.filter((_, i) => sourceOrigins[i]?.root === origin.root);
         const target = join2(current2.root, rel), sourceIndex = sameSources.indexOf(source);
-        const others = siblings.filter((repo) => repo !== current2 && repo.workspaceRoots.some((path) => contains(path, join2(repo.root, rel))));
+        const others = siblings.filter((repo) => repo !== current2 && repo.workspaceRoots.some((path) => contains2(path, join2(repo.root, rel))));
         preferred = others.find((repo) => repo.workspaceRoots.includes(join2(repo.root, rel))) ?? others[0];
-        if (current2.workspaceRoots.some((path) => contains(path, target) && (!preferred || path === target) || contains(target, path) && closest(sameSources, join2(origin.root, relative(current2.root, path))) === sourceIndex) && (closest(sameSources, join2(origin.root, relative(current2.root, cwd))) === sourceIndex || contains(cwd, target))) preferred = current2;
+        if (current2.workspaceRoots.some((path) => contains2(path, target) && (!preferred || path === target) || contains2(target, path) && closest(sameSources, join2(origin.root, relative2(current2.root, path))) === sourceIndex) && (closest(sameSources, join2(origin.root, relative2(current2.root, cwd))) === sourceIndex || contains2(cwd, target))) preferred = current2;
       }
     }
     const repository2 = preferred ?? candidates.find((repo) => repo.workspaceRoots.includes(source) || repo.root === origin?.root) ?? siblings.find((repo) => repo === indexed) ?? siblings[0];
@@ -34145,7 +34593,7 @@ async function resolveRepositories(workspace) {
     displayPath: root
   }));
   const defaultRoot = current?.root ?? directories.find((dir) => dir.repository)?.repository?.root;
-  return { repositories, defaultRepository: repositories.find((repo) => repo.path === defaultRoot)?.id, contextCwd: workspace.cwd, repositoryNotice: notices.join("\n") };
+  return { repositories, defaultRepository: repositories.find((repo) => repo.path === defaultRoot)?.id, contextCwd: workspace.cwd, repositoryNotice: notices.length ? joinMessages(notices) : void 0 };
 }
 
 // layout.ts
@@ -34153,7 +34601,8 @@ var panelsSchema = external_exports.strictObject({
   detailHeight: external_exports.number().int().min(160).max(1e4).optional(),
   summaryHeight: external_exports.number().int().min(64).max(1e4).optional(),
   filesWidth: external_exports.number().int().min(96).max(1e4).optional(),
-  detailMaximized: external_exports.boolean().optional()
+  detailMaximized: external_exports.boolean().optional(),
+  fileView: external_exports.enum(["list", "tree"]).optional()
 });
 var storedPanelsSchema = panelsSchema.strip();
 
@@ -34173,16 +34622,32 @@ var preferencesDirectory = join3(
   process.env.CODEX_HOME || join3(homedir3(), ".codex"),
   "plugins/data/git-graph-codex-git-graph"
 );
+function watchSession({ session }) {
+  if (!session) throw error62("backend.watch.sessionRequired");
+  return session;
+}
+async function authorizeWatch(context, watchId) {
+  const session = watchSession(context), path = session.watchers.getRepoPath(session.threadId, watchId);
+  try {
+    if (!context.repositories.some((repo) => repo.path === path) || await realpath4(path) !== path) {
+      throw error62("backend.watch.outsideTask");
+    }
+  } catch (error63) {
+    session.watchers.stop(session.threadId, watchId);
+    throw error63;
+  }
+  return session;
+}
 async function readPreference(directory, file2, schema, label) {
   try {
     return schema.parse(JSON.parse(await readFile2(join3(directory, file2), "utf8")));
-  } catch (error62) {
-    if (error62.code === "ENOENT") return schema.parse({});
-    throw new Error(`\u8BFB\u53D6${label}\u5931\u8D25\uFF1A${error62 instanceof Error ? error62.message : String(error62)}`);
+  } catch (error63) {
+    if (error63.code === "ENOENT") return schema.parse({});
+    throw error62("backend.preference.read", { label, diagnostic: toMessage(error63) }, error63);
   }
 }
 async function writePreference(directory, file2, value, label) {
-  const temporary = join3(directory, `${file2}.${randomUUID()}.tmp`);
+  const temporary = join3(directory, `${file2}.${randomUUID2()}.tmp`);
   try {
     await mkdir(directory, { recursive: true });
     try {
@@ -34191,17 +34656,17 @@ async function writePreference(directory, file2, value, label) {
     } finally {
       await rm(temporary, { force: true });
     }
-  } catch (error62) {
-    throw new Error(`\u4FDD\u5B58${label}\u5931\u8D25\uFF1A${error62 instanceof Error ? error62.message : String(error62)}`);
+  } catch (error63) {
+    throw error62("backend.preference.save", { label, diagnostic: toMessage(error63) }, error63);
   }
 }
 async function readLayout({ preferencesDirectory: directory }) {
   return {
-    panels: await readPreference(directory, "panel-layout.json", storedPanelsSchema, "\u9762\u677F\u5E03\u5C40")
+    panels: await readPreference(directory, "panel-layout.json", storedPanelsSchema, msg("backend.preference.layout"))
   };
 }
 async function saveLayout({ panels, preferencesDirectory: directory }) {
-  await writePreference(directory, "panel-layout.json", panels, "\u9762\u677F\u5E03\u5C40");
+  await writePreference(directory, "panel-layout.json", panels, msg("backend.preference.layout"));
   return { panels };
 }
 async function openGraph({ repositories, repositoryNotice, contextCwd = process.cwd(), defaultRepository, selectedRepository: selected, branch }) {
@@ -34211,74 +34676,123 @@ async function openGraph({ repositories, repositoryNotice, contextCwd = process.
 }
 var readAppearance = createAppearanceReader();
 function defineTool(definition) {
-  return { ...definition, async invoke(args, directory, context) {
-    const input2 = definition.schema.parse(args);
+  return { ...definition, async invoke(args, directory, context, session) {
+    const parsed = definition.schema.safeParse(args);
+    if (!parsed.success) throw error62("backend.tool.invalidInput", { diagnostic: toMessage(parsed.error) }, parsed.error);
+    const input2 = parsed.data;
     let repoPath = context.repositories.find((repo) => repo.id === context.defaultRepository)?.path || context.repositories[0]?.path || process.cwd();
     if ("repository" in definition.schema.shape) {
       const selected = input2.repository ? context.repositories.find((repo) => repo.id === input2.repository) : context.repositories.find((repo) => repo.id === context.defaultRepository) ?? context.repositories[0];
-      if (!selected) throw new Error("\u6240\u9009\u4ED3\u5E93\u4E0D\u5C5E\u4E8E\u5F53\u524D\u4EFB\u52A1\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00 Git Graph\u3002");
+      if (!selected) throw error62("backend.repository.outsideTask");
       repoPath = await repository(selected.path);
-      if (repoPath !== selected.path) throw new Error("\u6240\u9009\u4ED3\u5E93\u8DEF\u5F84\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00 Git Graph\u3002");
+      if (repoPath !== selected.path) throw error62("backend.repository.pathChanged");
     }
-    return definition.run({ ...input2, ...context, repoPath, preferencesDirectory: directory });
+    return definition.run({ ...input2, ...context, repoPath, preferencesDirectory: directory, session });
   } };
 }
 var definitions = {
-  git_graph_appearance: defineTool({ title: "\u8BFB\u53D6 Codex \u5B57\u53F7\u4E0E\u60AC\u505C\u914D\u8272", schema: external_exports.strictObject({}), run: readAppearance }),
+  git_graph_appearance: defineTool({ title: format(msg("backend.tool.readAppearance"), "en"), schema: external_exports.strictObject({}), run: readAppearance }),
   git_graph: defineTool({
     title: "Git Graph",
     description: "Browse Git history for the current Codex task working directory. Read-only.",
     schema: external_exports.strictObject({ selectedRepository: repositoryId, branch: external_exports.string().max(1024).optional() }),
     run: openGraph
   }),
-  git_graph_history: defineTool({ title: "\u8BFB\u53D6\u63D0\u4EA4\u5386\u53F2", schema: external_exports.strictObject({
+  git_graph_history: defineTool({ title: format(msg("backend.tool.readHistory"), "en"), schema: external_exports.strictObject({
     repository: repositoryId,
     branch: external_exports.string().max(1024).optional(),
     offset: external_exports.number().int().min(0).max(1e6).optional(),
     tips: external_exports.array(hash2).max(1e4).optional(),
+    retain: external_exports.array(hash2).max(2).optional(),
     limit: external_exports.number().int().min(1).max(500).optional()
   }), run: history }),
-  git_graph_commit: defineTool({ title: "\u67E5\u770B\u63D0\u4EA4", schema: external_exports.strictObject({ repository: repositoryId, hash: hash2, parent: external_exports.number().int().min(0).optional() }), run: commit }),
-  git_graph_diff: defineTool({ title: "\u67E5\u770B\u6587\u4EF6\u5DEE\u5F02", schema: external_exports.strictObject({
+  git_graph_commit: defineTool({ title: format(msg("backend.tool.readCommit"), "en"), schema: external_exports.strictObject({ repository: repositoryId, hash: hash2, parent: external_exports.number().int().min(0).optional() }), run: commit }),
+  git_graph_compare: defineTool({ title: format(msg("backend.tool.readRange"), "en"), schema: external_exports.strictObject({ repository: repositoryId, base: hash2, hash: hash2 }), run: compare }),
+  git_graph_diff: defineTool({ title: format(msg("backend.tool.readDiff"), "en"), schema: external_exports.strictObject({
     repository: repositoryId,
     hash: hash2,
     parent: external_exports.number().int().min(0).optional(),
     path: external_exports.string().min(1).max(4096)
   }), run: diff }),
-  git_graph_workspace_file: defineTool({ title: "\u5B9A\u4F4D\u5DE5\u4F5C\u533A\u6587\u4EF6", schema: external_exports.strictObject({
+  git_graph_compare_diff: defineTool({ title: format(msg("backend.tool.readRangeDiff"), "en"), schema: external_exports.strictObject({
+    repository: repositoryId,
+    base: hash2,
+    hash: hash2,
+    path: external_exports.string().min(1).max(4096)
+  }), run: compareDiff }),
+  git_graph_workspace_file: defineTool({ title: format(msg("backend.tool.locateFile"), "en"), schema: external_exports.strictObject({
     repository: repositoryId,
     hash: hash2,
+    base: hash2.optional(),
     parent: external_exports.number().int().min(0).optional(),
     path: external_exports.string().min(1).max(4096)
   }), run: workspaceFile }),
-  git_graph_layout: defineTool({ title: "\u8BFB\u53D6 Git Graph \u5E03\u5C40", schema: external_exports.strictObject({}), run: readLayout }),
-  git_graph_editor: defineTool({ title: "\u52A0\u8F7D\u5386\u53F2\u5DEE\u5F02\u7F16\u8F91\u5668", schema: external_exports.strictObject({}), run: async () => {
-    const [script, style] = await Promise.all(["editor.js", "editor.css"].map((file2) => readFile2(new URL(`./${file2}`, import.meta.url), "utf8")));
+  git_graph_watch_start: defineTool({
+    title: format(msg("backend.tool.startWatch"), "en"),
+    schema: external_exports.strictObject({ repository: repositoryId }),
+    annotations: { ...annotations, idempotentHint: false },
+    run: async (context) => {
+      const session = watchSession(context);
+      return session.watchers.start(session.threadId, context.repoPath);
+    }
+  }),
+  git_graph_watch_wait: defineTool({
+    title: format(msg("backend.tool.waitWatch"), "en"),
+    schema: external_exports.strictObject({ watchId: external_exports.uuid(), revision: external_exports.number().int().min(0) }),
+    run: async (context) => {
+      const session = await authorizeWatch(context, context.watchId);
+      return session.watchers.wait(session.threadId, context.watchId, context.revision, session.signal);
+    }
+  }),
+  git_graph_watch_stop: defineTool({ title: format(msg("backend.tool.stopWatch"), "en"), schema: external_exports.strictObject({ watchId: external_exports.uuid() }), run: async (context) => {
+    const session = watchSession(context);
+    session.watchers.stop(session.threadId, context.watchId);
+    return { stopped: true };
+  } }),
+  git_graph_layout: defineTool({ title: format(msg("backend.tool.readLayout"), "en"), schema: external_exports.strictObject({}), run: readLayout }),
+  git_graph_editor: defineTool({ title: format(msg("backend.tool.readEditor"), "en"), schema: external_exports.strictObject({ locale: external_exports.enum(["en", "zh-CN"]) }), run: async ({ locale }) => {
+    const [script, style] = await Promise.all([locale === "zh-CN" ? "editor.zh-cn.js" : "editor.en.js", "editor.css"].map((file2) => readFile2(new URL(`./${file2}`, import.meta.url), "utf8")));
     return { script, style };
   } }),
   git_graph_save_layout: defineTool({
-    title: "\u4FDD\u5B58 Git Graph \u5E03\u5C40",
+    title: format(msg("backend.tool.saveLayout"), "en"),
     description: "Save global Git Graph panel layout in plugin data. Does not modify Git repositories.",
     schema: external_exports.strictObject({ panels: panelsSchema }),
     run: saveLayout,
     annotations: { ...annotations, readOnlyHint: false }
   })
 };
-async function call(name, args, directory = preferencesDirectory, context = { repositories: [] }) {
+function failure2(error63) {
+  const descriptor = toMessage(error63);
+  return { isError: true, content: [{ type: "text", text: format(descriptor, "en") }], structuredContent: { error: descriptor } };
+}
+async function call(name, args, directory = preferencesDirectory, context = { repositories: [] }, session) {
   try {
-    if (!Object.hasOwn(definitions, name)) throw new Error("\u672A\u77E5\u7684 Git Graph \u64CD\u4F5C\u3002");
-    const data = await definitions[name].invoke(args, directory, context);
-    return { content: [{ type: "text", text: "Git Graph \u64CD\u4F5C\u5B8C\u6210\u3002" }], structuredContent: data };
-  } catch (error62) {
-    return { isError: true, content: [{ type: "text", text: error62 instanceof Error ? error62.message : String(error62) }] };
+    if (!Object.hasOwn(definitions, name)) throw error62("backend.tool.unknown");
+    const data = await definitions[name].invoke(args, directory, context, session);
+    return { content: [{ type: "text", text: format(msg("backend.tool.completed"), "en") }], structuredContent: data };
+  } catch (error63) {
+    return failure2(error63);
   }
 }
 function createServer({ preferencesDirectory: directory = preferencesDirectory, readContext = readWorkspace } = {}) {
   const contexts = /* @__PURE__ */ new Map();
+  const watchers = createWatchers();
   const server = new McpServer({ name: "git-graph", title: "Git Graph", version: "0.3.0", icons: [
     { src: git_branch_default, mimeType: "image/svg+xml", sizes: ["any"], theme: "light" },
     { src: git_branch_dark_default, mimeType: "image/svg+xml", sizes: ["any"], theme: "dark" }
   ] });
+  const inputClosed = () => {
+    watchers.close();
+    void server.close().catch((error63) => server.server.onerror?.(error63));
+  };
+  process.stdin.once("end", inputClosed);
+  process.stdin.once("close", inputClosed);
+  server.server.onclose = () => {
+    process.stdin.removeListener("end", inputClosed);
+    process.stdin.removeListener("close", inputClosed);
+    watchers.close();
+  };
   for (const [name, definition] of Object.entries(definitions)) {
     j(server, name, {
       title: definition.title,
@@ -34291,18 +34805,20 @@ function createServer({ preferencesDirectory: directory = preferencesDirectory, 
         "openai/ui": { entrypoints: [{ type: "thread" }], preferredModelDisplayMode: "fullscreen" }
       } : { ui: { visibility: ["app"] } }
     }, async (args, request) => {
-      const threadId = external_exports.string().optional().parse(request.mcpReq._meta?.threadId);
-      if (name === "git_graph") contexts.set(threadId, readContext(threadId).then(resolveRepositories));
+      const parsed = external_exports.string().optional().safeParse(request.mcpReq._meta?.threadId);
+      if (!parsed.success) return failure2(error62("backend.tool.invalidInput", { diagnostic: toMessage(parsed.error) }, parsed.error));
+      const threadId = parsed.data;
+      if (name === "git_graph") contexts.set(threadId, Promise.resolve().then(() => readContext(threadId)).then(resolveRepositories));
       let context;
       try {
-        if (name === "git_graph" || "repository" in definition.schema.shape) context = await contexts.get(threadId);
-      } catch (error62) {
-        return { isError: true, content: [{ type: "text", text: `\u65E0\u6CD5\u8BFB\u53D6\u4EFB\u52A1\u76EE\u5F55\uFF1A${error62 instanceof Error ? error62.message : String(error62)}` }] };
+        if (name === "git_graph" || "repository" in definition.schema.shape || name === "git_graph_watch_wait") context = await contexts.get(threadId);
+      } catch (error63) {
+        return failure2(error62("backend.task.read", { diagnostic: toMessage(error63) }, error63));
       }
-      if (!context?.repositories.length && ["git_graph_history", "git_graph_commit", "git_graph_diff", "git_graph_workspace_file"].includes(name)) {
-        return { isError: true, content: [{ type: "text", text: "\u8BF7\u91CD\u65B0\u6253\u5F00 Git Graph\uFF0C\u8BFB\u53D6\u5F53\u524D\u4EFB\u52A1\u4ED3\u5E93\u3002" }] };
+      if (!context?.repositories.length && ("repository" in definition.schema.shape || name === "git_graph_watch_wait")) {
+        return failure2(msg("backend.task.unopened"));
       }
-      return call(name, args, directory, context);
+      return call(name, args, directory, context, { watchers, threadId, signal: request.mcpReq.signal });
     });
   }
   G(server, "Git Graph", resourceUri, { mimeType: L }, async () => ({ contents: [{

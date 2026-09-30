@@ -1,4 +1,3 @@
-import 'monaco-editor/nls/lang/zh-cn.js';
 import { editor, Uri } from 'monaco-editor/editor/editor.api.js';
 import 'monaco-editor/editor/browser/widget/diffEditor/diffEditor.contribution.js';
 import 'monaco-editor/editor/contrib/find/browser/findController.js';
@@ -15,18 +14,36 @@ import 'monaco-editor/languages/definitions/shell/register.js';
 import 'monaco-editor/languages/definitions/dart/register.js';
 
 import type { diff } from './git.ts';
+import { error, format, msg, type Locale } from './i18n.ts';
 type DiffResult = Awaited<ReturnType<typeof diff>>;
 export type DiffStatus = { text: string; canNavigate: boolean };
+export type DiffView = { state: editor.IDiffEditorViewState | null; focus: 'original' | 'modified' | null };
+type DiffInstance = {
+  id: number; editor: editor.IStandaloneDiffEditor; models: editor.ITextModel[]; sourceEqual: boolean;
+  status: DiffStatus; subscription?: { dispose(): void }; disposed: boolean; pendingReveal: boolean;
+};
 const $ = (id: string) => document.getElementById(id)!;
-let diffEditor: editor.IStandaloneDiffEditor | undefined, models: editor.ITextModel[] = [], workerUrl: string | undefined;
-let sourceEqual = false, codeFontSize: number | undefined, split = false;
+let single: DiffInstance | undefined, workerUrl: string | undefined, nextId = 0;
+let codeFontSize: number | undefined, split = false;
 let report: (status: DiffStatus) => void = () => {};
 export function onStatus(callback: typeof report) { report = callback; }
+const modelNamespace = [...crypto.getRandomValues(new Uint32Array(4))].map(value => value.toString(16)).join('-');
 declare const __DIFF_WORKER__: string;
-(globalThis as typeof globalThis & { MonacoEnvironment: { getWorker(): Worker } }).MonacoEnvironment = { getWorker() {
+declare const __EDITOR_LOCALE__: Locale;
+const globals = globalThis as typeof globalThis & {
+  _VSCODE_NLS_MESSAGES?: string[]; _VSCODE_NLS_LANGUAGE?: string; MonacoEnvironment: { getWorker(): Worker };
+};
+const messages = globals._VSCODE_NLS_MESSAGES;
+const workerEnvironment = { getWorker() {
   workerUrl ||= URL.createObjectURL(new Blob([__DIFF_WORKER__], { type: 'text/javascript' }));
   return new Worker(workerUrl, { name: 'git-graph-diff' });
 } };
+export function activate() {
+  if (__EDITOR_LOCALE__ === 'en') delete globals._VSCODE_NLS_MESSAGES;
+  else globals._VSCODE_NLS_MESSAGES = messages;
+  globals._VSCODE_NLS_LANGUAGE = __EDITOR_LOCALE__ === 'en' ? 'en' : 'zh-cn';
+  globals.MonacoEnvironment = workerEnvironment;
+}
 
 export function themeDiff(theme: string) {
   const probe = document.createElement('span');
@@ -41,23 +58,11 @@ export function themeDiff(theme: string) {
   probe.style.boxShadow = 'var(--shadow-lg)';
   const shadow = getComputedStyle(probe).boxShadow;
   const shadowColor = shadow === 'none' ? 'transparent' : shadow.match(/(?:rgba?|color|oklch|oklab|lch|lab|hsla?)\([^)]*\)/)?.[0];
-  if (!shadowColor) throw new Error('无法解析 Codex 浮层阴影颜色');
+  if (!shadowColor) throw error('editor.error.shadow');
   const dark = theme === 'dark';
-  const syntax = Object.fromEntries(Object.entries({
-    comment: '--muted', string: '--success', number: '--accent',
-    keyword: '--danger', identifier: '--fg', type: '--graph-remote',
-  }).map(([token, variable]) => [token, color(`var(${variable})`).slice(1, 7)]));
-  const rules = [{ token: '', foreground: color('var(--fg)').slice(1, 7) },
-    ...Object.entries(syntax).map(([token, foreground]) => ({ token, foreground })),
-    ...['delimiter', 'operator'].map(token => ({ token, foreground: syntax.comment })),
-    ...['function', 'type.identifier', 'tag'].map(token => ({ token, foreground: syntax.type })),
-    { token: 'attribute.name', foreground: syntax.identifier },
-    { token: 'attribute.value', foreground: syntax.string },
-    { token: 'regexp', foreground: syntax.string },
-    { token: 'invalid', foreground: color('var(--danger)').slice(1, 7) }];
   const lineBackground = (tone: string) => color(`color-mix(in lab, var(--bg) ${dark ? 80 : 88}%, var(${tone}))`);
   const wordBackground = (tone: string) => color(`rgb(from var(${tone}) r g b / ${dark ? .2 : .15})`);
-  editor.defineTheme('codex', { base: dark ? 'vs-dark' : 'vs', inherit: false, rules, colors: {
+  editor.defineTheme('codex', { base: dark ? 'vs-dark' : 'vs', inherit: true, rules: [], colors: {
     'editor.background': color('var(--bg)'), 'editor.foreground': color('var(--fg)'),
     'editorGutter.background': color('var(--bg)'), 'editorLineNumber.foreground': color('var(--muted)'),
     'editorLineNumber.activeForeground': color('var(--fg)'), 'editorCursor.foreground': color('var(--fg)'),
@@ -93,31 +98,29 @@ export function themeDiff(theme: string) {
     'diffEditor.unchangedRegionForeground': color('var(--muted)'),
   } });
   probe.remove(); editor.setTheme('codex');
-  diffEditor?.updateOptions(viewOptions());
+  updateOptions();
   document.fonts.ready.then(() => editor.remeasureFonts());
 }
 export function setCodeFontSize(size: number) {
   codeFontSize = size;
-  diffEditor?.updateOptions(viewOptions());
+  updateOptions();
 }
 function viewOptions() {
   return { ...(codeFontSize == null ? {} : { fontSize: codeFontSize }), fontFamily: getComputedStyle($('detail-hash')).fontFamily,
     renderSideBySide: split,
-    originalAriaLabel: '基准版本，只读', modifiedAriaLabel: '目标版本，只读' };
+    originalAriaLabel: format(msg('editor.aria.original'), __EDITOR_LOCALE__), modifiedAriaLabel: format(msg('editor.aria.modified'), __EDITOR_LOCALE__) };
 }
 
-export function clearDiff() {
-  diffEditor?.setModel(null);
-  for (const model of models) model.dispose();
-  models = [];
-  report({ text: '', canNavigate: false });
+function updateOptions() {
+  single?.editor.updateOptions(viewOptions());
 }
-export function showDiff(result: DiffResult) {
-  clearDiff();
-  const revisions = [result.original, result.modified];
-  sourceEqual = result.original.content === result.modified.content;
-  if (!diffEditor) {
-    diffEditor = editor.createDiffEditor($('diff-editor'), {
+function emit(instance: DiffInstance) {
+  if (!instance.disposed) report(instance.status);
+}
+function createInstance(): DiffInstance {
+  const instance: DiffInstance = {
+    id: ++nextId, models: [], sourceEqual: false, status: { text: '', canNavigate: false }, disposed: false, pendingReveal: false,
+    editor: editor.createDiffEditor($('diff-editor'), {
       ...viewOptions(), theme: 'codex', readOnly: true, originalEditable: false,
       automaticLayout: true, minimap: { enabled: false }, scrollBeyondLastLine: false,
       renderLineHighlight: 'none',
@@ -126,27 +129,82 @@ export function showDiff(result: DiffResult) {
       ignoreTrimWhitespace: false, diffAlgorithm: 'advanced', maxComputationTime: 5000,
       useInlineViewWhenSpaceIsLimited: false,
       contextmenu: false, links: false, stickyScroll: { enabled: false },
-    });
-    diffEditor.onDidUpdateDiff(() => {
-      if (!models.length) return;
-      const changes = diffEditor!.getLineChanges();
-      const text = changes == null ? '差异尚未算出' : changes.length ? `${changes.length} 处差异`
-        : sourceEqual ? '文件内容相同'
-          : models[0].getValue(editor.EndOfLinePreference.LF) === models[1].getValue(editor.EndOfLinePreference.LF)
-            ? '文本相同；换行符或 BOM 有变化' : '未能完整计算差异';
-      report({ text, canNavigate: Boolean(changes?.length) });
-    });
-  }
-  for (const [index, side] of revisions.entries()) models.push(editor.createModel(side.content, undefined,
-    Uri.from({ scheme: 'git-graph', authority: index ? 'modified' : 'original', path: `/${side.hash || 'empty'}/${side.path}` })));
-  report({ text: '正在比较…', canNavigate: false });
-  diffEditor.updateOptions(viewOptions());
-  diffEditor.setModel({ original: models[0], modified: models[1] });
-  diffEditor.revealFirstDiff();
+    }),
+  };
+  instance.subscription = instance.editor.onDidUpdateDiff(() => {
+    if (!instance.models.length || instance.disposed) return;
+    const changes = instance.editor.getLineChanges();
+    const description = changes == null ? msg('editor.status.uncomputed') : changes.length ? msg(changes.length === 1 ? 'editor.status.change' : 'editor.status.changes', { count: changes.length })
+      : instance.sourceEqual ? msg('editor.status.same')
+        : instance.models[0].getValue(editor.EndOfLinePreference.LF) === instance.models[1].getValue(editor.EndOfLinePreference.LF)
+          ? msg('editor.status.lineEnding') : msg('editor.status.incomplete');
+    if (instance.pendingReveal && changes != null) { instance.pendingReveal = false; revealChange(instance, 0); }
+    instance.status = { text: format(description, __EDITOR_LOCALE__), canNavigate: Boolean(changes?.length) }; emit(instance);
+  });
+  return instance;
+}
+function clearInstance(instance: DiffInstance) {
+  instance.editor.setModel(null);
+  for (const model of instance.models) model.dispose();
+  instance.models = [];
+  instance.pendingReveal = false;
+  instance.status = { text: '', canNavigate: false }; emit(instance);
+}
+function saveView(instance: DiffInstance): DiffView {
+  return { state: instance.editor.saveViewState(), focus: instance.editor.getOriginalEditor().hasTextFocus() ? 'original'
+    : instance.editor.getModifiedEditor().hasTextFocus() ? 'modified' : null };
+}
+function focus(instance: DiffInstance, side: 'original' | 'modified' = 'modified') {
+  (side === 'original' ? instance.editor.getOriginalEditor() : instance.editor.getModifiedEditor()).focus();
+}
+function restoreView(instance: DiffInstance, view: DiffView) {
+  instance.pendingReveal = false;
+  instance.editor.restoreViewState(view.state);
+  if (view.focus) focus(instance, view.focus);
+}
+function bindDiff(instance: DiffInstance, result: DiffResult, view?: DiffView) {
+  clearInstance(instance);
+  instance.sourceEqual = result.original.content === result.modified.content;
+  try {
+    for (const [index, side] of [result.original, result.modified].entries()) instance.models.push(editor.createModel(side.content, undefined,
+      Uri.from({ scheme: 'git-graph', authority: index ? 'modified' : 'original', path: `/${side.hash || 'empty'}/${side.path}`, query: `instance=${modelNamespace}-${instance.id}` })));
+    instance.status = { text: format(msg('editor.status.pending'), __EDITOR_LOCALE__), canNavigate: false }; emit(instance);
+    instance.editor.updateOptions(viewOptions());
+    instance.pendingReveal = !view?.state;
+    instance.editor.setModel({ original: instance.models[0], modified: instance.models[1] });
+    if (view?.state) restoreView(instance, view); else if (view?.focus) focus(instance, view.focus);
+  } catch (error) { clearInstance(instance); throw error; }
+}
+function disposeInstance(instance: DiffInstance) {
+  if (instance.disposed) return;
+  instance.disposed = true;
+  clearInstance(instance);
+  instance.subscription?.dispose();
+  instance.editor.dispose();
+}
+export function clearDiff() {
+  if (single) clearInstance(single); else report({ text: '', canNavigate: false });
+}
+export function saveDiffView(): DiffView | undefined { return single ? saveView(single) : undefined; }
+export function showDiff(result: DiffResult, preserveView: boolean | DiffView = false) {
+  const view = typeof preserveView === 'boolean' ? preserveView ? saveDiffView() : undefined : preserveView;
+  single ||= createInstance();
+  bindDiff(single, result, view);
+}
+function revealChange(instance: DiffInstance, index: number) {
+  const change = instance.editor.getLineChanges()?.[index], model = instance.models[1];
+  if (!change || !model) return;
+  const start = Math.max(1, Math.min(model.getLineCount(), change.modifiedStartLineNumber + (change.modifiedEndLineNumber === 0 ? 1 : 0)));
+  const end = Math.max(start, Math.min(model.getLineCount(), change.modifiedEndLineNumber || start));
+  const modified = instance.editor.getModifiedEditor();
+  modified.setPosition({ lineNumber: start, column: 1 });
+  modified.revealRangeInCenter({ startLineNumber: start, startColumn: 1, endLineNumber: end, endColumn: model.getLineMaxColumn(end) });
 }
 export function disposeDiff() {
-  clearDiff(); diffEditor?.dispose(); diffEditor = undefined;
+  if (single) disposeInstance(single);
+  single = undefined; report({ text: '', canNavigate: false });
   if (workerUrl) URL.revokeObjectURL(workerUrl);
+  workerUrl = undefined;
 }
-export function setSplit(value: boolean) { split = value; diffEditor?.updateOptions(viewOptions()); }
-export function goToDiff(direction: 'previous' | 'next') { diffEditor?.goToDiff(direction); }
+export function setSplit(value: boolean) { split = value; updateOptions(); }
+export function goToDiff(direction: 'previous' | 'next') { single?.editor.goToDiff(direction); }

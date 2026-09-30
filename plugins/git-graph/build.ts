@@ -1,6 +1,6 @@
 import { build } from 'esbuild';
 import { execFileSync } from 'node:child_process';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 await mkdir('dist', { recursive: true });
@@ -12,15 +12,24 @@ const worker = await build({ entryPoints: ['monaco-editor/editor/editor.worker.j
   minify: true, format: 'iife', platform: 'browser', write: false, supported: { 'template-literal': false } });
 const ui = await build({ entryPoints: ['ui.tsx'], bundle: true, minify: true, format: 'iife', platform: 'browser', write: false,
   outfile: 'dist/ui.js', supported: { 'template-literal': false } });
-const editor = await build({ entryPoints: ['diff-editor.ts'], bundle: true, minify: true, format: 'iife', globalName: 'GitGraphEditor',
-  platform: 'browser', write: false, outfile: 'dist/editor.js', supported: { 'template-literal': false },
-  loader: { '.ttf': 'dataurl' }, define: { __DIFF_WORKER__: JSON.stringify(worker.outputFiles[0].text) } });
 const html = (await readFile('window.html', 'utf8'))
   .replace('/* APP_STYLE */', () => css.replaceAll('</style', '<\\/style'))
   .replace('/* APP_SCRIPT */', () => ui.outputFiles.find(file => file.path.endsWith('.js'))!.text.replaceAll('</script', '<\\/script'));
 await writeFile('dist/window.html', html);
-await writeFile('dist/editor.js', editor.outputFiles.find(file => file.path.endsWith('.js'))!.text);
-await writeFile('dist/editor.css', editor.outputFiles.find(file => file.path.endsWith('.css'))!.text);
+const chineseMessages = await readFile(new URL(import.meta.resolve('monaco-editor/nls/lang/zh-cn.js')), 'utf8');
+let editorStyle: string | undefined;
+for (const [locale, file] of [['en', 'editor.en'], ['zh-CN', 'editor.zh-cn']] as const) {
+  const editor = await build({ entryPoints: ['diff-editor.ts'], bundle: true, minify: true, format: 'iife', globalName: 'GitGraphEditor',
+    platform: 'browser', write: false, outfile: `dist/${file}.js`, supported: { 'template-literal': false },
+    loader: { '.ttf': 'dataurl' }, define: { __DIFF_WORKER__: JSON.stringify(worker.outputFiles[0].text), __EDITOR_LOCALE__: JSON.stringify(locale) },
+    banner: { js: locale === 'zh-CN' ? chineseMessages : "delete globalThis._VSCODE_NLS_MESSAGES; globalThis._VSCODE_NLS_LANGUAGE = 'en';" } });
+  const style = editor.outputFiles.find(file => file.path.endsWith('.css'))!.text;
+  if (editorStyle !== undefined && editorStyle !== style) throw new Error('Editor language styles must be identical.');
+  editorStyle = style;
+  await writeFile(`dist/${file}.js`, editor.outputFiles.find(file => file.path.endsWith('.js'))!.text);
+}
+await writeFile('dist/editor.css', editorStyle!);
+await rm('dist/editor.js', { force: true });
 await build({ entryPoints: ['server.ts'], bundle: true, platform: 'node', format: 'esm', target: 'node20', outfile: 'dist/server.mjs', loader: { '.svg': 'dataurl' },
   banner: { js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" } });
 const { version } = JSON.parse(await readFile('.codex-plugin/plugin.json', 'utf8'));

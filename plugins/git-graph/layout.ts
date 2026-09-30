@@ -5,6 +5,7 @@ export const panelsSchema = z.strictObject({
   summaryHeight: z.number().int().min(64).max(10000).optional(),
   filesWidth: z.number().int().min(96).max(10000).optional(),
   detailMaximized: z.boolean().optional(),
+  fileView: z.enum(['list', 'tree']).optional(),
 });
 
 // Read only supported layout fields; retired preferences must not hide current UI.

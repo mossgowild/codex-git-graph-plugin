@@ -1,7 +1,9 @@
-import { useEffect, useRef } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef } from 'preact/hooks';
 
-export function Tooltip() {
+export function Tooltip({ locale }: { locale: string }) {
   const element = useRef<HTMLDivElement>(null);
+  const refresh = useRef<() => void>(() => {});
+  useLayoutEffect(() => { refresh.current(); }, [locale]);
   useEffect(() => {
     const tooltip = element.current!;
     let trigger: HTMLElement | null = null, openTimer = 0, closeTimer = 0, lastClose = -Infinity;
@@ -34,6 +36,11 @@ export function Tooltip() {
       bounds = tooltip.getBoundingClientRect();
       tooltip.style.left = `${Math.max(8, Math.min(anchor.left + (anchor.width - bounds.width) / 2, innerWidth - bounds.width - 8))}px`;
       tooltip.style.top = `${Math.max(8, Math.min(onTop ? anchor.top - bounds.height - 2 : anchor.bottom + 2, innerHeight - bounds.height - 8))}px`;
+    };
+    refresh.current = () => {
+      if (!trigger) return;
+      if (!canShow(trigger)) { hide(); return; }
+      if (tooltip.matches(':popover-open')) { tooltip.textContent = trigger.dataset.tooltip!; position(); }
     };
     const target = (value: EventTarget | null) => value instanceof Element ? value.closest<HTMLElement>('[data-tooltip]') : null;
     const show = (next: HTMLElement | null, keyboard = false) => {
@@ -83,6 +90,7 @@ export function Tooltip() {
     window.addEventListener('resize', position);
     window.addEventListener('blur', hide);
     return () => {
+      refresh.current = () => {};
       observer.disconnect();
       hide();
       document.removeEventListener('pointerover', enter);

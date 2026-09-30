@@ -31,12 +31,16 @@ async function checkLauncher(source: string) {
       const content = (await client.readResource({ uri: metadata.ui.resourceUri })).contents[0];
       assert.ok('text' in content);
       assert.equal(content.text, await readFile(join(source, 'dist/window.html'), 'utf8'));
-      const editor = await client.callTool({ name: 'git_graph_editor', arguments: {} });
-      assert.ok(!editor.isError, JSON.stringify(editor));
-      assert.deepEqual(editor.structuredContent, {
-        script: await readFile(join(source, 'dist/editor.js'), 'utf8'),
-        style: await readFile(join(source, 'dist/editor.css'), 'utf8'),
-      });
+      for (const [locale, file] of [['en', 'editor.en.js'], ['zh-CN', 'editor.zh-cn.js']]) {
+        const editor = await client.callTool({ name: 'git_graph_editor', arguments: { locale } });
+        assert.ok(!editor.isError, JSON.stringify(editor));
+        assert.deepEqual(editor.structuredContent, {
+          script: await readFile(join(source, 'dist', file), 'utf8'),
+          style: await readFile(join(source, 'dist/editor.css'), 'utf8'),
+        });
+      }
+      assert.equal((await client.callTool({ name: 'git_graph_editor', arguments: {} })).isError, true);
+      assert.equal((await client.callTool({ name: 'git_graph_editor', arguments: { locale: 'fr' } })).isError, true);
     } finally { await client.close(); }
   } finally { await rm(directory, { recursive: true, force: true }); }
 }

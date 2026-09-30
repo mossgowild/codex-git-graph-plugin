@@ -1,7 +1,7 @@
 import type { PanelLayout } from './layout.ts';
 const $ = (id: string) => document.getElementById(id)!;
 type Split = { id: string; key: 'detailHeight' | 'filesWidth' | 'summaryHeight'; axis: 'height' | 'width'; bounds(): [number, number] };
-export type PanelView = { ready: boolean; maximized: boolean; width: number; detail: number; files?: number; summary?: number;
+export type PanelView = { ready: boolean; maximized: boolean; fileView: NonNullable<PanelLayout['fileView']>; width: number; detail: number; files?: number; summary?: number;
   handles: Record<string, { min: number; max: number; now: number; hidden: boolean; horizontal: boolean }> };
 export function createPanels({ ready, save, changed }: { ready(): boolean; save(): void; changed(view: PanelView, sync: boolean): void }) {
   let preferences: PanelLayout = {}, drag: { previous: PanelLayout; handle: HTMLElement; pointer: number; axis: 'height' | 'width'; position: number; size: number; scroll: number } | null = null;
@@ -18,7 +18,7 @@ export function createPanels({ ready, save, changed }: { ready(): boolean; save(
   function render(sync = false) {
     const open = !$('detail-row').hidden;
     const [min, max] = splits[0].bounds();
-    const view: PanelView = { ready: ready(), maximized: Boolean(preferences.detailMaximized), width: $('history-scroll').clientWidth,
+    const view: PanelView = { ready: ready(), maximized: Boolean(preferences.detailMaximized), fileView: preferences.fileView ?? 'list', width: $('history-scroll').clientWidth,
       detail: clamp(preferences.detailHeight ?? Math.min(480, max * .8), min, max),
       files: open ? clamp(preferences.filesWidth ?? 220, ...splits[1].bounds()) : undefined,
       summary: open && preferences.summaryHeight != null ? clamp(preferences.summaryHeight, ...splits[2].bounds()) : undefined,
@@ -30,6 +30,7 @@ export function createPanels({ ready, save, changed }: { ready(): boolean; save(
     if (serialized !== previousView) { previousView = serialized; changed(view, sync); }
   }
   function setMaximized(value: boolean) { if (ready()) { preferences.detailMaximized = value; render(true); save(); } }
+  function setFileView(value: NonNullable<PanelLayout['fileView']>) { if (ready() && value !== (preferences.fileView ?? 'list')) { preferences.fileView = value; render(true); save(); } }
   function finish(cancelled: boolean) {
     if (!drag) return;
     const { previous, handle, pointer } = drag;
@@ -75,6 +76,6 @@ export function createPanels({ ready, save, changed }: { ready(): boolean; save(
   const observer = new ResizeObserver(() => render());
   observer.observe($('history-scroll')); observer.observe($('detail-content')); observer.observe($('detail-body'));
   render();
-  return { get preferences() { return { ...preferences }; }, load(value: PanelLayout) { preferences = value; render(); }, render, setMaximized,
+  return { get preferences() { return { ...preferences }; }, load(value: PanelLayout) { preferences = value; render(); }, render, setMaximized, setFileView,
     dispose() { finish(true); events.abort(); observer.disconnect(); } };
 }

@@ -5,8 +5,9 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { withCodex, type WithCodex } from './codex.ts';
 import { repositoryInfo } from './git.ts';
+import { msg, toMessage, joinMessages, format, type Message } from './i18n.ts';
 
-const pathSchema = z.string().min(1).refine(path => isAbsolute(path) && !path.includes('\0'), '需要本地绝对路径');
+const pathSchema = z.string().min(1).refine(path => isAbsolute(path) && !path.includes('\0'), 'backend.path.absolute');
 const workspaceSchema = z.object({ cwd: pathSchema, projectSources: z.array(pathSchema), runtimeWorkspaceRoots: z.array(pathSchema) });
 const workspaceStateSchema = z.object({ project: z.unknown(), pending: workspaceSchema.nullable(), applied: workspaceSchema.nullable() });
 const threadSchema = z.object({ projectId: z.string().nullish(), cwd: pathSchema,
@@ -20,10 +21,10 @@ type DesktopState = {
   'electron-persisted-atom-state'?: Record<string, unknown>;
 };
 export type Workspace = { cwd: string; runtimeRoots: string[]; sourceRoots: string[];
-  worktrees: z.infer<typeof worktreeSchema>[]; notices: string[] };
+  worktrees: z.infer<typeof worktreeSchema>[]; notices: (Message | string)[] };
 export type Repository = { id: string; name: string; path: string; displayPath: string };
-export type GraphContext = { repositories: Repository[]; defaultRepository?: string; repositoryNotice?: string; contextCwd?: string };
-const message = (error: unknown) => error instanceof Error ? error.message : String(error);
+export type GraphContext = { repositories: Repository[]; defaultRepository?: string; repositoryNotice?: Message | string; contextCwd?: string };
+const message = (error: unknown) => format(toMessage(error), 'en');
 
 async function readDesktopState(codexHome: string): Promise<DesktopState> {
   try { return JSON.parse(await readFile(join(codexHome, '.codex-global-state.json'), 'utf8')); }
@@ -66,14 +67,14 @@ export async function readWorkspace(threadId: string | undefined, {
         : selected?.type === 'local' ? selected.projectId : undefined;
       if (localProjectId) {
         projectId = desktop['app-server-project-id-by-legacy-project-id-by-host']?.[`local:${codexHome}`]?.[localProjectId];
-        if (!projectId) result.notices.push('当前项目关联尚未迁移，请在 Codex 中重新选择项目。');
+        if (!projectId) result.notices.push(msg('backend.project.unmigrated'));
       }
     }
     if (projectId) {
       try {
         const { project } = z.object({ project: z.object({ roots: z.array(z.object({ path: pathSchema })) }) }).parse(await request('project/read', { projectId }));
         result.sourceRoots = project.roots.map(root => root.path);
-      } catch (error) { result.notices.push(`无法读取项目目录：${message(error)}`); }
+      } catch (error) { result.notices.push(msg('backend.project.read', { diagnostic: toMessage(error) })); }
     }
     if (state?.pending) result.sourceRoots = state.pending.projectSources;
     else if (!projectId && workspace) result.sourceRoots = workspace.projectSources;
@@ -92,7 +93,7 @@ export async function readWorkspace(threadId: string | undefined, {
           }
           cursor = page.nextCursor;
         } while (cursor != null);
-      } catch (error) { result.notices.push(`无法读取任务工作树：${message(error)}`); }
+      } catch (error) { result.notices.push(msg('backend.project.worktrees', { diagnostic: toMessage(error) })); }
     }
     return result;
   });
@@ -106,7 +107,7 @@ export async function resolveRepositories(workspace: Workspace): Promise<GraphCo
   for (const path of new Set([workspace.cwd, ...workspace.runtimeRoots, ...workspace.sourceRoots, ...workspace.worktrees.map(tree => tree.workspaceRoot)])) {
     try { paths.set(path, await realpath(path)); origins.set(path, await repositoryInfo(path)); }
     catch (error) {
-      if (!/not a git repository/i.test(message(error))) notices.push(`${path}：${message(error)}`);
+      if (!/not a git repository/i.test(message(error))) notices.push(msg('backend.repository.read', { path, diagnostic: toMessage(error) }));
     }
   }
   const normalized = (path: string) => paths.get(path) ?? resolve(path);
@@ -155,5 +156,5 @@ export async function resolveRepositories(workspace: Workspace): Promise<GraphCo
     id: createHash('sha256').update(JSON.stringify(['local', root])).digest('hex'), name: basename(root), path: root, displayPath: root,
   }));
   const defaultRoot = current?.root ?? directories.find(dir => dir.repository)?.repository?.root;
-  return { repositories, defaultRepository: repositories.find(repo => repo.path === defaultRoot)?.id, contextCwd: workspace.cwd, repositoryNotice: notices.join('\n') };
+  return { repositories, defaultRepository: repositories.find(repo => repo.path === defaultRoot)?.id, contextCwd: workspace.cwd, repositoryNotice: notices.length ? joinMessages(notices) : undefined };
 }

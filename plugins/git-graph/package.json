@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsx build.ts",
-    "test": "node --import tsx --test test.ts",
+    "test": "node --import tsx --test test.ts watch.test.ts watch-mcp.test.ts",
     "test:installed": "node --import tsx --test --test-name-pattern=\"installed plugin\" installed.test.ts",
     "start": "node dist/server.mjs",
     "test:ui": "node --import tsx ui.test.ts",

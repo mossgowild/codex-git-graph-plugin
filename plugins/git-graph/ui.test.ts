@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { readFile, writeFile, mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { readFile, writeFile, mkdtemp, mkdir, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -11,11 +11,14 @@ import type { AddressInfo } from 'node:net';
 import type { history } from './git.ts';
 import type { GraphRef } from './graph.ts';
 type FixtureCommit = Awaited<ReturnType<typeof history>>['commits'][number] & { message?: string };
-type Fixture = Omit<Awaited<ReturnType<typeof history>>, 'offset' | 'missingBranch' | 'refs' | 'commits'> & { offset?: number; missingBranch?: string; refs: (GraphRef & { type?: string; symbolic?: string })[]; commits: FixtureCommit[] };
+type Fixture = Omit<Awaited<ReturnType<typeof history>>, 'offset' | 'missingBranch' | 'refs' | 'commits' | 'currentRef' | 'upstreamRef' | 'baseRef' | 'mergeBase'> & Partial<Pick<Awaited<ReturnType<typeof history>>, 'currentRef' | 'upstreamRef' | 'baseRef' | 'mergeBase'>> & { offset?: number; missingBranch?: string; refs: (GraphRef & { type?: string; symbolic?: string })[]; commits: FixtureCommit[] };
 type Request = { name: string; arguments: Record<string, unknown> };
 type Result = Awaited<ReturnType<Client['callTool']>>;
 declare global {
-  interface Window { light(): void; codeFont(values: Record<string, string>): void; }
+  interface Window {
+    light(): void; codeFont(values: Record<string, string>): void; locale(value: string): void; openedFiles: string[];
+    workerResources: { created: number; active: number[]; models: string[]; modelEvents: number };
+  }
   interface CSSStyleDeclaration { cornerShape: string; }
 }
 
@@ -36,9 +39,33 @@ await client.connect(new StdioClientTransport({ command: process.execPath, args:
 let failSave = false, codeFontSize = 15;
 let historyFixture: Fixture | undefined, historyClient: Client | undefined, intercept: ((request: Request) => Promise<Result | null | undefined | void>) | null;
 let editorCalls = 0;
+let liveWatch = false;
+let fileViewChecked = false;
+const requests: Request[] = [], idleWatches = new Map<string, { revision: number; release?: () => void }>();
 async function callTool(request: Request) {
+  requests.push(request);
+  const result = await invokeTool(request);
+  return result;
+}
+async function invokeTool(request: Request): Promise<Result> {
   if (request.name === 'git_graph_editor') editorCalls++;
   if (intercept) { const result=await intercept(request); if (result) return result; }
+  // Historical layout fixtures stay idle; live-graph checks below use real MCP filesystem listeners.
+  if (!liveWatch && request.name === 'git_graph_watch_start') {
+    const watchId = `fixture-${crypto.randomUUID()}`; idleWatches.set(watchId, { revision: 0 });
+    return { content: [], structuredContent: { watchId, revision: 0 } };
+  }
+  if (!liveWatch && request.name === 'git_graph_watch_wait') {
+    const watchId = String(request.arguments.watchId), watch = idleWatches.get(watchId);
+    return new Promise<Result>(resolve => {
+      const done = () => { clearTimeout(timer); resolve({ content: [], structuredContent: { watchId, revision: watch?.revision || 0, changed: false } }); };
+      const timer = setTimeout(done, 500); if (watch) watch.release = done;
+    });
+  }
+  if (!liveWatch && request.name === 'git_graph_watch_stop') {
+    const watchId = String(request.arguments.watchId); idleWatches.get(watchId)?.release?.(); idleWatches.delete(watchId);
+    return { content: [], structuredContent: { stopped: true } };
+  }
   if (request.name === 'git_graph_appearance') return { content: [], structuredContent: { codeFontSize, noticeColors: { light: { primarySoft: 'rgba(255, 255, 255, 0.96)', textTertiary: 'rgba(26, 28, 31, 0.495)' }, dark: { primarySoft: 'rgba(33, 37, 42, 0.96)', textTertiary: 'rgba(230, 237, 243, 0.498)' } }, ghostHover: { light: "rgba(26, 28, 31, 0.053)", dark: "rgba(230, 237, 243, 0.078)" } } };
   if (historyClient) {
     if (request.name === 'git_graph') {
@@ -49,25 +76,31 @@ async function callTool(request: Request) {
     return historyClient.callTool(request.name === 'git_graph_history' ? { ...request, arguments: { ...request.arguments, limit: 2 } } : request);
   }
   const commit=historyFixture?.commits.find(commit=>commit.hash===request.arguments?.hash);
-  if (historyFixture&&['git_graph','git_graph_history'].includes(request.name)) return {content:[],structuredContent:{...historyFixture,contextCwd:root,repositories:[{id:'a'.repeat(64),name:'fixture',path:root,displayPath:root}]}};
+  if (historyFixture&&['git_graph','git_graph_history'].includes(request.name)) return {content:[],structuredContent:{currentRef:historyFixture.refs.find(ref=>ref.name===`refs/heads/${historyFixture!.headName}`)||null,upstreamRef:null,baseRef:null,mergeBase:null,...historyFixture,contextCwd:root,repositories:[{id:'a'.repeat(64),name:'fixture',path:root,displayPath:root}]}};
   if (commit&&request.name==='git_graph_commit') return {content:[],structuredContent:{...commit,message:commit.message??commit.subject,files:[],parent:0}};
   if (failSave&&request.name==='git_graph_save_layout') return {isError:true,content:[{type:'text',text:'模拟存储不可写'}]};
   return client.callTool(request);
 }
 const script = `import {AppBridge,PostMessageTransport} from '@modelcontextprotocol/ext-apps/app-bridge';
+import {z} from 'zod';
 import {injectPreviewTheme,observePreviewTheme} from './preview-theme.ts';
 const frame=document.querySelector('iframe')!;
 const variables={'--color-background-primary':'#0d1117','--color-background-secondary':'#292d33','--color-background-tertiary':'#20242b','--color-text-primary':'#e6edf3','--color-text-secondary':'#7d838b','--color-text-disabled':'rgba(230,237,243,.498)','--color-border-primary':'#3a424d','--color-border-secondary':'#23282f','--color-ring-primary':'#76a7f3','--color-text-info':'#64a4e0','--color-text-success':'#3fb950','--color-text-danger':'#f85149','--font-sans':'system-ui','--font-mono':'ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace','--font-text-lg-size':'16px','--font-weight-medium':'500','--color-background-danger':'#f85149','--font-text-md-size':'14px','--font-text-sm-size':'13px','--font-text-sm-line-height':'1.4285714286','--font-text-xs-size':'12px','--font-weight-normal':'430','--border-radius-xs':'4px','--border-radius-sm':'6px','--border-radius-md':'8px','--border-radius-lg':'10px','--border-radius-xl':'12px','--border-radius-full':'9999px','--shadow-lg':'0px 4px 8px -2px #0000001a','--color-background-disabled':'rgba(230,237,243,.09)','--color-background-info':'rgba(100,164,224,.15)'};
-const bridge=new AppBridge(null,{name:'UI test host',version:'1.0.0'},{serverTools:{},...(location.search.includes('file-open')?{experimental:{'openai/files':{}}}:{})},{hostContext:{theme:'dark',styles:{variables},displayMode:'fullscreen',containerDimensions:{maxHeight:2000}}});
+let hostLocale=new URLSearchParams(location.search).get('locale')||'zh-CN';
+const localeContext=()=>hostLocale==='browser'?{}:{locale:hostLocale};
+const bridge=new AppBridge(null,{name:'UI test host',version:'1.0.0'},{serverTools:{},...(location.search.includes('file-open')?{experimental:{'openai/files':{}}}:{})},{hostContext:{theme:'dark',styles:{variables},displayMode:'fullscreen',containerDimensions:{maxHeight:2000},...localeContext()}});
 async function call(params){return(await fetch('/call',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(params)})).json();}
 bridge.oncalltool=call;
+window.openedFiles=[];
+window.locale=value=>{hostLocale=value;bridge.sendHostContextChange({locale:value});};
+bridge.setRequestHandler('openai/files/open',{params:z.object({path:z.string()}),result:z.object({isError:z.boolean().optional()})},params=>{window.openedFiles.push(params.path);return {};});
 bridge.oninitialized=async()=>{await bridge.sendToolInput({arguments:{}});await bridge.sendToolResult(await call({name:'git_graph',arguments:{}}));};
 let previewContext={theme:'dark',styles:{variables}};
 injectPreviewTheme(previewContext);
 window.codeFont=values=>{previewContext={...previewContext,styles:{variables:{...previewContext.styles.variables,...values}}};injectPreviewTheme(previewContext);};
 window.light=()=>{previewContext={theme:'light',styles:{variables:{...variables,'--color-background-primary':'#ffffff','--color-background-secondary':'#f5f5f5','--color-background-tertiary':'#eeeeee','--color-text-primary':'#202020','--color-text-secondary':'#777777','--color-border-primary':'#c9c9c9','--color-border-secondary':'#dddddd'}}};injectPreviewTheme(previewContext);};
 await bridge.connect(new PostMessageTransport(frame.contentWindow,frame.contentWindow));
-observePreviewTheme(context=>bridge.sendHostContextChange(context),missing=>{throw new Error('Missing preview theme: '+missing.join(','));});frame.src='/frame.html';`;
+observePreviewTheme(context=>bridge.sendHostContextChange({...context,...localeContext()}),missing=>{throw new Error('Missing preview theme: '+missing.join(','));});frame.src='/frame.html';`;
 const built = await build({ stdin: { contents: script, resolveDir: root, sourcefile: 'host.ts', loader: 'ts' }, bundle:true,format:'esm',write:false });
 const server = createServer(async (req,res)=>{
   try {
@@ -86,7 +119,23 @@ await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
 let browser: Browser | undefined;
 try {
   browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM});
-  const context=await browser.newContext({viewport:{width:1000,height:760}});
+  const context=await browser.newContext({viewport:{width:1000,height:760},locale:'zh-CN'});
+  await context.addInitScript(`(() => {
+    const NativeWorker=window.Worker, active=new Set(), models=new Set();
+    let created=0, modelEvents=0;
+    Object.defineProperty(window,'workerResources',{get:()=>({created,active:[...active],models:[...models],modelEvents})});
+    window.Worker=new Proxy(NativeWorker,{construct(target,args){
+      const worker=Reflect.construct(target,args), id=++created;active.add(id);
+      const terminate=worker.terminate.bind(worker), send=worker.postMessage.bind(worker);
+      worker.terminate=()=>{active.delete(id);for(const model of models)if(model.startsWith(id+':'))models.delete(model);terminate();};
+      worker.postMessage=(data,...rest)=>{
+        if(active.has(id)&&data?.method==='$acceptNewModel'){models.add(id+':'+data.args[0].url);modelEvents++;}
+        if(data?.method==='$acceptRemovedModel'){models.delete(id+':'+data.args[0]);modelEvents++;}
+        Reflect.apply(send,worker,[data,...rest]);
+      };
+      return worker;
+    }});
+  })();`);
   context.setDefaultTimeout(10000);
   let page=await context.newPage();
   const errors: string[]=[], workers: string[]=[];
@@ -103,6 +152,324 @@ try {
     await f.locator('.commit-row').first().waitFor();
     await f.locator('#expand-detail:not([disabled])').waitFor({state:'attached'});return f;
   };
+  if (process.argv.includes('--locale-only')) {
+    const requestedRepo=join(temporary,'locale-repo');await mkdir(requestedRepo);const repo=await realpath(requestedRepo);
+    await git(repo,['init','-b','main']);
+    for(const [key,value] of [['user.name','Locale 原文'],['user.email','locale@example.invalid'],['commit.gpgsign','false'],['core.hooksPath','/dev/null']])await git(repo,['config',key,value]);
+    const lines=Array.from({length:150},(_,index)=>`const value${index} = ${index};`);lines[86]='const label = "native syntax";';
+    await writeFile(join(repo,'sample.ts'),lines.join('\n')+'\n');await writeFile(join(repo,'other.ts'),'export const other = 1;\n');
+    await git(repo,['add','.']);await git(repo,['commit','-m','Original 原文']);const base=(await git(repo,['rev-parse','HEAD'])).trim();
+    lines[12]='const value12 = 1200;';lines[85]='const value85 = 8500;';
+    await writeFile(join(repo,'sample.ts'),lines.join('\n')+'\n');await writeFile(join(repo,'other.ts'),'export const other = 2;\n');await writeFile(join(repo,'binary.bin'),Buffer.from([0,1,2]));
+    await git(repo,['add','.']);await git(repo,['commit','-m','Repository 原文']);const head=(await git(repo,['rev-parse','HEAD'])).trim();
+    const date=(await git(repo,['show','-s','--format=%aI',head])).trim();
+    await git(repo,['checkout','-b','remote-side',base]);await writeFile(join(repo,'incoming.txt'),'incoming\n');await git(repo,['add','.']);await git(repo,['commit','-m','Remote 原文']);
+    await git(repo,['update-ref','refs/remotes/origin/main',(await git(repo,['rev-parse','HEAD'])).trim()]);await git(repo,['checkout','main']);
+    await git(repo,['remote','add','origin','.']);await git(repo,['config','branch.main.remote','origin']);await git(repo,['config','branch.main.merge','refs/heads/main']);
+    historyClient=new Client({name:'locale-ui-check',version:'1.0.0'});await historyClient.connect(new StdioClientTransport({command:process.execPath,args:[runner],cwd:repo}));
+    const requestStart=requests.length;
+    await page.goto(url+'?file-open');const frame=page.frameLocator('iframe');
+    const settle=async(locale:'en'|'zh-CN',editor=false)=>{
+      await frame.locator(`html[lang="${locale}"]`).waitFor({state:'attached'});
+      if(editor){await frame.locator(`#diff-editor[lang="${locale}"] .monaco-diff-editor`).waitFor();await frame.locator('#diff-status').getByText(locale==='en'?'2 changes':'2 处差异',{exact:true}).waitFor();await frame.locator('#diff-editor').evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));}
+    };
+    const setLocale=async(locale:'en'|'zh-CN',editor=false)=>{await page.evaluate(locale=>window.locale(locale),locale);await settle(locale,editor);};
+    const gitReads=()=>requests.filter(request=>['git_graph','git_graph_history','git_graph_commit','git_graph_diff','git_graph_compare','git_graph_compare_diff'].includes(request.name)).length;
+    await frame.locator('.commit-row').first().waitFor();await settle('zh-CN');
+    await frame.locator('#branch').selectOption('');await frame.locator('#history-pane[aria-busy="false"]').waitFor();
+    const branchSelect=await frame.locator('#branch').elementHandle();
+    assert.equal(await frame.locator('#branch selectedcontent').innerText(),'所有分支与标签');
+    for(let count=0;await frame.locator('#load-more').isVisible();count++){assert.ok(count<5);await frame.locator('#load-more').click();await frame.locator('#history-pane[aria-busy="false"]').waitFor();}
+    const outgoing=frame.locator('.commit-row[data-target="outgoing-changes"]'), incoming=frame.locator('.commit-row[data-target="incoming-changes"]');
+    await outgoing.waitFor();await incoming.waitFor();
+    assert.equal(await outgoing.locator('.subject').innerText(),'传出的更改');assert.equal(await incoming.locator('.subject').innerText(),'传入的更改');
+    assert.match((await outgoing.getAttribute('aria-label'))!,/传出的更改/);
+    await outgoing.click();await frame.locator('#files button[data-path="binary.bin"]').click();await frame.locator('#diff-notice').getByText('二进制文件',{exact:false}).waitFor();
+    intercept=async request=>request.name==='git_graph'?{isError:true,content:[{type:'text',text:'The selected parent commit is invalid.'}],structuredContent:{error:{key:'backend.git.invalidParent'}}}:null;
+    await frame.locator('#refresh').click();await frame.locator('#history-error').getByText('父提交选择无效。',{exact:true}).waitFor();intercept=null;
+    intercept=async request=>request.name==='git_graph_workspace_file'?{isError:true,content:[{type:'text',text:'Git query failed: raw diagnostic 原文'}],structuredContent:{error:{key:'backend.git.failure',params:{diagnostic:'raw diagnostic 原文'}}}}:null;
+    await frame.locator('#open-file').click();await frame.locator('#file-error').getByText('Git 查询失败：raw diagnostic 原文',{exact:true}).waitFor();intercept=null;
+    await frame.locator('#toggle-search').click();await frame.locator('#search').fill('传出');
+    assert.equal(await outgoing.locator('.subject mark').innerText(),'传出');const beforeLocaleReads=gitReads();
+    await frame.locator('#branch').focus();await setLocale('en');
+    assert.equal(await frame.locator('#branch selectedcontent').innerText(),'All branches and tags','the native selected label changes immediately');
+    assert.equal(await branchSelect!.evaluate(el=>el===document.getElementById('branch')),true,'localization preserves the select control');
+    assert.equal(await branchSelect!.evaluate(el=>el===document.activeElement),true,'localization keeps select focus');
+    assert.equal(gitReads(),beforeLocaleReads,'language changes reformat cached Git data and errors without refetching');
+    assert.equal(await outgoing.locator('.subject').innerText(),'Outgoing Changes');assert.equal(await incoming.locator('.subject').innerText(),'Incoming Changes');
+    assert.match((await outgoing.getAttribute('aria-label'))!,/Outgoing Changes/);assert.equal(await frame.locator('#detail-hash').innerText(),'Outgoing Changes');
+    assert.equal(await frame.locator('#search').inputValue(),'传出');assert.equal(await frame.locator('.subject mark').count(),0,'synthetic search follows the displayed language');
+    await frame.locator('#search').fill('Outgoing');assert.equal(await outgoing.locator('.subject mark').innerText(),'Outgoing');
+    await frame.locator('#history-error').getByText('The selected parent commit is invalid.',{exact:true}).waitFor();
+    assert.equal(await frame.locator('#history-error-retry').innerText(),'Retry');
+    await frame.locator('#file-error').getByText('Git query failed: raw diagnostic 原文',{exact:true}).waitFor();
+    await frame.locator('#diff-notice').getByText('This is a binary file and cannot be shown as a text diff.',{exact:false}).waitFor();
+    await setLocale('zh-CN');await frame.locator('#history-error').getByText('父提交选择无效。',{exact:true}).waitFor();
+    assert.equal(await frame.locator('#branch selectedcontent').innerText(),'所有分支与标签');
+    assert.equal(await frame.locator('#history-error-retry').innerText(),'重试');await frame.locator('#toggle-search').click();
+    await frame.locator(`.commit-row[data-hash="${head}"]`).click();await frame.locator('#files button[data-path="sample.ts"]').click();await settle('zh-CN',true);
+    assert.equal(await frame.locator('#commit-message').innerText(),'Repository 原文','repository content stays in its source language');
+    const dateText=async(locale:'en'|'zh-CN')=>frame.locator('#app').evaluate((_,{date,locale})=>new Date(date).toLocaleString(locale),{date,locale});
+    assert.equal(await frame.locator('#commit-meta span').last().innerText(),await dateText('zh-CN'));
+    const checkFind=async(locale:'en'|'zh-CN')=>{
+      const labels=locale==='en'?['Modified version, read-only','Find','Previous Match','Next Match','Close']:['目标版本，只读','查找','上一个匹配项','下一个匹配项','关闭'];
+      const input=frame.locator('#diff-editor .editor.modified').getByRole('textbox',{name:labels[0]});
+      await input.press(process.platform==='darwin'?'Meta+f':'Control+f');const find=frame.locator('#diff-editor .editor.modified .find-widget.visible');await find.waitFor();
+      assert.equal(await find.getByRole('textbox',{name:labels[1],exact:true}).getAttribute('placeholder'),labels[1]);
+      for(const label of labels.slice(2))assert.ok(await find.getByRole('button',{name:new RegExp(`^${label}`)}).count()>0,`native ${locale} find control: ${label}`);
+      await find.getByRole('textbox',{name:labels[1],exact:true}).press('Escape');
+      return input;
+    };
+    await checkFind('zh-CN');await setLocale('en',true);await checkFind('en');
+    assert.equal(await frame.locator('#commit-meta span').last().innerText(),await dateText('en'));
+    await frame.locator('#expand-detail').click();await frame.locator('#next-change').click();
+    const reading=()=>frame.locator('#diff-editor .editor.modified').evaluate(el=>({
+      text:[...el.querySelectorAll<HTMLElement>('.view-lines .view-line')].sort((a,b)=>parseFloat(a.style.top)-parseFloat(b.style.top)).map(line=>line.textContent).join('\n'),
+      cursor:[...el.querySelectorAll<HTMLElement>('.cursors-layer .cursor')].map(cursor=>[cursor.style.top,cursor.style.left]),
+    }));
+    let input=frame.locator('#diff-editor .editor.modified').getByRole('textbox',{name:'Modified version, read-only'});await input.focus();await input.press('ArrowRight');await input.press('ArrowRight');
+    await frame.locator('#diff-editor').evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    const beforeReading=await reading();assert.match(beforeReading.text,/value85/,'reading test starts at the distant change');
+    const editorRequests=()=>requests.slice(requestStart).filter(request=>request.name==='git_graph_editor');
+    for(let index=0;index<10;index++){
+      const locale=index%2?'en':'zh-CN';await setLocale(locale,true);
+      assert.deepEqual(await reading(),beforeReading,'language changes preserve reading and cursor position');
+      assert.equal(await frame.locator('#diff-editor .editor.modified').evaluate(el=>el.contains(document.activeElement)),true,'language changes restore editor text focus');
+      assert.equal(await frame.locator('#diff-editor .monaco-diff-editor').count(),1,'only the active locale owns an editor');
+      assert.ok(await frame.locator('style[data-editor-locale]').count()<=2,'cached locale styles remain bounded');
+      const resources=await frame.locator('#app').evaluate(()=>window.workerResources);
+      assert.ok(resources.active.length<=1,`old locale workers are released: ${JSON.stringify(resources)}`);
+      assert.ok(resources.models.length<=2,`old locale models are released: ${JSON.stringify(resources)}`);
+    }
+    assert.equal(editorRequests().length,2,'ten language changes initialize at most two language runtimes');
+    assert.deepEqual(editorRequests().map(request=>request.arguments.locale).sort(),['en','zh-CN']);
+    assert.ok((await frame.locator('#app').evaluate(()=>window.workerResources)).modelEvents>0,'worker model synchronization was observed');
+    const stable=await frame.locator('#diff-editor .monaco-diff-editor').elementHandle();
+    await frame.locator('#files button[data-path="other.ts"]').click();await frame.locator('#diff-status').getByText('1 change',{exact:true}).waitFor();
+    assert.equal(await stable!.evaluate(el=>el===document.querySelector('#diff-editor .monaco-diff-editor')),true,'ordinary file switches retain the editor');
+    await frame.locator('#close-detail').click();assert.equal(await stable!.evaluate(el=>el.isConnected),true,'ordinary close parks the editor');
+    await frame.locator(`.commit-row[data-hash="${head}"]`).click();await frame.locator('#files button[data-path="sample.ts"]').click();await settle('en',true);
+    const colors=()=>frame.locator('#diff-editor').evaluate(el=>{
+      const tokenColors=['const','value12'].map(text=>{const span=[...el.querySelectorAll<HTMLElement>('.view-lines span[class*="mtk"]')].find(span=>span.textContent?.replace(/\s+/g,' ').trim()===text);return span?getComputedStyle(span).color:null;});
+      const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d')!;
+      const editor=el.querySelector('.monaco-editor')!;
+      const pixels=[editor,document.getElementById('detail')!].map(element=>{ctx.clearRect(0,0,1,1);ctx.fillStyle=getComputedStyle(element).backgroundColor;ctx.fillRect(0,0,1,1);return [...ctx.getImageData(0,0,1,1).data];});
+      return {keyword:tokenColors[0],identifier:tokenColors[1],background:pixels[0],surface:pixels[1],font:getComputedStyle(el.querySelector('.view-lines')!).fontFamily};
+    });
+    const waitColors=async(expectedKeyword:string,expectedInk:string)=>{
+      let actual;for(let index=0;index<100;index++){actual=await colors();if(actual.keyword===expectedKeyword&&actual.identifier===expectedInk&&JSON.stringify(actual.background)===JSON.stringify(actual.surface))return actual;await page.waitForTimeout(20);}
+      assert.fail(`cached editor theme mismatch: ${JSON.stringify(actual)}`);
+    };
+    await page.evaluate(()=>window.codeFont({'--color-text-primary':'#abcded','--font-mono':'Courier New, monospace'}));
+    const dark=await waitColors('rgb(86, 156, 214)','rgb(171, 205, 237)');assert.match(dark.font,/Courier New/);
+    await setLocale('zh-CN',true);assert.deepEqual(await waitColors('rgb(86, 156, 214)','rgb(171, 205, 237)'),dark,'cached language APIs share current dark colors and font');
+    await page.evaluate(()=>window.light());const light=await waitColors('rgb(0, 0, 255)','rgb(32, 32, 32)');
+    await setLocale('en',true);assert.deepEqual(await waitColors('rgb(0, 0, 255)','rgb(32, 32, 32)'),light,'cached language APIs share current light colors');
+    await page.evaluate(()=>{window.locale('zh-CN');window.locale('en');window.locale('zh-CN');});await settle('zh-CN',true);await checkFind('zh-CN');
+    assert.equal(await frame.locator('#diff-editor .monaco-diff-editor').count(),1,'rapid cached language changes leave one final editor');
+    await page.goto(url+'?locale=browser');await frame.locator('.commit-row').first().waitFor();await settle('zh-CN');
+    assert.equal(await frame.locator('style[data-editor-locale]').count(),0,'browser fallback selects language without eagerly loading Monaco');
+    await page.goto(url+'?locale=fr-FR');await frame.locator('.commit-row').first().waitFor();await settle('en');
+    let releaseEditor!:()=>void, editorEntered!:()=>void;const heldEditor=new Promise<void>(resolve=>releaseEditor=resolve),startedEditor=new Promise<void>(resolve=>editorEntered=resolve);
+    intercept=async request=>{if(request.name==='git_graph_editor'&&request.arguments.locale==='en'){const result=await client.callTool(request);editorEntered();await heldEditor;return result;}};
+    await frame.locator(`.commit-row[data-hash="${head}"]`).click();await frame.locator('#files button[data-path="sample.ts"]').click();await startedEditor;
+    await page.evaluate(()=>window.locale('zh-CN'));await settle('zh-CN',true);
+    const late=page.waitForResponse(response=>response.url().endsWith('/call')&&response.request().postDataJSON().name==='git_graph_editor'&&response.request().postDataJSON().arguments.locale==='en');
+    releaseEditor();await (await late).finished();await page.waitForTimeout(50);intercept=null;
+    await settle('zh-CN',true);await checkFind('zh-CN');
+    assert.equal(await frame.locator('#diff-editor .monaco-diff-editor').count(),1,'a late earlier-language bundle cannot replace the last language');
+    assert.deepEqual(errors,[]);
+    console.log(JSON.stringify({passed:true,checks:['automatic host/browser/unsupported locale','cached errors and binary reasons reformat without Git reads','synthetic labels/search/ARIA and localized dates','Monaco native Chinese/English find controls','ten language changes keep bounded runtimes/workers/models','reading and editor focus restoration','ordinary file and close preserve one editor','both cached language themes and font agree','rapid and pending locale changes keep the final language']}));
+  } else if (process.argv.includes('--live-only')) {
+
+    const requestedRepo = join(temporary, 'live-repo');
+    await mkdir(requestedRepo); const repo = await realpath(requestedRepo); await git(repo, ['init', '-b', 'main']);
+    for (const [key, value] of [['user.name','Live Graph'], ['user.email','live@example.invalid'], ['commit.gpgsign','false'], ['core.hooksPath','/dev/null']]) await git(repo, ['config',key,value]);
+    await writeFile(join(repo,'sample.ts'),Array.from({length:100},(_,index)=>`const line${index} = ${index};`).join('\n')+'\n');
+    const hashes: string[] = [];
+    for (let index=0;index<5;index++) {
+      await writeFile(join(repo,'history.txt'),`${index}\n`); await git(repo,['add','.']); await git(repo,['commit','-m',`Live ${index}`]);
+      hashes.push((await git(repo,['rev-parse','HEAD'])).trim());
+    }
+    historyClient = new Client({name:'live-ui-check',version:'1.0.0'});
+    await historyClient.connect(new StdioClientTransport({command:process.execPath,args:[runner],cwd:repo}));
+    liveWatch = true;
+    await page.goto(url+'?file-open');
+    const frame = page.frameLocator('iframe');
+    const setVisibility = async (hidden: boolean) => frame.locator('#app').evaluate((_,hidden)=>{Object.defineProperty(document,'hidden',{configurable:true,value:hidden});document.dispatchEvent(new Event('visibilitychange'));},hidden);
+    const waits = () => requests.filter(request=>request.name==='git_graph_watch_wait');
+    const reads = () => requests.filter(request=>request.name==='git_graph_history').length;
+    const waitForRequest = async (matches: () => boolean) => {
+      const deadline=Date.now()+10000;
+      while (!matches() && Date.now()<deadline) await page.waitForTimeout(20);
+      assert.ok(matches(),'expected MCP request was sent');
+    };
+    await frame.locator('.commit-row').first().waitFor(); await waitForRequest(()=>!!waits().length);
+    await frame.locator('#load-more').click(); await frame.locator('.commit-row').nth(3).waitFor();
+    await frame.locator('#load-more').click(); await frame.locator(`.commit-row[data-hash="${hashes[0]}"]`).waitFor();
+    await frame.locator(`.commit-row[data-hash="${hashes[0]}"]`).click();
+    await frame.locator('#files button[data-path="sample.ts"]').click(); await frame.locator('#diff-editor').waitFor({state:'visible'});
+    await frame.locator('#summary-resize').press('ArrowDown');
+    const savedSummary=await frame.locator('#summary-pane').evaluate(el=>el.getBoundingClientRect().height);
+    await waitForRequest(()=>requests.some(request=>request.name==='git_graph_save_layout'));
+    const savedLayoutRequests=requests.filter(request=>request.name==='git_graph_save_layout').length;
+    const detail = await frame.locator('#detail').elementHandle(), historicalEditor = await frame.locator('#diff-editor .monaco-diff-editor').elementHandle();
+    await frame.locator('#toggle-search').click(); await frame.locator('#search').fill('Live');
+    let beforeReads=reads(); await writeFile(join(repo,'sample.ts'),'const dirtyChange = 1;\n'); await waitForRequest(()=>reads()>beforeReads);
+    assert.equal(await frame.locator('.commit-row').count(),5,'dirty worktree never adds a commit row');
+    assert.equal(await frame.locator('.commit-row[data-selected]').getAttribute('data-hash'),hashes[0]);
+    assert.equal(await frame.locator('#search').inputValue(),'Live');
+    assert.equal(await detail!.evaluate(element=>element===document.getElementById('detail')),true,'refresh keeps the detail portal');
+    assert.equal(await historicalEditor!.evaluate(element=>element===document.querySelector('#diff-editor .monaco-diff-editor')),true,'immutable history keeps its editor');
+    assert.equal(requests.some(request=>request.name.startsWith('git_graph_working_')),false,'removed working-tree tools are not called');
+
+    let failOpen=true, holdOpen=false, openingEntered=false, releaseOpen!:()=>void;
+    const openHeld=new Promise<void>(resolve=>releaseOpen=resolve);
+    intercept=async request=>{
+      if(request.name!=='git_graph_workspace_file')return null;
+      if(failOpen)return {isError:true,content:[{type:'text',text:'模拟历史文件打开失败'}]};
+      if(holdOpen){const result=await historyClient!.callTool(request);openingEntered=true;await openHeld;return result;}
+    };
+    await frame.locator('#open-file').click(); await frame.locator('#file-error').getByText('模拟历史文件打开失败').waitFor();
+    beforeReads=reads();await writeFile(join(repo,'sample.ts'),'const dirtyChange = 2;\n');await waitForRequest(()=>reads()>beforeReads);
+    assert.equal(await frame.locator('#file-error-retry').isVisible(),true,'unrelated refresh preserves file opening failure');
+    failOpen=false;holdOpen=true;await frame.locator('#file-error-retry').click();await waitForRequest(()=>openingEntered);
+    beforeReads=reads();await writeFile(join(repo,'sample.ts'),'const dirtyChange = 3;\n');await waitForRequest(()=>reads()>beforeReads);
+    assert.equal(await frame.locator('#open-file').isDisabled(),true,'unrelated refresh preserves pending file open');
+    releaseOpen();await page.waitForFunction(path=>window.openedFiles.includes(path),join(repo,'sample.ts'));
+    await frame.locator('#file-error').waitFor({state:'hidden'});intercept=null;
+
+    await git(repo,['remote','add','origin','.']);
+    await git(repo,['config','branch.main.remote','origin']);await git(repo,['config','branch.main.merge','refs/heads/main']);
+    await git(repo,['update-ref','refs/remotes/origin/main',hashes[0]]);
+    await git(repo,['symbolic-ref','refs/remotes/origin/HEAD','refs/remotes/origin/main']);
+    const outgoing=frame.locator('.commit-row[data-target="outgoing-changes"]');await outgoing.waitFor();
+    assert.equal(await outgoing.locator('circle[stroke-dasharray="4,2"]').count(),1);
+    assert.equal(await outgoing.locator('.ref').count(),0,'aggregate rows have no references');
+    assert.equal(await frame.locator('.commit-row[data-target="commit"]').count(),5,'synthetic rows never consume real history offsets');
+    assert.equal(await frame.locator('.commit-row[data-target="incoming-changes"]').count(),0);
+    assert.deepEqual(await outgoing.locator('circle').evaluateAll(elements=>elements.map(el=>[el.getAttribute('r'),el.getAttribute('cy')])),[['5','15']],'aggregate has one dashed circle without solid layers');
+    const nodePaint=(row: Locator)=>row.locator('.dashed-node').evaluate(el=>({width:getComputedStyle(el).strokeWidth,dash:getComputedStyle(el).strokeDasharray,stroke:getComputedStyle(el).stroke,fill:getComputedStyle(el).fill,surface:getComputedStyle(el.closest('.commit-row')!,'::before').backgroundColor}));
+    await page.mouse.move(0,0);assert.equal((await nodePaint(outgoing)).width,'1px','unselected aggregate starts with a thin outline');
+    await outgoing.hover();
+    const hoverPaint=await nodePaint(outgoing);assert.deepEqual([hoverPaint.width,hoverPaint.dash],['3px','4px, 2px'],'hover thickens the outline and retains its dashes');
+    await page.mouse.move(0,0);assert.equal((await nodePaint(outgoing)).width,'1px','leaving an unselected aggregate restores its thin outline');
+    assert.equal(await frame.locator('.commit-row[data-selected]').getAttribute('data-hash'),hashes[0],'sync metadata changes preserve the selected real tail');
+    await mkdir(join(repo,'src'));
+    for(let index=0;index<18;index++)await writeFile(join(repo,`src/file-${index}.ts`),`export const item${index} = 'file ${index}';\n`);
+    await git(repo,['add','.']);await git(repo,['commit','-m','Live range']);const newHead=(await git(repo,['rev-parse','HEAD'])).trim();
+    await frame.locator(`.commit-row[data-hash="${newHead}"]`).waitFor();
+    assert.equal(await frame.locator('.commit-row[data-target="commit"]').count(),6,'new commits preserve loaded history extent');
+    let failCompare=true;
+    intercept=async request=>request.name==='git_graph_compare'&&failCompare
+      ?{isError:true,content:[{type:'text',text:'模拟范围读取失败'}]}:null;
+    await outgoing.click();await frame.locator('#detail-error').getByText('模拟范围读取失败').waitFor();
+    assert.equal(await frame.locator('#summary-pane').isVisible(),false,'ranges have no commit information area, including on failure');
+    assert.equal(await frame.locator('#summary-resize').isVisible(),false,'ranges have no summary separator');
+    assert.equal(await frame.locator('#detail-error').count(),1);
+    assert.equal(await frame.locator('#detail-content > .notice-scope #detail-error').isVisible(),true,'range failure remains visible outside the hidden summary');
+    assert.equal(await frame.locator('#detail-content').getAttribute('aria-busy'),'false');
+    failCompare=false;await frame.locator('#detail-error-retry').click();await frame.locator('#files button[data-path="src/file-17.ts"]').waitFor();intercept=null;
+    await frame.locator('#detail-error').waitFor({state:'hidden'});
+    const selectedPaint=await nodePaint(outgoing);
+    assert.equal(selectedPaint.width,'3px','selected aggregate thickens its dashed outline');assert.equal(selectedPaint.dash,'4px, 2px');
+    const headRing=await frame.locator('.commit-row.current .graph circle').evaluateAll(circles=>
+      Number(circles[0].getAttribute('r'))-Number(circles[1].getAttribute('r'))-Number(circles[1].getAttribute('stroke-width'))/2);
+    assert.equal(Number.parseFloat(selectedPaint.width),headRing,'selected dashes match the HEAD ring effective thickness');
+    assert.notEqual(selectedPaint.stroke,'rgba(0, 0, 0, 0)');assert.equal(selectedPaint.fill,selectedPaint.surface,'hollow center follows the selected row surface');
+    await frame.locator('#files-resize').focus();assert.equal((await nodePaint(outgoing)).width,'3px','selection remains dashed and bold after focus moves into details');
+    await frame.locator(`.commit-row[data-hash="${hashes[0]}"]`).click();await frame.locator('#commit-message').waitFor({state:'visible'});
+    assert.equal(await frame.locator('#summary-resize').isVisible(),true);
+    assert.equal(await frame.locator('#summary-pane').evaluate(el=>el.getBoundingClientRect().height),savedSummary,'real commit restores the stored summary height');
+    assert.equal((await nodePaint(outgoing)).width,'1px','deselected aggregate restores its thin dashed outline');
+    assert.equal(requests.filter(request=>request.name==='git_graph_save_layout').length,savedLayoutRequests,'switching to ranges does not rewrite layout preferences');
+    await outgoing.click();await frame.locator('#files button[data-path="src/file-17.ts"]').waitFor();
+    const expectedFiles=await frame.locator('#files button').count();assert.equal(expectedFiles,20,'net range includes every changed file');
+    await frame.locator('#files button[data-path="src/file-17.ts"]').click();await frame.locator('#diff-editor').waitFor({state:'visible'});
+    assert.equal(await historicalEditor!.evaluate(element=>element===document.querySelector('#diff-editor .monaco-diff-editor')),true,'range selection reuses the single editor');
+    await frame.locator('#file-view').click();await frame.locator('#files[role="tree"]').waitFor();
+    const rangeDirectory=frame.locator('#files button[data-directory="src"]');
+    assert.equal(await rangeDirectory.getAttribute('aria-expanded'),'true');
+    assert.equal(await frame.locator('#files button[data-file]').count(),expectedFiles,'tree keeps every range file');
+    await rangeDirectory.click();
+    assert.equal(await frame.locator('#files button[data-path="src/file-17.ts"]').count(),0);
+    assert.equal(await frame.locator('#diff-title').innerText(),'src/file-17.ts','collapsing a directory preserves the range diff');
+    assert.equal(await historicalEditor!.evaluate(element=>element===document.querySelector('#diff-editor .monaco-diff-editor')),true,'range tree collapse preserves the editor');
+    await frame.locator('#refresh').click();await frame.locator('#history-pane[aria-busy="false"]').waitFor();
+    assert.equal(await frame.locator('#files').getAttribute('role'),'tree','range refresh retains the file view');
+    assert.equal(await frame.locator('#diff-title').innerText(),'src/file-17.ts');
+    assert.equal(await rangeDirectory.getAttribute('aria-expanded'),'false','range refresh retains directory collapse');
+    await frame.locator('#file-view').click();await frame.locator('#files[role="listbox"]').waitFor();
+    assert.equal(await frame.locator('#files button[aria-selected="true"]').getAttribute('data-path'),'src/file-17.ts');
+    let failRange=true;
+    intercept=async request=>request.name==='git_graph_compare_diff'&&request.arguments.path==='src/file-16.ts'&&failRange
+      ?{isError:true,content:[{type:'text',text:'模拟范围文件读取失败'}]}:null;
+    await frame.locator('#files button[data-path="src/file-16.ts"]').click();await frame.locator('#diff-error').getByText('模拟范围文件读取失败').waitFor();
+    assert.equal(await frame.locator('#files button').count(),expectedFiles,'one failed file keeps the full range');
+    failRange=false;await frame.locator('#diff-error-retry').click();await frame.locator('#diff-editor').waitFor({state:'visible'});intercept=null;
+    await frame.locator('#files button[data-path="history.txt"]').click();await frame.locator('#diff-editor').waitFor({state:'visible'});
+    await frame.locator('#open-file').click();await page.waitForFunction(path=>window.openedFiles.includes(path),join(repo,'history.txt'));
+    const rangeOpen=requests.filter(request=>request.name==='git_graph_workspace_file').at(-1)!;
+    assert.equal(rangeOpen.arguments.base,hashes[0]);assert.equal(rangeOpen.arguments.hash,newHead);assert.equal('parent' in rangeOpen.arguments,false);
+    assert.equal(await frame.locator('#multi-diff, .row-action, [data-open-changes]').count(),0,'cancelled all-changes mode has no remaining entry');
+    await frame.locator('#close-detail').click();assert.equal(await historicalEditor!.evaluate(element=>element.isConnected),true,'closing parks the single editor');
+
+    await setVisibility(true);await git(repo,['checkout','-b','remote-side',hashes[0]]);
+    await writeFile(join(repo,'incoming.txt'),'incoming\n');await git(repo,['add','.']);await git(repo,['commit','-m','Incoming commit']);
+    const remoteHead=(await git(repo,['rev-parse','HEAD'])).trim();await git(repo,['update-ref','refs/remotes/origin/main',remoteHead]);await git(repo,['checkout','main']);
+    await setVisibility(false);
+    await frame.locator('#branch').selectOption('');await frame.locator('#history-pane[aria-busy="false"]').waitFor();
+    for(let pages=0;await frame.locator('#load-more').isVisible();pages++){assert.ok(pages<10);await frame.locator('#load-more').click();await frame.locator('#history-pane[aria-busy="false"]').waitFor();}
+    const incoming=frame.locator('.commit-row[data-target="incoming-changes"]');await incoming.waitFor();
+    await page.mouse.move(0,0);assert.equal((await nodePaint(incoming)).width,'1px');
+    await incoming.hover();assert.deepEqual([(await nodePaint(incoming)).width,(await nodePaint(incoming)).dash],['3px','4px, 2px']);
+    await page.mouse.move(0,0);assert.equal((await nodePaint(incoming)).width,'1px');
+    await incoming.click();await frame.locator('#files button[data-path="incoming.txt"]').waitFor();
+    assert.equal(await frame.locator('#summary-pane').isVisible(),false);assert.equal(await frame.locator('#summary-resize').isVisible(),false);
+    assert.equal((await nodePaint(incoming)).width,'3px');assert.equal((await nodePaint(incoming)).dash,'4px, 2px');
+    assert.equal((await nodePaint(outgoing)).width,'1px');
+    assert.equal(await frame.locator('#files button').count(),1,'incoming uses ancestor-to-upstream net range');
+    await frame.locator('#diff-editor').waitFor({state:'visible'});
+    const incomingEditor=await frame.locator('#diff-editor .monaco-diff-editor').elementHandle();assert.ok(incomingEditor);
+    await frame.locator('#file-view').click();await frame.locator('#files[role="tree"]').waitFor();
+    assert.equal(await frame.locator('#files button[data-file]').count(),1,'incoming tree keeps its exact net range');
+    assert.equal(await frame.locator('#files button[data-path="incoming.txt"]').getAttribute('aria-level'),'1');
+    assert.equal(await frame.locator('#files button[aria-selected="true"]').getAttribute('data-path'),'incoming.txt');
+    assert.equal(await incomingEditor.evaluate(element=>element===document.querySelector('#diff-editor .monaco-diff-editor')),true,'incoming view changes preserve the editor');
+    await frame.locator('#file-view').click();await frame.locator('#files[role="listbox"]').waitFor();await incomingEditor.dispose();
+    const compare=requests.filter(r=>r.name==='git_graph_compare').at(-1)!;
+    assert.equal(compare.arguments.base,hashes[0]);assert.equal(compare.arguments.hash,remoteHead);
+    assert.equal(requests.some(r=>['git_graph_commit','git_graph_diff'].includes(r.name)&&['incoming-changes','outgoing-changes'].includes(String(r.arguments.hash))),false,'virtual IDs never reach real SHA tools');
+    const paging=requests.filter(request=>request.name==='git_graph_history'&&request.arguments.offset!=null);
+    assert.ok(paging.length>0&&paging.every(request=>Number(request.arguments.offset)%2===0),'pagination offsets count real two-commit pages only');
+
+    await git(repo,['branch','old-root',hashes[0]]);await frame.locator('#branch option[value="refs/heads/old-root"]').waitFor({state:'attached'});
+    let releaseProbe!:()=>void,heldProbe=false;const probeHeld=new Promise<void>(resolve=>releaseProbe=resolve);
+    intercept=async request=>{if(request.name==='git_graph_history'&&request.arguments.limit===1&&!heldProbe){const result=await historyClient!.callTool({...request,arguments:{...request.arguments,limit:2}});heldProbe=true;await probeHeld;return result;}};
+    await writeFile(join(repo,'sample.ts'),'delayed event\n');await waitForRequest(()=>heldProbe);
+    await frame.locator('#branch').selectOption('refs/heads/old-root');await frame.locator('#history-pane[aria-busy="false"]').waitFor();
+    assert.equal(await frame.locator('.commit-row[data-target$="-changes"]').count(),0,'filter without current/upstream omits sync rows');
+    releaseProbe();await page.waitForTimeout(100);assert.equal(await frame.locator('#branch').inputValue(),'refs/heads/old-root');
+    intercept=null;await frame.locator('#branch').selectOption('');await outgoing.waitFor();
+    assert.equal(await incoming.count(),0,'incoming is absent before its ancestor page is loaded');
+    for(let pages=0;await frame.locator('#load-more').isVisible();pages++){assert.ok(pages<10);await frame.locator('#load-more').click();await frame.locator('#history-pane[aria-busy="false"]').waitFor();}
+    await incoming.waitFor();
+    const idleReads=reads(),beforeWait=waits().length;await page.waitForTimeout(21000);
+    assert.ok(waits().length>beforeWait,'idle wait reconnects');assert.equal(reads(),idleReads,'idle continuation never queries Git');
+    const oldWatch=String(waits().at(-1)!.arguments.watchId);await setVisibility(true);
+    await waitForRequest(()=>requests.some(r=>r.name==='git_graph_watch_stop'&&r.arguments.watchId===oldWatch));
+    const hiddenReads=reads();await writeFile(join(repo,'sample.ts'),'hidden change\n');await page.waitForTimeout(200);assert.equal(reads(),hiddenReads);
+    await setVisibility(false);await waitForRequest(()=>String(waits().at(-1)?.arguments.watchId)!==oldWatch);
+    let failWait=true;intercept=async r=>r.name==='git_graph_watch_wait'&&failWait?{isError:true,content:[{type:'text',text:'模拟监听失败'}]}:null;
+    await writeFile(join(repo,'history.txt'),'trigger watch failure\n');await frame.locator('#watch-error').getByText('模拟监听失败',{exact:false}).waitFor();
+    const failedWaits=waits().length;await page.waitForTimeout(200);assert.equal(waits().length,failedWaits);
+    failWait=false;await frame.locator('#watch-error-retry').click();await frame.locator('#watch-error').waitFor({state:'hidden'});await setVisibility(true);
+    let failStart=true;intercept=async r=>r.name==='git_graph_watch_start'&&failStart?{isError:true,content:[{type:'text',text:'模拟启动监听失败'}]}:null;
+    await setVisibility(false);await frame.locator('#watch-error').getByText('模拟启动监听失败',{exact:false}).waitFor();
+    failStart=false;await frame.locator('#watch-error-retry').click();await frame.locator('#watch-error').waitFor({state:'hidden'});
+    intercept=null;await setVisibility(true);await page.waitForTimeout(100);assert.deepEqual(errors,[]);
+    console.log(JSON.stringify({passed:true,checks:['watch event refresh without worktree rows','real history offsets and retained anchors','stable portal and single editor across ranges','file open failure and pending request retention','native outgoing/incoming ranges and safe SHA routing','complete range with per-file diff and safe file open','single editor retained across selection and close','stale event filtering','idle continuation without Git reads','watch failure retry and cleanup']}));
+  } else {
   let releaseInitial!: () => void;
   const initialHeld = new Promise<void>(resolve => { releaseInitial = resolve; });
   intercept = async request => { if (request.name === 'git_graph') await initialHeld; };
@@ -124,7 +491,8 @@ try {
   assert.equal(await initialFrame.locator('#diff-skeleton').isVisible(),false,'editor failure clears the diff skeleton');
   failEditor = false;
   await initialFrame.locator('#diff-error-retry').click();
-  await initialFrame.locator('#diff-editor').waitFor({state:'visible'});
+  await initialFrame.locator('#diff-editor .monaco-diff-editor').waitFor({state:'visible'});
+  await initialFrame.locator('#diff-skeleton').waitFor({state:'hidden'});
   assert.equal(editorCalls,2,'editor loading retries only after the first diff fails');
   assert.equal(await initialFrame.locator('#diff-skeleton').isVisible(),false,'diff skeleton clears after editor setup');
   await initialFrame.locator('#diff-editor').hover({position:{x:100,y:20}});await page.waitForTimeout(300);
@@ -384,6 +752,8 @@ try {
     })));
     assert.ok(rows.every(row => row.height === 30));
     assert.ok(rows.every(row => row.contents.join('|') === 'graph|message|author'));
+    assert.equal(await frame.locator('.row-action, [data-open-changes]').count(),0,'restored rows have no all-changes action');
+    assert.equal(await frame.locator('.graph').evaluateAll(elements=>elements.every(svg=>svg.getAttribute('height')==='30'&&[...svg.querySelectorAll('circle')].every(circle=>circle.getAttribute('cy')==='15'))),true,'graph height and node centers follow the restored rows');
     assert.equal(await frame.locator('.commit-row').evaluateAll(rows=>rows.every(row=>{
       const graph=row.querySelector<SVGSVGElement>('.graph')!.getBoundingClientRect(), message=row.querySelector('.message')!;
       return graph.left===8 && message.children[0].classList.contains('badges') && message.children[1].classList.contains('subject');
@@ -474,7 +844,7 @@ try {
   assert.equal(await frame.locator('#search-count').innerText(),'0/0 · 已加载历史');
   await frame.locator('#search').fill('fix');await frame.locator('#toggle-search').click();
   assert.equal(await frame.locator('mark, .search-context').count(),0,'closing search restores unmarked text');
-  await frame.locator(`[data-hash="${searchCommits[1].hash}"]`).click();
+  await frame.locator(`.commit-row[data-hash="${searchCommits[1].hash}"]`).click();
   await frame.locator('#commit-message').filter({hasText:'Formatted body'}).waitFor();
   assert.equal(await frame.locator('#commit-message').textContent(),'Other change\n\nFormatted body','escaped newlines render as paragraphs');
   const detailSpacing=await frame.locator('#detail').evaluate(detail=>{
@@ -497,9 +867,11 @@ try {
   await mkdir(data, { recursive: true });
   await writeFile(join(data, 'column-widths.json'), '{broken legacy layout');
   frame=await open();
+  const refIcons=(scope: Locator)=>scope.locator('.ref > svg').evaluateAll(elements=>elements.map(element=>element.getAttribute('data-codicon')));
   for (const width of [1000,400]) {
     await page.setViewportSize({width,height:760});
     assert.deepEqual(await frame.locator('#rows .ref-name').allTextContents(),branchNames);
+    assert.deepEqual(await refIcons(frame.locator('#rows')),['git-branch','target']);
     const labels=await frame.locator('#rows .ref-name').evaluateAll(elements=>elements.map(label=>({
       name:label.textContent,visible:label.clientWidth,content:label.scrollWidth,
       insideMessage:label.getBoundingClientRect().right<=label.parentElement!.getBoundingClientRect().right,
@@ -514,38 +886,163 @@ try {
     await codexRows();
   }
   for (const [index,commit] of commits.entries()) {
-    await frame.locator(`[data-hash="${commit.hash}"]`).click();
+    await frame.locator(`.commit-row[data-hash="${commit.hash}"]`).click();
     await frame.locator('#commit-message').getByText(commit.subject,{exact:true}).waitFor();
     assert.equal(await frame.locator('#detail-hash').textContent(),commit.hash.slice(0,12));
     assert.deepEqual(await frame.locator('#commit-refs .ref').allTextContents(),[branchNames[index]]);
     assert.equal(await frame.locator('#commit-refs .ref').getAttribute('data-tooltip'),`refs/heads/${branchNames[index]}`);
     assert.equal(await frame.locator('#detail-header #commit-refs .ref').count(),1);
     assert.equal(await frame.locator('#commit-refs').innerText(),branchNames[index]);
+    assert.deepEqual(await refIcons(frame.locator('#commit-refs')),[index===1?'target':'git-branch']);
     assert.equal(await frame.locator('#commit-refs').evaluate(element=>element.scrollWidth<=element.clientWidth),true);
   }
   // Keyboard selection and refreshed refs must update the same detail display.
-  await frame.locator(`[data-hash="${commits[1].hash}"]`).press('ArrowUp');
+  await frame.locator(`.commit-row[data-hash="${commits[1].hash}"]`).press('ArrowUp');
   await frame.locator('#commit-refs').getByText(branchNames[0],{exact:true}).waitFor();
   historyFixture.refs.push({name:`refs/remotes/origin/${branchNames[0]}`,hash:commits[0].hash},
     {name:'refs/tags/v1.0.0',hash:commits[0].hash});
   await frame.locator('#refresh').click();
   await frame.locator('#commit-refs').getByText('v1.0.0', { exact: true }).waitFor();
   assert.deepEqual(await frame.locator('#commit-refs .ref').allTextContents(),[branchNames[0],`origin/${branchNames[0]}`,'v1.0.0']);
-  historyFixture.refs.push({name:'refs/heads/alias',hash:commits[0].hash},{name:'refs/heads/alias2',hash:commits[0].hash});
+  historyFixture.refs.push({name:'refs/heads/alias',hash:commits[0].hash},{name:'refs/heads/alias2',hash:commits[0].hash},
+    {name:'refs/heads/alias-alias',hash:commits[0].hash},{name:`refs/remotes/mirror/${branchNames[0]}`,hash:commits[0].hash},
+    {name:'refs/tags/v1.1.0',hash:commits[0].hash});
   await frame.locator('#refresh').click();
-  await frame.locator('.commit-row .ref-name').getByText('alias2',{exact:true}).waitFor();
-  const groupedRow=frame.locator(`[data-hash="${commits[0].hash}"]`);
-  assert.equal(await groupedRow.locator('.badges .ref').count(),5);
-  assert.equal(await groupedRow.locator('.badges .ref-name').count(),5);
-  assert.equal(await groupedRow.locator('.ref-count').count(),0);
+  await frame.locator('#commit-refs .ref-name').getByText('alias-alias',{exact:true}).waitFor();
+  const groupedRow=frame.locator(`.commit-row[data-hash="${commits[0].hash}"]`);
+  assert.equal(await groupedRow.locator('.badges .ref').count(),4);
+  assert.deepEqual(await groupedRow.locator('.badges .ref-name').allTextContents(),[branchNames[0]],'only the primary reference shows its name');
+  assert.deepEqual(await groupedRow.locator('.badges .ref').allTextContents(),[branchNames[0],'2','2','3'],'remaining references group by color then icon, with counts only for multiple names');
+  assert.deepEqual(await refIcons(groupedRow),['git-branch','cloud','tag','git-branch']);
+  assert.deepEqual(await refIcons(frame.locator('#commit-refs')),['git-branch','cloud','tag','git-branch','git-branch','git-branch','cloud','tag'],'details keep every reference and its icon');
+  const branchGroup=groupedRow.locator('.badges .ref').last();
+  assert.equal(await branchGroup.getAttribute('aria-label'),'alias，alias2，alias-alias');
+  assert.equal(await branchGroup.getAttribute('data-tooltip'),'refs/heads/alias\nrefs/heads/alias2\nrefs/heads/alias-alias');
+  assert.equal(await branchGroup.getAttribute('data-tooltip-overflow'),null,'collapsed groups always explain their names');
   await page.setViewportSize({width:1000,height:760});
+  await branchGroup.hover();await tooltip.waitFor({state:'visible'});
+  assert.equal(await tooltip.innerText(),'refs/heads/alias\nrefs/heads/alias2\nrefs/heads/alias-alias');
+  await page.mouse.move(0,0);await tooltip.waitFor({state:'hidden'});
+  const fullRefs=await frame.locator('#commit-refs .ref-name').allTextContents();
+  const fullRefAria=(await groupedRow.getAttribute('aria-label'))!;
+  assert.ok(fullRefs.every(name=>fullRefAria.includes(name)),'row accessibility retains all reference names');
+  historyFixture.headName=branchNames[0];historyFixture.head=commits[0].hash;
+  historyFixture.upstreamRef=historyFixture.refs.find(ref=>ref.name===`refs/remotes/origin/${branchNames[0]}`)!;
+  await frame.locator('#refresh').click();
+  await groupedRow.locator('.ref > svg[data-codicon="target"]').waitFor();
+  assert.deepEqual(await refIcons(groupedRow),['target','cloud','tag','git-branch','cloud'],'color groups precede icon groups and distinguish upstream from other remotes');
+  assert.deepEqual(await groupedRow.locator('.badges .ref').allTextContents(),[branchNames[0],'','2','3','']);
+  assert.deepEqual(await groupedRow.locator('.badges .ref').evaluateAll(elements=>elements.map(element=>(element as HTMLElement).style.getPropertyValue('--ref-color'))),
+    ['var(--graph-current)','var(--graph-remote)','var(--graph-current)','var(--graph-current)','var(--graph-current)']);
+  assert.deepEqual(await refIcons(frame.locator('#commit-refs')),['target','cloud','tag','git-branch','git-branch','git-branch','cloud','tag'],'only the current identity becomes target');
+  await page.evaluate(()=>window.codeFont({'--color-text-warning':'#64a4e0'}));
+  const cloudGroups=groupedRow.locator('.badges .ref:has(> svg[data-codicon="cloud"])');
+  for(let attempt=0;attempt<30;attempt++){
+    const colors=await cloudGroups.evaluateAll(elements=>elements.map(element=>getComputedStyle(element).color));
+    if(colors[0]===colors[1])break;await page.waitForTimeout(20);
+  }
+  const cloudColors=await cloudGroups.evaluateAll(elements=>elements.map(element=>getComputedStyle(element).color));
+  assert.equal(cloudColors[0],cloudColors[1],'the host may render separate semantic colors identically');
+  assert.equal(await cloudGroups.count(),2,'grouping uses original color tokens even when the resolved colors coincide');
+  await page.evaluate(()=>window.codeFont({'--color-text-warning':'#e6edf3'}));
+  const referenceGraphics=await frame.locator('#rows .ref > svg, #commit-refs .ref > svg').evaluateAll(elements=>elements.map(element=>{
+    const path=element.querySelector<SVGGraphicsElement>('path')!,box=path.getBBox(),matrix=path.getScreenCTM()!;
+    const corners=[[box.x,box.y],[box.x+box.width,box.y],[box.x,box.y+box.height],[box.x+box.width,box.y+box.height]]
+      .map(([x,y])=>new DOMPoint(x,y).matrixTransform(matrix));
+    const top=Math.min(...corners.map(point=>point.y)),bottom=Math.max(...corners.map(point=>point.y)),bounds=element.getBoundingClientRect();
+    return {scope:element.closest('#commit-refs')?'detail':'list',icon:element.getAttribute('data-codicon'),width:bounds.width,height:bounds.height,
+      visibleHeight:bottom-top,centerOffset:Math.abs((top+bottom)/2-(bounds.top+bounds.height/2)),
+      shrink:getComputedStyle(element).flexShrink,hidden:element.getAttribute('aria-hidden'),fill:getComputedStyle(element).fill,color:getComputedStyle(element.parentElement!).color};
+  }));
+  assert.ok(referenceGraphics.every(icon=>icon.width===16&&icon.height===16&&icon.shrink==='0'&&icon.hidden==='true'&&icon.fill===icon.color),'reference icons keep 16px frames and inherit the chip color in both displays');
+  assert.ok(referenceGraphics.every(icon=>Math.abs(icon.visibleHeight-10)<.02&&icon.centerOffset<.02),`all reference paths share the cloud optical height and frame center: ${JSON.stringify(referenceGraphics)}`);
+  for(const scope of ['list','detail'])assert.deepEqual([...new Set(referenceGraphics.filter(icon=>icon.scope===scope).map(icon=>icon.icon))].sort(),['cloud','git-branch','tag','target'],'both displays exercise all four optical sizes');
+  historyFixture.headName=branchNames[1];historyFixture.head=commits[1].hash;historyFixture.upstreamRef=null;
+  await frame.locator('#refresh').click();
+  await frame.locator(`.commit-row[data-hash="${commits[1].hash}"] .ref > svg[data-codicon="target"]`).waitFor();
   const badgeWidths=await groupedRow.locator('.ref').evaluateAll(els=>els.map(el=>({name:el.textContent,width:el.getBoundingClientRect().width,
     grow:getComputedStyle(el).flexGrow,basis:getComputedStyle(el).flexBasis})));
   assert.ok(badgeWidths.every(badge=>badge.grow==='0'&&badge.basis==='auto'),'badges size from their content without filling equal-width slots');
-  assert.ok(badgeWidths.find(badge=>badge.name==='alias')!.width<badgeWidths[0].width,'short names must not occupy the same width as long branch names');
+  assert.ok(badgeWidths.slice(1).every(badge=>badge.width<badgeWidths[0].width),'compact groups reserve less space than the primary name');
+  assert.ok(await groupedRow.locator('.ref-name').evaluate(element=>element.clientWidth>0&&element.clientWidth<=100),'the primary name remains readable within the native 100px limit');
+  const badgeStrip=groupedRow.locator('.badges');
+  const rowGeometry=()=>groupedRow.evaluate(element=>{
+    const row=element.getBoundingClientRect(),author=element.querySelector('.author')!.getBoundingClientRect(),
+      subject=element.querySelector('.subject')!.getBoundingClientRect(),badges=element.querySelector('.badges')!.getBoundingClientRect();
+    return [row.left,row.right,row.height,author.left,author.top,subject.left,subject.width,badges.width];
+  });
+  for(const width of [667,400,260]){
+    await page.setViewportSize({width,height:760});await codexRows();
+    assert.equal(await groupedRow.locator('.message > .badges:first-child').count(),1,'references remain before the subject, after the graph');
+    assert.ok(await groupedRow.locator('.ref-name').evaluate(element=>element.clientWidth>0),'narrow panels keep a nonzero primary name');
+    assert.equal(await groupedRow.locator('.ref').evaluateAll(elements=>elements.every(element=>getComputedStyle(element).flexShrink==='0')),true,'whole chip contents do not shrink with the scroll viewport');
+    if(width===667)continue;
+    assert.equal(await badgeStrip.evaluate(element=>element.getBoundingClientRect().width>element.parentElement!.getBoundingClientRect().width/2),true,'references can use more than half of the message area');
+    if(width===400){
+      assert.equal(await badgeStrip.evaluate(element=>[...element.children].every(chip=>chip.getBoundingClientRect().right<=element.getBoundingClientRect().right+.5)),true,'400px panels prioritize complete chip groups before the subject');
+      continue;
+    }
+    assert.equal(await badgeStrip.evaluate(element=>element.scrollWidth>element.clientWidth),true,'narrow panels scroll references without cutting their internal contents');
+    const narrowGeometry=await rowGeometry(),selectedBeforeScroll=await frame.locator('.commit-row[data-selected]').getAttribute('data-hash');
+    await badgeStrip.evaluate(element=>element.scrollLeft=0);await groupedRow.press('ArrowRight');
+    const rightScroll=await badgeStrip.evaluate(element=>element.scrollLeft);assert.ok(rightScroll>0,'right arrow scrolls references from the commit row');
+    await groupedRow.press('ArrowLeft');assert.ok(await badgeStrip.evaluate(element=>element.scrollLeft)<rightScroll,'left arrow scrolls references back');
+    assert.equal(await frame.locator('.commit-row[data-selected]').getAttribute('data-hash'),selectedBeforeScroll,'reference scrolling keeps the selected commit');
+    assert.deepEqual(await rowGeometry(),narrowGeometry,'reference scrolling preserves row height, author placement and message allocation');
+  }
+  await frame.locator('#toggle-search').click();await frame.locator('#search').fill('alias');
+  const aliasMatch=groupedRow.locator('.ref[data-search-match][data-match-keys]');await aliasMatch.waitFor();
+  const aliasKeys=(await aliasMatch.getAttribute('data-match-keys'))!.split(' ');
+  assert.equal(aliasKeys.length,4,'each name occurrence, including two in one reference, maps to the collapsed group');
+  assert.equal(new Set(aliasKeys).size,4);
+  assert.equal(await groupedRow.locator('.ref-name mark').count(),0,'collapsed matches do not reveal their names inline');
+  assert.equal(await frame.locator('.search-context').count(),0);
+  for(let occurrence=0;occurrence<4;occurrence++){
+    await badgeStrip.evaluate(element=>element.scrollLeft=0);await frame.locator('#search').press('Enter');
+    await aliasMatch.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    assert.equal(await frame.locator('#search-count').innerText(),`${(occurrence+1)%4+1}/4 · 已加载历史`);
+    assert.equal(await aliasMatch.getAttribute('data-active'),'','every occurrence activates the same visible group');
+    assert.equal(await aliasMatch.evaluate(element=>{
+      const match=element.getBoundingClientRect(),strip=element.closest('.badges')!.getBoundingClientRect();
+      return match.width>0&&match.left>=strip.left-.5&&match.right<=strip.right+.5;
+    }),true,'search navigation reveals the group for every key, not just its first member');
+  }
+  assert.equal(await frame.locator('#history-scroll').evaluate(element=>element.scrollWidth<=element.clientWidth),true,'revealing reference matches does not overflow history');
+  await frame.locator('#toggle-search').click();
+  historyFixture.branch=`refs/heads/${branchNames[0]}`;
+  await frame.locator('#branch').selectOption(historyFixture.branch);await frame.locator('#history-pane[aria-busy="false"]').waitFor();
+  assert.equal(await groupedRow.locator('.badges .ref').count(),1,'single-branch history hides references without a related color');
+  await groupedRow.click();await frame.locator('#commit-message').getByText(commits[0].subject,{exact:true}).waitFor();
+  assert.deepEqual(await frame.locator('#commit-refs .ref-name').allTextContents(),fullRefs,'filtering preserves complete detail names');
+  await frame.locator('#close-detail').click();await frame.locator('#toggle-search').click();await frame.locator('#search').fill('alias');
+  assert.equal(await frame.locator('#search-count').innerText(),'1/4 · 已加载历史','hidden reference names remain searchable');
+  assert.equal(await groupedRow.locator('.ref[data-search-match], .ref-name mark').count(),0,'search does not expose hidden chips');
+  assert.equal(await frame.locator('.search-context').count(),0,'hidden names do not gain inline metadata context');
+  await frame.locator('#search').press('Enter');await frame.locator('#commit-refs .ref-name').getByText('alias-alias',{exact:true}).waitFor();
+  assert.equal(await frame.locator('.commit-row[data-selected]').getAttribute('data-hash'),commits[0].hash,'hidden match navigation selects its commit');
+  assert.equal(await frame.locator('#detail').isVisible(),true,'hidden match navigation opens existing details');
+  assert.deepEqual(await frame.locator('#commit-refs .ref-name').allTextContents(),fullRefs);
+  historyFixture.branch=`refs/heads/${branchNames[1]}`;
+  await frame.locator('#branch').selectOption(historyFixture.branch);await frame.locator('#history-pane[aria-busy="false"]').waitFor();
+  assert.equal(await groupedRow.locator('.badges .ref').count(),0);
+  assert.equal(await badgeStrip.isVisible(),false,'rows without colored references reserve no badge space');
+  assert.equal(await groupedRow.locator('.ref-name mark, .search-context').count(),0);
+  await frame.locator('#toggle-search').click();historyFixture.branch='';
+  await frame.locator('#branch').selectOption('');await frame.locator('#history-pane[aria-busy="false"]').waitFor();
+  await groupedRow.click();await frame.locator('#commit-message').getByText(commits[0].subject,{exact:true}).waitFor();
+  await page.setViewportSize({width:180,height:760});await badgeStrip.evaluate(element=>element.scrollLeft=0);
+  const longReference=groupedRow.locator('.ref').first();
+  assert.equal(await longReference.locator('.ref-name').evaluate(element=>element.scrollWidth>element.clientWidth),true,'the primary name needs its truncation tooltip');
+  const longRefBounds=(await longReference.boundingBox())!,stripBounds=(await badgeStrip.boundingBox())!;
+  await page.mouse.move(Math.max(longRefBounds.x,stripBounds.x)+8,longRefBounds.y+longRefBounds.height/2);await tooltip.waitFor({state:'visible'});
+  assert.equal(await tooltip.innerText(),`refs/heads/${branchNames[0]}`);
+  await badgeStrip.evaluate(element=>element.scrollLeft=element.scrollWidth);
+  assert.equal(await longReference.evaluate(element=>element.getBoundingClientRect().right<=element.closest('.badges')!.getBoundingClientRect().left),true,'horizontal scrolling fully clips the tooltip trigger');
+  await groupedRow.locator(`.ref[data-tooltip="refs/heads/${branchNames[0]}"][aria-describedby~="codex-tooltip"]`).waitFor({state:'hidden'});
+  await page.mouse.move(0,0);
+  await tooltip.waitFor({state:'hidden'});
+  await badgeStrip.evaluate(element=>element.scrollLeft=0);
   await page.setViewportSize({width:400,height:760});
-  await codexRows();
-  assert.equal(await groupedRow.locator('.message > .badges:first-child').count(),1,'named badges precede the subject, after the graph');
   assert.equal(await frame.locator('.current .graph circle').count(),2,'HEAD has a distinct hollow node');
   const headRow=frame.locator('.commit-row.current');
   const nodeFills=()=>headRow.locator('.graph circle').evaluateAll(els=>els.map(el=>({fill:getComputedStyle(el).fill,stroke:getComputedStyle(el).stroke})));
@@ -776,7 +1273,7 @@ try {
     await frame.locator('#branch').selectOption('refs/heads/topic');await frame.locator('#history-error').waitFor({state:'visible'});
     assert.equal(await frame.locator('#branch').inputValue(),'refs/heads/main');
     assert.deepEqual(await frame.locator('.commit-row').evaluateAll(rows=>rows.map(row=>row.dataset.hash)),oldRows);
-    intercept=null;await frame.locator('#history-error-retry').click();await frame.locator(`[data-hash="${topic}"]`).waitFor();
+    intercept=null;await frame.locator('#history-error-retry').click();await frame.locator(`.commit-row[data-hash="${topic}"]`).waitFor();
     assert.equal(await frame.locator('#branch').inputValue(),'refs/heads/topic');
     await selectMain();
     intercept=async request=>request.name==='git_graph_history'&&request.arguments.branch==='refs/heads/topic'
@@ -784,11 +1281,11 @@ try {
     await frame.locator('#branch').selectOption('refs/heads/topic');await frame.locator('#history-error').waitFor({state:'visible'});
     await frame.locator('#load-more').click();await frame.locator('.commit-row').nth(3).waitFor();
     assert.equal(await frame.locator('#branch').inputValue(),'refs/heads/main');
-    assert.equal(await frame.locator(`[data-hash="${topic}"]`).count(),0);
+    assert.equal(await frame.locator(`.commit-row[data-hash="${topic}"]`).count(),0);
 
     // Refresh retains both the selected merge parent and a non-first selected file.
     await reopen();await loadAllMain();
-    await frame.locator(`[data-hash="${merge}"]`).click();
+    await frame.locator(`.commit-row[data-hash="${merge}"]`).click();
     await frame.locator('#parent-label:not([hidden])').waitFor();
     const selectStyles=await frame.locator('select').evaluateAll(elements=>elements.map(el=>{
       const style=getComputedStyle(el);
@@ -805,7 +1302,8 @@ try {
     await frame.locator('#commit-meta').getByText('Graph Test',{exact:false}).waitFor();
     assert.equal(await frame.locator('#parent').inputValue(),'1');
     assert.equal(await frame.locator('#diff-title').innerText(),'base.txt');
-    await frame.locator('#load-more').click();await frame.locator(`[data-hash="${base}"]`).click();
+    assert.equal(await frame.locator(`.commit-row[data-hash="${base}"]`).count(),1,'refresh keeps the already loaded historical range');
+    await frame.locator(`.commit-row[data-hash="${base}"]`).click();
     await frame.locator('#files button[data-path="extra.txt"]').click();
     const shortSummary=await frame.locator('#detail-summary').evaluate(el=>({height:el.parentElement!.getBoundingClientRect().height,content:el.scrollHeight,viewport:el.clientHeight}));
     assert.ok(shortSummary.height<160);assert.equal(shortSummary.content,shortSummary.viewport,'short commit information fits naturally');
@@ -813,11 +1311,13 @@ try {
     await git(repo,['branch','root-only',base]);
     await frame.locator('#refresh').click();await settled();
     await frame.locator('#branch').selectOption('refs/heads/root-only');await settled();
-    await frame.locator(`[data-hash="${base}"]`).click();await frame.locator('#files button[data-path="extra.txt"]').click();
+    await frame.locator(`.commit-row[data-hash="${base}"]`).click();await frame.locator('#files button[data-path="extra.txt"]').click();
     await frame.locator('#refresh').click();await settled();
     await frame.locator('#diff-status').getByText('1 处差异',{exact:true}).waitFor();
     assert.equal(await frame.locator('#files button[aria-selected="true"]').getAttribute('data-path'),'extra.txt');
     assert.equal(await frame.locator('#files').getAttribute('role'),'listbox');
+    assert.equal(await frame.locator('#file-view').getAttribute('data-mode'),'list','no file view preference starts in list mode');
+    assert.equal(await frame.locator('#file-view').getAttribute('aria-label'),'切换到树形视图');
     assert.equal(await frame.locator('#files button[role="option"][aria-pressed]').count(),0,'file options do not expose checkbox semantics');
     assert.equal(await frame.locator('#files button[role="option"][tabindex="0"]').count(),1,'file list keeps one keyboard target');
     const closeButton=frame.locator('#close-detail');
@@ -862,7 +1362,7 @@ try {
     }
 
     // Full revision models preserve text that used to be mistaken for patch headers.
-    await reopen();await loadAllMain();await frame.locator(`[data-hash="${main}"]`).click();
+    await reopen();await loadAllMain();await frame.locator(`.commit-row[data-hash="${main}"]`).click();
     await frame.locator('#diff-status').getByText('1 处差异',{exact:true}).waitFor();
     assert.match((await frame.locator('#diff-editor .view-lines').allTextContents()).join(' ').replaceAll('\u00a0',' '),/\+\+new/);
     assert.ok(await frame.locator('#diff-editor .char-insert').count()>0);
@@ -956,9 +1456,11 @@ try {
     assert.equal(await frame.locator('#detail-body').isVisible(),true);
     await diffMode.press('Enter');
     assert.equal(await diffMode.getAttribute('data-mode'),'inline');
+    await frame.locator('#diff-editor .monaco-diff-editor:not(.side-by-side)').waitFor({state:'visible'});
     assert.equal(await frame.locator('#diff-editor .monaco-diff-editor').evaluate(el=>el.classList.contains('side-by-side')),false);
     await diffMode.press('Space');
     assert.equal(await diffMode.getAttribute('data-mode'),'split');
+    await frame.locator('#diff-editor .monaco-diff-editor.side-by-side').waitFor({state:'visible'});
     assert.equal(await frame.locator('#diff-editor .editor.original').evaluate(el=>el.getBoundingClientRect().width>0),true);
     const expandIcon=frame.locator('#expand-detail .expand-icon');
     const restoreIcon=frame.locator('#expand-detail .restore-icon');
@@ -1045,7 +1547,7 @@ try {
     await frame.locator('#diff-title').click();
     assert.equal(await frame.locator('#diff-content').isVisible(),true,'changes heading is plain text');
     assert.equal(await frame.locator('#files').isVisible(),true);
-    const selected=frame.locator(`[data-hash="${main}"]`);
+    const selected=frame.locator(`.commit-row[data-hash="${main}"]`);
     const selectedStyle=await selected.evaluate(el=>{
       const style=getComputedStyle(el,'::before');return {inset:style.inset,radius:style.borderRadius,
         expectedRadius:getComputedStyle(document.documentElement).getPropertyValue('--border-radius-md').trim(),background:style.backgroundColor};
@@ -1144,7 +1646,7 @@ try {
     assert.equal(panelPreferences.summaryHeight,savedSummary);
     assert.equal(panelPreferences.detailHeight,originalDetail+61);
     await writeFile(join(data,'panel-layout.json'),JSON.stringify({...panelPreferences,summaryCollapsed:true}));
-    await reopen();await loadAllMain();await frame.locator(`[data-hash="${main}"]`).click();
+    await reopen();await loadAllMain();await frame.locator(`.commit-row[data-hash="${main}"]`).click();
     await frame.locator('#diff-status').getByText('1 处差异',{exact:true}).waitFor({state:'attached'});
     await summaryFits();
     assert.equal(await frame.locator('#files').isVisible(),true);
@@ -1179,7 +1681,7 @@ try {
 
     if (!process.argv.includes('--panels-only')) {
     // A late response from a previously selected file must not replace the current diff.
-    await frame.locator(`[data-hash="${base}"]`).click();
+    await frame.locator(`.commit-row[data-hash="${base}"]`).click();
     await frame.locator('#diff-status').getByText('处差异',{exact:false}).waitFor();
     let releaseDiff!: () => void, enteredDiff!: () => void;
     const heldDiff=new Promise<void>(resolve=>releaseDiff=resolve), startedDiff=new Promise<void>(resolve=>enteredDiff=resolve);
@@ -1203,11 +1705,30 @@ try {
 
     // A larger text file exercises folding, navigation, editor search and narrow layout.
     const lines=Array.from({length:100},(_,i)=>`const value${i} = ${i};`);
+    lines[13]='const label = "native syntax";';
     await save('sample.ts',lines.join('\n')+'\n','Text base');
     lines[12]='const value12 = 1200;';lines[85]='const value85 = 8500;';
     const textTarget=await save('sample.ts',lines.join('\n')+'\n','Text changes');
-    await reopen();await frame.locator(`[data-hash="${textTarget}"]`).click();
+    await reopen();await frame.locator(`.commit-row[data-hash="${textTarget}"]`).click();
     await frame.locator('#diff-status').getByText('2 处差异',{exact:true}).waitFor();
+    const nativeSyntax=async (expected: string[])=>{
+      let actual: (string|undefined)[]=[];
+      for (let attempt=0;attempt<100;attempt++) {
+        actual=await frame.locator('#diff-editor').evaluate(element=>['const','"native syntax"','value12'].map(text=>{
+          const token=[...element.querySelectorAll<HTMLElement>('.view-lines span[class*="mtk"]')].find(span=>span.textContent?.replace(/\s+/g,' ').trim()===text);
+          return token ? getComputedStyle(token).color : undefined;
+        }));
+        if (JSON.stringify(actual)===JSON.stringify(expected)) return;
+        await page.waitForTimeout(20);
+      }
+      assert.deepEqual(actual,expected,'Monaco native keyword/string colors and host identifier color');
+    };
+    // Monaco 0.56.0 standalone/common/themes.js supplies the native keyword and string rules.
+    await nativeSyntax(['rgb(86, 156, 214)','rgb(206, 145, 120)','rgb(230, 237, 243)']);
+    await page.evaluate(()=>window.codeFont({'--color-text-primary':'#abcded','--color-text-success':'#12ab89','--color-text-danger':'#bc3456'}));
+    await nativeSyntax(['rgb(86, 156, 214)','rgb(206, 145, 120)','rgb(171, 205, 237)']);
+    await page.evaluate(()=>window.light());
+    await nativeSyntax(['rgb(0, 0, 255)','rgb(163, 21, 21)','rgb(32, 32, 32)']);
     await frame.locator('#expand-detail').click();
     const linesBefore=(await frame.locator('#diff-editor .view-lines').allTextContents()).join(' ');
     assert.match(linesBefore,/value12/);assert.doesNotMatch(linesBefore,/value50/);
@@ -1217,6 +1738,24 @@ try {
     const visibleLinesBeforeInput=(await frame.locator('#diff-editor .view-lines').allTextContents()).join(' ');
     await input.press('x');
     assert.equal((await frame.locator('#diff-editor .view-lines').allTextContents()).join(' '),visibleLinesBeforeInput,'historical models remain read-only');
+    const readingViewport=page.viewportSize()!;await page.setViewportSize({width:readingViewport.width,height:480});
+    await frame.locator('#next-change').click();await input.focus();await input.press('ArrowRight');await input.press('Shift+ArrowRight');await input.press('Shift+ArrowRight');
+    const reading=()=>frame.locator('#diff-editor .editor.modified').evaluate(el=>({
+      text:[...el.querySelectorAll<HTMLElement>('.view-lines .view-line')].sort((a,b)=>parseFloat(a.style.top)-parseFloat(b.style.top)).map(line=>line.textContent).join('\n'),
+      cursor:[...el.querySelectorAll<HTMLElement>('.cursors-layer .cursor')].map(cursor=>[cursor.style.top,cursor.style.left]),
+      selection:[...el.querySelectorAll<HTMLElement>('.selected-text')].map(span=>[span.style.top,span.style.left,span.style.width,span.style.height]),
+      scroll:el.querySelector<HTMLElement>('.scrollbar.vertical .slider')?.style.top,
+    }));
+    await frame.locator('#diff-editor').evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    const beforeReading=await reading();assert.match(beforeReading.text,/value85/);assert.ok(beforeReading.selection.length>0,'view switch starts with a text selection at the distant change');
+    assert.ok(parseFloat(beforeReading.scroll||'0')>0,'view switch starts from a scrolled editor');
+    for(const mode of ['tree','list']){
+      const viewSaved=page.waitForResponse(response=>response.url().endsWith('/call')&&response.request().postDataJSON().name==='git_graph_save_layout');
+      await frame.locator('#file-view').click();await (await viewSaved).finished();await frame.locator(`#file-view[data-mode="${mode}"]`).waitFor();
+      await frame.locator('#diff-editor').evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+      assert.deepEqual(await reading(),beforeReading,'list/tree changes preserve reading, scroll, cursor and text selection');
+    }
+    await page.setViewportSize(readingViewport);
     await input.press(process.platform==='darwin'?'Meta+f':'Control+f');
     await frame.locator('#diff-editor .find-widget.visible').waitFor();
     await input.press('Escape');
@@ -1232,7 +1771,7 @@ try {
     await save('eol.txt','\uFEFFone\r\ntwo','Original line endings');
     await writeFile(join(repo,'binary.bin'),Buffer.from([0,1,2]));await git(repo,['add','binary.bin']);
     const special=await save('eol.txt','one\ntwo','Encoding and binary changes');
-    await reopen();await frame.locator(`[data-hash="${special}"]`).click();
+    await reopen();await frame.locator(`.commit-row[data-hash="${special}"]`).click();
     await frame.locator('#diff-notice').getByText('二进制文件',{exact:false}).waitFor();
     assert.equal(await frame.locator('#diff-editor').isVisible(),false);
     await frame.locator('#files button[data-path="eol.txt"]').click();
@@ -1241,12 +1780,12 @@ try {
     // Changing refs between pages reloads a coherent history, including HEAD.
     await reopen();await selectMain();
     const added=await save('new.txt','new\n','New commit during pagination');
-    await frame.locator('#load-more').click();await frame.locator(`[data-hash="${added}"]`).waitFor();
+    await frame.locator('#load-more').click();await frame.locator(`.commit-row[data-hash="${added}"]`).waitFor();
     assert.equal(await frame.locator(`.current[data-hash="${added}"] .graph circle`).count(),2);
-    assert.equal(await frame.locator(`[data-hash="${added}"] .ref[data-tooltip="refs/heads/main"]`).count(),1);
-    assert.equal(await frame.locator('.commit-row').count(),2,'a new snapshot starts at its first page');
-    await frame.locator('#load-more').click();await frame.locator('.commit-row').nth(3).waitFor();
-    assert.equal(new Set(await frame.locator('.commit-row').evaluateAll(rows=>rows.map(row=>row.dataset.hash))).size,4);
+    assert.equal(await frame.locator(`.commit-row[data-hash="${added}"] .ref[data-tooltip="refs/heads/main"]`).count(),1);
+    assert.equal(await frame.locator('.commit-row').count(),4,'a changed snapshot retains the loaded and newly requested historical range');
+    await frame.locator('#load-more').click();await frame.locator('.commit-row').nth(5).waitFor();
+    assert.equal(new Set(await frame.locator('.commit-row').evaluateAll(rows=>rows.map(row=>row.dataset.hash))).size,6);
 
     // A delayed old filter cannot expose the wrong rows or replace the newer result.
     await reopen();
@@ -1261,13 +1800,94 @@ try {
     await frame.locator('#branch').selectOption('refs/heads/main');await started;
     assert.equal(await frame.locator('#history-table').isVisible(),false);
     assert.equal(await frame.locator('#searchbar').evaluate(element=>(element as HTMLElement).inert),true);
-    await frame.locator('#branch').selectOption('refs/heads/topic');await frame.locator(`[data-hash="${topic}"]`).waitFor();
+    await frame.locator('#branch').selectOption('refs/heads/topic');await frame.locator(`.commit-row[data-hash="${topic}"]`).waitFor();
     const delayed=page.waitForResponse(response=>response.url().endsWith('/call')&&response.request().postDataJSON().arguments?.branch==='refs/heads/main');
     release();await (await delayed).finished();await page.waitForTimeout(50);
     assert.equal(await frame.locator('#branch').inputValue(),'refs/heads/topic');
-    assert.equal(await frame.locator(`[data-hash="${added}"]`).count(),0);
+    assert.equal(await frame.locator(`.commit-row[data-hash="${added}"]`).count(),0);
     assert.equal(await frame.locator('#history-table').isVisible(),true);
     assert.equal(await frame.locator('#searchbar').evaluate(element=>(element as HTMLElement).inert),false);
+
+    // File views share one selected historical file, editor and plugin-wide preference.
+    intercept=null;
+    await save('file-view-conflict','An old file that will be removed.\n','File view old path');
+    await rm(join(repo,'file-view-conflict'));await mkdir(join(repo,'file-view-conflict'));
+    await mkdir(join(repo,'src-view','nested'),{recursive:true});
+    const viewPaths=['root-view.txt','src-view/index.ts','src-view/nested/leaf.ts','src-view/nested/space file.ts','file-view-conflict/child.ts'];
+    for(const path of viewPaths)await writeFile(join(repo,path),`export const value = ${JSON.stringify(path)};\n`);
+    await git(repo,['add','.']);await git(repo,['commit','-m','File view paths']);
+    const fileViewCommit=(await git(repo,['rev-parse','HEAD'])).trim(), selectedPath='src-view/nested/leaf.ts';
+    await reopen();await selectMain();await frame.locator(`.commit-row[data-hash="${fileViewCommit}"]`).click();
+    await frame.locator(`#files button[data-path="${selectedPath}"]`).click();
+    await frame.locator('#diff-status').getByText('1 处差异',{exact:true}).waitFor();
+    const viewEditor=await frame.locator('#diff-editor .monaco-diff-editor').elementHandle();assert.ok(viewEditor);
+    const diffReads=()=>requests.filter(request=>['git_graph_diff','git_graph_compare_diff','git_graph_editor'].includes(request.name)).length;
+    const beforeModeReads=diffReads(),beforeModeResources=await frame.locator('#app').evaluate(()=>window.workerResources);
+    const saveResponse=()=>page.waitForResponse(response=>response.url().endsWith('/call')&&response.request().postDataJSON().name==='git_graph_save_layout');
+    const treeSaved=saveResponse();await frame.locator('#file-view').click();await (await treeSaved).finished();
+    await frame.locator('#files[role="tree"]').waitFor();
+    assert.equal(await frame.locator('#file-view').getAttribute('aria-label'),'切换到列表视图');
+    assert.deepEqual((await frame.locator('#files button[data-file]').evaluateAll(rows=>rows.map(row=>row.getAttribute('data-path')))).sort(),[...viewPaths,'file-view-conflict'].sort());
+    assert.equal(await frame.locator('#files button[data-directory="file-view-conflict"]').count(),1,'a directory and deleted file with the same path stay distinct');
+    assert.equal(await frame.locator('#files button[data-path="file-view-conflict"]').getAttribute('data-status'),'D');
+    assert.equal(await frame.locator('#files button[data-path="root-view.txt"]').getAttribute('aria-level'),'1');
+    assert.equal(await frame.locator(`#files button[data-path="${selectedPath}"]`).getAttribute('aria-level'),'3');
+    assert.equal(await frame.locator('#files button[role="treeitem"][tabindex="0"]').count(),1,'tree has one keyboard target');
+    assert.equal(await frame.locator('#files button[aria-selected="true"]').getAttribute('data-path'),selectedPath);
+    assert.equal(await viewEditor.evaluate(element=>element===document.querySelector('#diff-editor .monaco-diff-editor')),true);
+    assert.equal(diffReads(),beforeModeReads,'changing file view does not request a new diff or editor');
+    assert.deepEqual(await frame.locator('#app').evaluate(()=>window.workerResources),beforeModeResources,'changing file view preserves Monaco models and workers');
+    const directory=frame.locator('#files button[data-directory="src-view"]'),nested=frame.locator('#files button[data-directory="src-view/nested"]');
+    const focusIs=(row: Locator)=>row.evaluate(element=>element===document.activeElement);
+    await frame.locator(`#files button[data-path="${selectedPath}"]`).press('ArrowLeft');assert.equal(await focusIs(nested),true,'left from a file focuses its parent');
+    await nested.press('ArrowLeft');assert.equal(await nested.getAttribute('aria-expanded'),'false');
+    assert.equal(await frame.locator(`#files button[data-path="${selectedPath}"]`).count(),0);
+    assert.equal(await frame.locator('#diff-title').innerText(),selectedPath,'hidden selection keeps its diff');
+    await nested.press('ArrowLeft');assert.equal(await focusIs(directory),true,'left from a closed directory focuses its parent');
+    await directory.press('ArrowLeft');assert.equal(await directory.getAttribute('aria-expanded'),'false');
+    await directory.press('ArrowRight');assert.equal(await directory.getAttribute('aria-expanded'),'true');
+    await directory.press('ArrowRight');assert.equal(await focusIs(nested),true,'right from an open directory enters its first child');
+    await nested.press('ArrowRight');assert.equal(await nested.getAttribute('aria-expanded'),'true');
+    await nested.press('ArrowRight');assert.equal(await focusIs(frame.locator(`#files button[data-path="${selectedPath}"]`)),true);
+    await frame.locator(`#files button[data-path="${selectedPath}"]`).press('ArrowUp');assert.equal(await focusIs(nested),true);
+    await nested.press('ArrowDown');assert.equal(await focusIs(frame.locator(`#files button[data-path="${selectedPath}"]`)),true);
+    await frame.locator('#files button:focus').press('Home');assert.equal(await focusIs(frame.locator('#files button').first()),true);
+    await frame.locator('#files button:focus').press('End');assert.equal(await focusIs(frame.locator('#files button').last()),true);
+    await frame.locator(`#files button[data-path="${selectedPath}"]`).click();await frame.locator('#diff-title').getByText(selectedPath,{exact:true}).waitFor();
+    await frame.locator('#diff-status').getByText('1 处差异',{exact:true}).waitFor();
+    const beforeCollapseSaves=requests.filter(request=>request.name==='git_graph_save_layout').length;
+    await directory.click();assert.equal(await directory.getAttribute('aria-expanded'),'false');
+    assert.equal(await frame.locator('#diff-title').innerText(),selectedPath);
+    const listSaved=saveResponse();await frame.locator('#file-view').click();await (await listSaved).finished();
+    assert.equal(await frame.locator('#files button[aria-selected="true"]').getAttribute('data-path'),selectedPath);
+    const beforeFailedModeReads=diffReads();
+    intercept=async request=>request.name==='git_graph_save_layout'?{isError:true,content:[{type:'text',text:'模拟文件视图保存失败'}]}:null;
+    const failedViewSave=saveResponse();await frame.locator('#file-view').click();await (await failedViewSave).finished();
+    await frame.locator('#layout-error').getByText('模拟文件视图保存失败',{exact:false}).waitFor();
+    assert.equal(await frame.locator('#files').getAttribute('role'),'tree','the chosen view stays usable after save failure');
+    assert.equal(await directory.getAttribute('aria-expanded'),'true','switching to tree reveals the selected file ancestors');
+    assert.equal(await nested.getAttribute('aria-expanded'),'true');
+    assert.equal(await frame.locator('#files button[aria-selected="true"]').getAttribute('data-path'),selectedPath);
+    assert.equal(diffReads(),beforeFailedModeReads);assert.equal(await viewEditor.evaluate(element=>element===document.querySelector('#diff-editor .monaco-diff-editor')),true);
+    assert.equal(requests.filter(request=>request.name==='git_graph_save_layout').length,beforeCollapseSaves+2,'directory collapse itself is not persisted');
+    intercept=null;const retryViewSave=saveResponse();await frame.locator('#layout-error-retry').click();await (await retryViewSave).finished();
+    await frame.locator('#layout-error').waitFor({state:'hidden'});
+    const viewPreferences=JSON.parse(await readFile(join(data,'panel-layout.json'),'utf8'));
+    assert.equal(viewPreferences.fileView,'tree');assert.equal(viewPreferences.summaryHeight,savedSummary,'view saving retains unrelated panel preferences');
+    await page.evaluate(()=>window.locale('en'));await frame.locator('#file-view[aria-label="Switch to list view"]').waitFor();
+    await frame.locator('html[lang="en"]').waitFor({state:'attached'});assert.equal(await frame.locator('#files').getAttribute('role'),'tree');
+    const explicitListSaved=saveResponse();await frame.locator('#file-view').click();await (await explicitListSaved).finished();
+    assert.equal(await frame.locator('#file-view').getAttribute('aria-label'),'Switch to tree view');
+    assert.equal(JSON.parse(await readFile(join(data,'panel-layout.json'),'utf8')).fileView,'list','returning to list stores an explicit preference');
+    await page.evaluate(()=>window.locale('zh-CN'));await frame.locator('#file-view[aria-label="切换到树形视图"]').waitFor();
+    await reopen();assert.equal(await frame.locator('#file-view').getAttribute('data-mode'),'list','explicit list persists across reopening');
+    await selectMain();await frame.locator(`.commit-row[data-hash="${fileViewCommit}"]`).click();await frame.locator('#files[role="listbox"] button').first().waitFor();
+    const restoredTreeSave=saveResponse();await frame.locator('#file-view').click();await (await restoredTreeSave).finished();
+    await reopen();await selectMain();await frame.locator(`.commit-row[data-hash="${fileViewCommit}"]`).click();
+    await frame.locator('#files[role="tree"]').waitFor();assert.equal(await frame.locator('#file-view').getAttribute('data-mode'),'tree','reopening restores the plugin-wide view');
+    assert.equal(await frame.locator('#files button[data-directory="src-view/nested"]').getAttribute('aria-expanded'),'true','directory collapse is local to the file view');
+    await viewEditor.dispose();fileViewChecked=true;
+    console.log(JSON.stringify({passed:true,checks:['default list and tree paths','same-name deleted file and directory','tree keyboard and roving focus','collapse and mode changes preserve selected single diff and Monaco resources','file view save failure/retry preserves dimensions','instant Chinese/English action labels','reopened tree preference without directory persistence']}));
   }
   }
   if (!process.argv.includes('--panels-only')) console.log(JSON.stringify({passed:true,checks:['inline commit details and graph continuity','file list beside diff','panel resizing and keyboard controls','static changes heading and diff mode toggle','panel layout persistence and retry','wide and narrow panel bounds','Codex rows and inline badges','reference identities','history filtering and pagination','parent and file refresh','Monaco inline/split diff','host theme and native editor typography','stale diff responses','diff retry','read-only models','unchanged region folding','change navigation','editor search and focus','narrow diff layout','bundled CSP worker','stale history responses']}));
@@ -1318,17 +1938,19 @@ try {
   await frame.locator('#toggle-search').click();
   await frame.locator('#search').fill('web');await frame.locator('.commit-row').click();
   await frame.locator('#commit-message').getByText('web',{exact:true}).waitFor();
+  if(fileViewChecked)assert.equal(await frame.locator('#files').getAttribute('role'),'tree','another repository reads the shared tree preference');
   failRepository=true;
   await frame.locator('#repository').selectOption(repositories[1].id);
-  await frame.locator('#history-error').getByText('模拟仓库读取失败',{exact:true}).waitFor();
+  await frame.locator('#history-error').getByText('模拟仓库读取失败').waitFor();
   assert.equal(await frame.locator('#repository').inputValue(),repositories[0].id);
   failRepository=false;await frame.locator('#history-error-retry').click();
-  await frame.locator(`[data-hash="${fixtures[1].head}"]`).waitFor();
+  await frame.locator(`.commit-row[data-hash="${fixtures[1].head}"]`).waitFor();
   assert.equal(await frame.locator('#search').inputValue(),'');
   assert.equal(await frame.locator('#branch').inputValue(),'refs/heads/main');
   assert.equal(await frame.locator('#detail-row').isVisible(),false);
   await codexRows();
   await frame.locator('.commit-row').click();await frame.locator('#commit-message').getByText('app',{exact:true}).waitFor();
+  if(fileViewChecked)assert.equal(await frame.locator('#files').getAttribute('role'),'tree','repository switching retains the plugin-wide view');
   await frame.locator('#changes-empty').getByText('尚无文件更改').waitFor();
   assert.equal(await frame.locator('#files-pane').isVisible(), false);
   assert.equal(await frame.locator('#files-resize').isVisible(), false);
@@ -1338,18 +1960,19 @@ try {
   assert.equal(await frame.locator('#changes-empty').isVisible(), true);
   await frame.locator('#expand-detail').click();
   await frame.locator('#repository').selectOption(repositories[0].id);
-  await frame.locator(`[data-hash="${fixtures[0].head}"]`).waitFor();
+  await frame.locator(`.commit-row[data-hash="${fixtures[0].head}"]`).waitFor();
   holdRepository=true;await frame.locator('#repository').selectOption(repositories[1].id);await repositoryEntered;
   assert.equal(await frame.locator('#history-table').isVisible(),false);
   await frame.locator('#repository').selectOption(repositories[0].id);
-  await frame.locator(`[data-hash="${fixtures[0].head}"]`).waitFor();
+  await frame.locator(`.commit-row[data-hash="${fixtures[0].head}"]`).waitFor();
   const staleRepository=page.waitForResponse(response=>response.url().endsWith('/call')&&response.request().postDataJSON().arguments?.repository===repositories[1].id);
   releaseRepository();await (await staleRepository).finished();await page.waitForTimeout(50);
   assert.equal(await frame.locator('#repository').inputValue(),repositories[0].id);
-  assert.equal(await frame.locator(`[data-hash="${fixtures[1].head}"]`).count(),0);
+  assert.equal(await frame.locator(`.commit-row[data-hash="${fixtures[1].head}"]`).count(),0);
   assert.equal(await frame.locator('#app').evaluate(el=>el.scrollWidth<=el.clientWidth),true);
   assert.deepEqual(errors,[]);
   console.log(JSON.stringify({passed:true,checks:['single repository label','project repository switch','repository detail routing','reset search and filter','preserve layout','switch failure and retry','stale repository responses','narrow toolbar']}));
+  }
 }finally{
   await browser?.close();server.closeAllConnections();server.close();await client.close();await historyClient?.close();await rm(temporary,{recursive:true,force:true});
 }

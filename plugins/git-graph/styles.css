@@ -70,6 +70,7 @@
   --accent: var(--color-ring-primary, LinkText);
   --graph-current: var(--color-text-info, var(--fg));
   --graph-remote: var(--color-text-warning, var(--fg));
+  --graph-base: var(--color-text-success, var(--fg));
   --graph-1: var(--color-text-success, var(--fg));
   --graph-2: var(--color-text-danger, var(--fg));
   --graph-3: var(--color-text-info, var(--fg));
@@ -200,8 +201,9 @@ button svg { @apply size-icon flex-none; }
 .commit-row[data-selected]::before { background: var(--row-bg) }
 .commit-row:focus-visible { outline: none }
 .commit-row:focus-visible::before { outline: 2px solid var(--accent); outline-offset: -2px }
-.commit-row mark[data-search-match] { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--fg); border-radius: calc(var(--border-radius-xs) / 2); padding: 0 }
-.commit-row mark[data-search-match][data-active] { background: color-mix(in srgb, var(--accent) 32%, transparent) }
+.commit-row [data-search-match] { background: color-mix(in srgb, var(--accent) 20%, transparent) }
+.commit-row mark[data-search-match] { color: var(--fg); border-radius: calc(var(--border-radius-xs) / 2); padding: 0 }
+.commit-row [data-search-match][data-active] { background: color-mix(in srgb, var(--accent) 32%, transparent) }
 .commit-row[aria-expanded=true] > .graph .node-edge { stroke-width: 3px }
 .graph circle { stroke: var(--bg) }
 .commit-row:hover .graph circle:first-of-type, .commit-row.is-focused[data-selected] .graph circle:first-of-type { stroke: transparent }
@@ -209,9 +211,18 @@ button svg { @apply size-icon flex-none; }
 #rows:has(.commit-row:focus) .commit-row[data-selected] .graph circle:nth-of-type(2) { stroke: var(--selected) }
 .commit-row.is-focused .graph circle:nth-of-type(2) { stroke: var(--selected-surface, var(--surface)) }
 .commit-row.current:hover .graph circle:last-of-type { fill: var(--color-background-primary-ghost-hover) }
+.commit-row.io .graph circle:last-of-type { fill: var(--row-bg) }
+.commit-row.io:hover .dashed-node, .commit-row.io[data-selected] .dashed-node { stroke-width: 3px }
 code, pre { @apply font-code; }
 .ref { @apply inline-flex items-center gap-[4px] flex-none min-w-0 text-ui-xs leading-[18px] h-[20px] border border-solid border-outline rounded-ref px-[6px] py-0 bg-surface; color: var(--ref-color, var(--fg)); }
-.badges .ref { flex: 0 1 auto; overflow: hidden }
+.ref > svg { @apply block size-[16px] flex-none; }
+.ref > svg > path { transform-box: view-box; transform-origin: center }
+.ref > svg[data-codicon=target] > path { transform: scale(calc(10 / 14)) }
+.ref > svg[data-codicon=git-branch] > path { transform: scale(calc(10 / 16)) }
+.ref > svg[data-codicon=tag] > path { transform: scale(calc(10 / 12)) }
+.badges { scrollbar-width: none }
+.badges .ref { flex: 0 0 auto }
+.badges .ref-name { max-width: 100px }
 #detail { --bg: var(--detail-bg); width: calc(var(--history-viewport-width, 100vw) - var(--graph-width, 20px) - 24px); height: var(--detail-height, 420px) }
 #commit-refs .ref { flex: 0 1 auto; max-width: 100%; height: auto }
 #commit-refs .ref-name { white-space: normal; overflow-wrap: anywhere }

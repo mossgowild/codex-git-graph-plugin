@@ -5,12 +5,42 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client, type CallToolRequest } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
-import { git, history, commit, diff, repository, workspaceFile } from './git.ts';
+import { git, history, commit, diff, repository, workspaceFile, compare, compareDiff } from './git.ts';
 import { createAppearanceReader, type WithCodex } from './codex.ts';
-import { layout, graphPaths, colors, type GraphCommit } from './graph.ts';
+import { layout, graphPaths, colors, incomingId, outgoingId, type GraphCommit } from './graph.ts';
 import { readWorkspace, resolveRepositories } from './project.ts';
 import type { definitions } from './server.ts';
 import { z } from 'zod';
+import { catalog, msg, format, resolveLocale, isMessage, toMessage, joinMessages, error as messageError, type MessageKey } from './i18n.ts';
+
+const isErrorKey = (key: MessageKey) => (error: unknown) => toMessage(error).key === key;
+
+test('shared messages preserve locale precedence, catalog parameters and diagnostics after JSON roundtrip', () => {
+  for (const [key, translations] of Object.entries(catalog)) {
+    assert.match(key, /^(backend|ui|editor)\./);
+    assert.equal(typeof translations.en, 'string'); assert.equal(typeof translations['zh-CN'], 'string');
+    const parameters = (text: string) => [...new Set(text.match(/\{\w+\}/g))].sort();
+    assert.deepEqual(parameters(translations.en), parameters(translations['zh-CN']), `${key} shares parameters in both languages`);
+  }
+  assert.equal(resolveLocale('zh-Hans-CN', ['en-US']), 'zh-CN');
+  assert.equal(resolveLocale('en-GB', ['zh-CN']), 'en');
+  assert.equal(resolveLocale('fr-FR', ['zh-CN']), 'en', 'unsupported host locale does not change to a browser locale');
+  assert.equal(resolveLocale(undefined, ['zh-CN']), 'zh-CN');
+  assert.equal(resolveLocale('zh-TW', ['zh-CN']), 'en');
+  const original = new Error('EACCES original diagnostic');
+  const failure = messageError('backend.preference.read', { label: msg('backend.preference.layout'), diagnostic: toMessage(original) }, original);
+  const restored = JSON.parse(JSON.stringify(toMessage(failure)));
+  assert.ok(isMessage(restored));
+  assert.equal(format(restored, 'en'), 'Could not read panel layout: EACCES original diagnostic');
+  assert.equal(format(restored, 'zh-CN'), '读取面板布局失败：EACCES original diagnostic');
+  assert.equal(failure.cause, original);
+  assert.ok(isMessage(msg('backend.external', { diagnostic: [true, null, restored] })));
+  assert.equal(format(joinMessages([restored, 'untranslated external text']), 'zh-CN'), '读取面板布局失败：EACCES original diagnostic\nuntranslated external text');
+  assert.equal(isMessage({ key: 'unknown.key' }), false);
+  assert.equal(isMessage({ key: 'backend.external', params: { diagnostic: {} } }), false);
+  assert.equal(format(msg('ui.incoming'), 'zh-CN'), '传入的更改');
+  assert.equal(format(msg('ui.outgoing'), 'zh-CN'), '传出的更改');
+});
 
 const uiMetadata = z.object({ ui: z.object({ resourceUri: z.string().optional(), visibility: z.array(z.string()).optional() }),
   'openai/ui': z.object({ entrypoints: z.array(z.object({ type: z.string() })) }).optional() });
@@ -65,7 +95,7 @@ test('VS Code swimlanes converge at the ancestor, compact lanes, and share seman
     {name:'refs/heads/alias',hash:'B'}, {name:'refs/heads/alias2',hash:'B'},
     {name:'refs/tags/v1',hash:'B'},
   ];
-  const semantic = layout(commits, {refs, head:'B', headName:'main'}).rows;
+  const semantic = layout(commits, {refs, currentRef: refs[1], upstreamRef: refs[2]}).rows;
   assert.equal(semantic[1].kind, 'HEAD');
   assert.equal(semantic[1].color, 'var(--graph-current)');
   assert.equal(semantic[2].color, 'var(--graph-remote)');
@@ -75,6 +105,77 @@ test('VS Code swimlanes converge at the ancestor, compact lanes, and share seman
   assert.ok(graphPaths(rows[2], 28).some(path => path.d === 'M22 0V3A11 11 0 0 1 11 14H11'));
   assert.ok(graphPaths(merge[0], 28).some(path => path.d === 'M11 14A11 11 0 0 1 22 25V28M11 14H11'));
   checkGraph(commits);
+});
+
+test('native sync graph respects loaded anchors, reference filters and the merged incoming exception', () => {
+  const currentRef = { name: 'refs/heads/main', hash: 'L' }, upstreamRef = { name: 'refs/remotes/origin/main', hash: 'R' };
+  const options = { refs: [currentRef, upstreamRef], currentRef, upstreamRef, mergeBase: 'B', offset: 7 };
+  const commits = [{ hash: 'L', parents: ['B'] }, { hash: 'R', parents: ['B'] }, { hash: 'B', parents: [] }];
+  const before = structuredClone({ options, commits });
+  const rows = layout(commits, options).rows;
+  assert.deepEqual(rows.map(row => row.hash), [outgoingId, 'L', 'R', incomingId, 'B']);
+  const outgoing = rows.find(row => row.target === outgoingId)!;
+  const incoming = rows.find(row => row.target === incomingId)!;
+  assert.equal(outgoing.base, 'B'); assert.equal(outgoing.revision, 'L');
+  assert.equal(incoming.base, 'B'); assert.equal(incoming.revision, 'R');
+  assert.deepEqual(incoming.references, []); assert.deepEqual(outgoing.references, []);
+  assert.equal(rows.filter(row => row.target === 'commit').length, commits.length, 'synthetic rows do not count as real commits');
+  assert.deepEqual({ options, commits }, before, 'insertion keeps source commits, references and paging offset unchanged');
+  for (const source of commits) assert.deepEqual(rows.find(row => row.hash === source.hash)?.parents, source.parents);
+  const targets = (source = commits, scope: NonNullable<Parameters<typeof layout>[1]> = options) => layout(source, scope).rows.filter(row => row.target !== 'commit').map(row => row.target);
+  assert.deepEqual(targets(commits.slice(0, 2)), [outgoingId], 'incoming waits until the common ancestor is loaded');
+  assert.deepEqual(targets(commits.slice(1)), [incomingId], 'outgoing waits until the current tip is loaded');
+  assert.deepEqual(targets(commits, { ...options, branch: currentRef.name }), [outgoingId]);
+  assert.deepEqual(targets(commits, { ...options, branch: upstreamRef.name }), [incomingId]);
+  assert.deepEqual(targets(commits, { ...options, branch: 'refs/tags/other' }), []);
+  assert.deepEqual(targets(commits, { ...options, upstreamRef: { ...upstreamRef, hash: currentRef.hash } }), []);
+  assert.deepEqual(layout(commits, { ...options, mergeBase: null }).rows.filter(row => row.target !== 'commit'), []);
+  assert.deepEqual(layout(commits, { ...options, upstreamRef: null }).rows.filter(row => row.target !== 'commit'), []);
+  const merged = [{ hash: 'L', parents: ['B'] }, { hash: 'R', parents: ['X', 'B'] }, { hash: 'B', parents: [] }, { hash: 'X', parents: [] }];
+  assert.deepEqual(targets(merged), [outgoingId], 'the last pre-base row with exactly two parents including base suppresses incoming');
+  const multiParent = [{ hash: 'L', parents: ['B'] }, { hash: 'R', parents: ['X', 'Y', 'B'] }, { hash: 'B', parents: [] }, { hash: 'X', parents: [] }, { hash: 'Y', parents: [] }];
+  assert.deepEqual(targets(multiParent), [outgoingId, incomingId], 'the native suppression condition is specific to exactly two parents');
+  const ahead = [{ hash: 'L', parents: ['B'] }, { hash: 'B', parents: [] }];
+  assert.deepEqual(targets(ahead, { ...options, upstreamRef: { ...upstreamRef, hash: 'B' } }), [outgoingId]);
+  const behind = [{ hash: 'R', parents: ['B'] }, { hash: 'B', parents: [] }];
+  assert.deepEqual(targets(behind, { ...options, currentRef: { ...currentRef, hash: 'B' } }), [incomingId]);
+});
+
+test('native incoming reconnects only the upstream lineage and preserves true comparison parents', () => {
+  const currentRef = { name: 'refs/heads/main', hash: 'L' }, upstreamRef = { name: 'refs/remotes/origin/main', hash: 'R' };
+  const commits = [{ hash: 'L', parents: ['B'] }, { hash: 'R', parents: ['B'] }, { hash: 'X', parents: ['O'] }, { hash: 'B', parents: ['O'] }, { hash: 'O', parents: [] }];
+  const source = structuredClone(commits);
+  const options = { refs: [currentRef, upstreamRef], currentRef, upstreamRef, mergeBase: 'B' };
+  const rows = layout(commits, options).rows, before = rows.find(row => row.hash === 'X')!;
+  for (const lanes of [before.input, before.output]) {
+    assert.ok(lanes.some(lane => lane.hash === incomingId && lane.color === 'var(--graph-remote)'));
+    assert.ok(lanes.some(lane => lane.hash === 'B' && lane.color === 'var(--graph-current)'));
+    assert.ok(!lanes.some(lane => lane.hash === incomingId && lane.color !== 'var(--graph-remote)'));
+  }
+  assert.deepEqual(commits, source);
+  assert.deepEqual(before.parents, ['O']); assert.equal(before.base, 'O'); assert.equal(before.revision, 'X');
+  assert.deepEqual(rows.find(row => row.hash === 'R')?.parents, ['B']);
+  assert.equal(rows.find(row => row.hash === 'R')?.base, 'B');
+  assert.ok(rows.every(row => graphPaths(row).every(path => path.color && !path.d.includes('NaN'))));
+});
+
+test('native reference priority and icons distinguish current, upstream, base and other references', () => {
+  const currentRef = { name: 'refs/heads/main', hash: 'A' }, upstreamRef = { name: 'refs/remotes/origin/main', hash: 'A' };
+  const baseRef = { name: 'refs/remotes/origin/base', hash: 'A' };
+  const refs = [{ name: 'refs/tags/v1', hash: 'A' }, { name: 'refs/heads/alias', hash: 'A' }, baseRef, upstreamRef, currentRef,
+    { name: 'refs/remotes/origin/HEAD', hash: 'A' }, { name: 'refs/heads/outside', hash: 'B' }];
+  const commits = [{ hash: 'A', parents: ['B'] }, { hash: 'B', parents: [] }];
+  const rows = layout(commits, { refs, currentRef, upstreamRef, baseRef }).rows;
+  assert.deepEqual(rows[0].references.slice(0, 3).map(ref => ref.name), [currentRef.name, upstreamRef.name, baseRef.name]);
+  assert.deepEqual(rows[0].references.map(ref => ref.icon), ['target', 'cloud', 'cloud', 'tag', 'git-branch']);
+  assert.deepEqual(rows[0].references.slice(0, 3).map(ref => ref.color), ['var(--graph-current)', 'var(--graph-remote)', 'var(--graph-base)']);
+  assert.ok(!rows[0].references.some(ref => ref.name === 'refs/remotes/origin/HEAD'));
+  const filtered = layout(commits, { refs, currentRef, upstreamRef, baseRef, branch: 'refs/heads/alias' }).rows;
+  assert.equal(filtered[0].references.find(ref => ref.name === 'refs/tags/v1')?.color, undefined);
+  assert.ok(filtered[0].references.find(ref => ref.name === 'refs/heads/alias')?.color);
+  const localUpstream = { name: 'refs/heads/tracked-local', hash: 'B' };
+  const local = layout(commits, { refs: [currentRef, localUpstream], currentRef, upstreamRef: localUpstream }).rows;
+  assert.equal(local[1].references[0].icon, 'git-branch', 'local dot upstream does not get a remote cloud icon');
 });
 
 test('real Git history, merge parents, renames, paths, pagination, read-only state and MCP window contract', async () => {
@@ -148,12 +249,12 @@ await createServer({ readContext: async () => ({ cwd: process.cwd(), runtimeRoot
     assert.equal(rootDiff.original.content, '');
     assert.equal(rootDiff.modified.content, 'one\ntwo\nthree\n');
     assert.equal((await workspaceFile({ repoPath: repo, hash: latest, path: strange })).path, await realpath(join(repo, strange)));
-    await assert.rejects(workspaceFile({ repoPath: repo, hash: root, path: 'alpha.txt' }), /已没有/);
-    await assert.rejects(workspaceFile({ repoPath: repo, hash: latest, path: '../outside' }), /不在/);
-    await assert.rejects(diff({ repoPath: repo, hash: root, path: '../../etc/passwd' }), /不在/);
-    await assert.rejects(commit({ repoPath: repo, hash: '--output=x' }), /无效/);
-    await assert.rejects(commit({ repoPath: repo, hash: root, parent: 1 }), /无效/);
-    await assert.rejects(repository('relative/path'), /绝对路径/);
+    await assert.rejects(workspaceFile({ repoPath: repo, hash: root, path: 'alpha.txt' }), isErrorKey('backend.file.missingWorkspace'));
+    await assert.rejects(workspaceFile({ repoPath: repo, hash: latest, path: '../outside' }), isErrorKey('backend.file.outsideRange'));
+    await assert.rejects(diff({ repoPath: repo, hash: root, path: '../../etc/passwd' }), isErrorKey('backend.file.outsideRange'));
+    await assert.rejects(commit({ repoPath: repo, hash: '--output=x' }), isErrorKey('backend.git.invalidHash'));
+    await assert.rejects(commit({ repoPath: repo, hash: root, parent: 1 }), isErrorKey('backend.git.invalidParent'));
+    await assert.rejects(repository('relative/path'), isErrorKey('backend.path.absolute'));
     assert.equal(await git(repo, ['status', '--porcelain=v1', '-z']), before);
     assert.deepEqual(await readFile(join(repo, '.git/index')), indexBefore);
     assert.deepEqual(await readFile(join(repo, '.git/logs/HEAD')), logBefore);
@@ -170,9 +271,16 @@ await createServer({ readContext: async () => ({ cwd: process.cwd(), runtimeRoot
     const tools = await client.listTools();
     for (const name of ['git_graph_commit', 'git_graph_diff', 'git_graph_workspace_file']) {
       const schema = tools.tools.find(tool => tool.name === name)!.inputSchema;
-      assert.deepEqual(Object.keys(schema.properties!).sort(), name === 'git_graph_commit' ? ['hash', 'parent', 'repository'] : ['hash', 'parent', 'path', 'repository']);
+      assert.deepEqual(Object.keys(schema.properties!).sort(), name === 'git_graph_commit' ? ['hash', 'parent', 'repository']
+        : name === 'git_graph_workspace_file' ? ['base', 'hash', 'parent', 'path', 'repository'] : ['hash', 'parent', 'path', 'repository']);
       assert.equal(schema.additionalProperties, false);
     }
+    for (const name of ['git_graph_compare', 'git_graph_compare_diff']) {
+      const tool = tools.tools.find(tool => tool.name === name)!;
+      assert.deepEqual(Object.keys(tool.inputSchema.properties!).sort(), name === 'git_graph_compare' ? ['base', 'hash', 'repository'] : ['base', 'hash', 'path', 'repository']);
+      assert.equal(tool.inputSchema.additionalProperties, false); assert.equal(tool.annotations?.readOnlyHint, true);
+    }
+    assert.ok(!tools.tools.some(tool => tool.name.startsWith('git_graph_working_')));
     const tool = tools.tools.find(tool => tool.name === 'git_graph');
     assert.ok(tool);
     const metadata = uiMetadata.parse(tool._meta);
@@ -190,6 +298,13 @@ await createServer({ readContext: async () => ({ cwd: process.cwd(), runtimeRoot
     assert.equal((await callTool(client, { name: 'git_graph_commit', arguments: { hash: merge } })).structuredContent.parents.length, 2);
     assert.equal((await callTool(client, { name: 'git_graph_diff', arguments: { hash: root, path: 'alpha.txt' } })).structuredContent.modified.content, 'one\ntwo\nthree\n');
     assert.equal((await callTool(client, { name: 'git_graph_workspace_file', arguments: { hash: latest, path: strange } })).structuredContent.path, await realpath(join(repo, strange)));
+    assert.deepEqual((await callTool(client, { name: 'git_graph_compare', arguments: { base: merge, hash: latest } })).structuredContent.files, renamed.files);
+    assert.equal((await callTool(client, { name: 'git_graph_compare_diff', arguments: { base: merge, hash: latest, path: strange } })).structuredContent.original.content, renameDiff.original.content);
+    for (const arguments_ of [{ base: '--output=x', hash: latest }, { base: root, hash: 'outgoing' }, { base: root, hash: latest, repoPath: noGit }]) {
+      assert.equal((await client.callTool({ name: 'git_graph_compare', arguments: arguments_ })).isError, true);
+    }
+    assert.equal((await client.callTool({ name: 'git_graph_compare_diff', arguments: { base: root, hash: latest, path: '../outside' } })).isError, true);
+    assert.equal((await client.callTool({ name: 'git_graph_workspace_file', arguments: { base: merge, hash: latest, path: strange, parent: 0 } })).isError, true);
     for (const name of ['git_graph', 'git_graph_history', 'git_graph_commit', 'git_graph_diff', 'git_graph_workspace_file']) {
       const changed = await client.callTool({ name, arguments: { repoPath: noGit, ...(['git_graph_commit', 'git_graph_diff', 'git_graph_workspace_file'].includes(name) ? { hash: root } : {}), ...(['git_graph_diff', 'git_graph_workspace_file'].includes(name) ? { path: 'alpha.txt' } : {}) } });
       assert.equal(changed.isError, true, 'the task repository cannot be overridden');
@@ -203,7 +318,8 @@ await createServer({ readContext: async () => ({ cwd: process.cwd(), runtimeRoot
     await writeFile(join(noGit, 'external.txt'), 'outside repository');
     await rename(join(repo, strange), join(repo, 'saved.txt'));
     await symlink(join(noGit, 'external.txt'), join(repo, strange));
-    await assert.rejects(workspaceFile({ repoPath: repo, hash: latest, path: strange }), /仓库之外/);
+    await assert.rejects(workspaceFile({ repoPath: repo, hash: latest, path: strange }), isErrorKey('backend.file.outsideRepository'));
+    await assert.rejects(workspaceFile({ repoPath: repo, base: merge, hash: latest, path: strange }), isErrorKey('backend.file.outsideRepository'));
     await rm(join(repo, strange)); await rename(join(repo, 'saved.txt'), join(repo, strange));
     await git(repo, ['worktree', 'add', '--detach', worktree, feature]);
     await linkedClient.connect(new StdioClientTransport({ command: process.execPath,
@@ -268,7 +384,9 @@ test('commit diff reads exact blobs and represents missing, binary, large and sp
     const target = await save('Changed files');
     const detail = await commit({ repoPath: repo, hash: target });
     assert.equal(detail.base, base);
+    assert.deepEqual((await compare({ repoPath: repo, base, hash: target })).files, detail.files);
     const read = (path: string) => diff({ repoPath: repo, hash: target, path });
+    for (const file of detail.files) assert.deepEqual(await compareDiff({ repoPath: repo, base, hash: target, path: file.path }), await read(file.path));
     const changed = await read(path);
     assert.equal(changed.original.content, 'original\n');
     assert.equal(changed.modified.content, 'modified\n');
@@ -279,17 +397,17 @@ test('commit diff reads exact blobs and represents missing, binary, large and sp
     assert.equal(added.original.exists, false);
     assert.equal(added.modified.exists, true);
     assert.equal(added.modified.content, '');
-    assert.match((await read('binary.bin')).modified.reason!, /二进制/);
-    assert.match((await read('invalid.txt')).modified.reason!, /UTF-8/);
-    assert.match((await read('large.txt')).modified.reason!, /2 MiB/);
+    assert.match(format((await read('binary.bin')).modified.reason!, 'zh-CN'), /二进制/);
+    assert.match(format((await read('invalid.txt')).modified.reason!, 'zh-CN'), /UTF-8/);
+    assert.match(format((await read('large.txt')).modified.reason!, 'zh-CN'), /2 MiB/);
     const eol = await read('eol.txt');
     assert.equal(eol.original.content, '\uFEFFone\r\ntwo');
     assert.equal(eol.modified.content, 'one\ntwo');
     const link = await read('link');
     assert.equal(link.modified.mode, '120000');
     assert.equal(link.modified.content, '/outside/repository');
-    await assert.rejects(read('../outside'), /不在/);
-    await assert.rejects(read('eol.txt\0'), /不在/);
+    await assert.rejects(read('../outside'), isErrorKey('backend.file.outsideRange'));
+    await assert.rejects(read('eol.txt\0'), isErrorKey('backend.file.outsideRange'));
     // Mode-only and submodule changes must remain visible even without a text hunk.
     await git(repo, ['update-index', '--chmod=+x', '--', path]);
     await git(repo, ['update-index', '--add', '--cacheinfo', `160000,${base},vendor`]);
@@ -302,6 +420,175 @@ test('commit diff reads exact blobs and represents missing, binary, large and sp
     const submodule = await diff({ repoPath: repo, hash: modeCommit, path: 'vendor' });
     assert.equal(submodule.modified.content, `Subproject commit ${base}\n`);
     assert.equal(submodule.modified.mode, '160000');
+    assert.deepEqual(await compareDiff({ repoPath: repo, base: target, hash: modeCommit, path: 'vendor' }), submodule);
+    assert.deepEqual(await compareDiff({ repoPath: repo, base: target, hash: modeCommit, path }), mode);
+    assert.deepEqual((await compare({ repoPath: repo, base: target, hash: target })).files, []);
+    await assert.rejects(compare({ repoPath: repo, base: '--output=x', hash: target }), isErrorKey('backend.git.invalidHash'));
+    await assert.rejects(compare({ repoPath: repo, base, hash: 'f'.repeat(40) }));
+    await assert.rejects(compareDiff({ repoPath: repo, base, hash: target, path: '../outside' }), isErrorKey('backend.file.outsideRange'));
+    await assert.rejects(compareDiff({ repoPath: repo, base, hash: target, path: `${path}\0` }), isErrorKey('backend.file.outsideRange'));
+  } finally { await rm(repo, { recursive: true, force: true }); }
+});
+
+test('history retains reachable selections after new commits and excludes anchors removed by rewritten tips', async () => {
+  const repo = await mkdtemp(join(tmpdir(), 'git-graph-retained-'));
+  try {
+    await git(repo, ['init', '-b', 'main']);
+    await git(repo, ['config', 'user.name', 'Graph Test']); await git(repo, ['config', 'user.email', 'graph@example.invalid']);
+    await writeFile(join(repo, 'file.txt'), 'base'); await git(repo, ['add', '.']); await git(repo, ['commit', '-m', 'Base']);
+    const base = (await git(repo, ['rev-parse', 'HEAD'])).trim();
+    await writeFile(join(repo, 'file.txt'), 'selected'); await git(repo, ['add', '.']); await git(repo, ['commit', '-m', 'Selected']);
+    const selected = (await git(repo, ['rev-parse', 'HEAD'])).trim();
+    await writeFile(join(repo, 'file.txt'), 'new tip'); await git(repo, ['add', '.']); await git(repo, ['commit', '-m', 'New tip']);
+    const refreshed = await history({ repoPath: repo, limit: 1, retain: [selected, base] });
+    assert.deepEqual(refreshed.retained, [selected, base]);
+    assert.equal(refreshed.commits.length, 1); assert.equal(refreshed.offset, 0);
+    assert.ok(!refreshed.commits.some(commit => commit.hash === selected), 'reachability does not inject anchors into a page');
+    assert.deepEqual((await history({ repoPath: repo, tips: refreshed.tips, offset: 1, limit: 1 })).commits.map(commit => commit.hash), [selected]);
+    await git(repo, ['reset', '--hard', base]);
+    await writeFile(join(repo, 'file.txt'), 'rewritten'); await git(repo, ['add', '.']); await git(repo, ['commit', '-m', 'Rewritten tip']);
+    const rewritten = await history({ repoPath: repo, limit: 1, retain: [selected, base] });
+    assert.deepEqual(rewritten.retained, [base], 'an unreachable previous selection must not keep requesting more pages');
+    assert.ok(!('retained' in await history({ repoPath: repo })), 'ordinary history calls preserve their contract');
+    await assert.rejects(history({ repoPath: repo, retain: ['invalid'] }), isErrorKey('backend.git.invalidRetained'));
+    await assert.rejects(history({ repoPath: repo, retain: ['f'.repeat(40)] }), /Not a valid|bad object|fatal:/);
+  } finally { await rm(repo, { recursive: true, force: true }); }
+});
+
+test('history reads native sync ancestry, local upstreams and missing states without changing Git', async () => {
+  const repo = await mkdtemp(join(tmpdir(), 'git-graph-sync-'));
+  const outside = await mkdtemp(join(tmpdir(), 'git-graph-sync-outside-'));
+  try {
+    await git(repo, ['init', '-b', 'main']);
+    await git(repo, ['config', 'user.name', 'Graph Test']); await git(repo, ['config', 'user.email', 'graph@example.invalid']);
+    const save = async (message: string) => {
+      await git(repo, ['add', '-A']); await git(repo, ['commit', '-m', message]);
+      return (await git(repo, ['rev-parse', 'HEAD'])).trim();
+    };
+    const read = async () => {
+      const config = await readFile(join(repo, '.git/config'));
+      const index = await readFile(join(repo, '.git/index'));
+      const log = await readFile(join(repo, '.git/logs/HEAD'));
+      const refs = await git(repo, ['for-each-ref']);
+      const value = await history({ repoPath: repo });
+      assert.deepEqual(await readFile(join(repo, '.git/config')), config);
+      assert.deepEqual(await readFile(join(repo, '.git/index')), index);
+      assert.deepEqual(await readFile(join(repo, '.git/logs/HEAD')), log);
+      assert.equal(await git(repo, ['for-each-ref']), refs);
+      assert.ok(!('uncommitted' in value));
+      return value;
+    };
+    await writeFile(join(repo, 'common.txt'), 'base\n'); const base = await save('Base');
+    await git(repo, ['remote', 'add', 'origin', '/not-contacted']);
+    await git(repo, ['update-ref', 'refs/remotes/origin/main', base]);
+    await git(repo, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main']);
+    const untracked = await read();
+    assert.equal(untracked.currentRef?.name, 'refs/heads/main');
+    assert.equal(untracked.upstreamRef, null); assert.equal(untracked.mergeBase, null);
+    assert.equal(untracked.baseRef?.name, 'refs/remotes/origin/main');
+    await git(repo, ['branch', '--set-upstream-to=origin/main', 'main']);
+    const equal = await read();
+    assert.equal(equal.upstreamRef?.hash, base); assert.equal(equal.mergeBase, base); assert.equal(equal.baseRef, null);
+    await git(repo, ['tag', 'main', base]);
+    await git(repo, ['update-ref', 'refs/remotes/origin/base', base]);
+    await git(repo, ['config', 'branch.main.vscode-merge-base', 'origin/base']);
+    const ambiguous = await read();
+    assert.equal(ambiguous.headName, 'main'); assert.equal(ambiguous.currentRef?.name, 'refs/heads/main');
+    assert.equal(ambiguous.currentRef?.hash, base); assert.equal(ambiguous.upstreamRef?.name, 'refs/remotes/origin/main');
+    assert.equal(ambiguous.baseRef?.name, 'refs/remotes/origin/base'); assert.equal(ambiguous.mergeBase, base);
+    await git(repo, ['tag', '-d', 'main']); await git(repo, ['config', '--unset', 'branch.main.vscode-merge-base']);
+    await writeFile(join(repo, 'local.txt'), 'local\n'); await writeFile(join(repo, 'common.txt'), 'temporary\n');
+    await save('Local'); await writeFile(join(repo, 'common.txt'), 'base\n'); const local = await save('Revert temporary edit');
+    const ahead = await read();
+    assert.equal(ahead.currentRef?.hash, local); assert.equal(ahead.upstreamRef?.hash, base); assert.equal(ahead.mergeBase, base);
+    const range = await compare({ repoPath: repo, base, hash: local });
+    assert.deepEqual(range.files.map(file => file.path), ['local.txt'], 'aggregate net range excludes reverted intermediate edits');
+    assert.deepEqual(range.parents, []); assert.equal(range.parent, 0); assert.equal(range.message, '');
+    assert.equal((await workspaceFile({ repoPath: repo, base, hash: local, path: 'local.txt' })).path, await realpath(join(repo, 'local.txt')));
+    await assert.rejects(workspaceFile({ repoPath: repo, hash: local, path: 'local.txt' }), isErrorKey('backend.file.outsideRange'), 'the tip commit alone does not contain earlier range changes');
+    await assert.rejects(workspaceFile({ repoPath: repo, base, hash: local, path: '../outside' }), isErrorKey('backend.file.outsideRange'));
+    await assert.rejects(workspaceFile({ repoPath: repo, base, hash: local, path: 'local.txt\0' }), isErrorKey('backend.file.outsideRange'));
+    await assert.rejects(workspaceFile({ repoPath: repo, base, hash: local, path: 'local.txt', parent: 0 }), isErrorKey('backend.file.baseAndParent'));
+    await writeFile(join(outside, 'secret.txt'), 'outside');
+    await rm(join(repo, 'local.txt')); await symlink(join(outside, 'secret.txt'), join(repo, 'local.txt'));
+    await assert.rejects(workspaceFile({ repoPath: repo, base, hash: local, path: 'local.txt' }), isErrorKey('backend.file.outsideRepository'));
+    await rm(join(repo, 'local.txt')); await writeFile(join(repo, 'local.txt'), 'local\n');
+    await git(repo, ['checkout', '-b', 'remote-tip']); await writeFile(join(repo, 'remote.txt'), 'remote\n');
+    const remoteAhead = await save('Remote ahead'); await git(repo, ['checkout', 'main']);
+    await git(repo, ['update-ref', 'refs/remotes/origin/main', remoteAhead]);
+    assert.equal((await read()).mergeBase, local, 'behind-only common ancestor is the local tip');
+    await git(repo, ['checkout', '-b', 'diverged', base]); await writeFile(join(repo, 'remote.txt'), 'fork\n');
+    const remoteFork = await save('Remote fork'); await git(repo, ['checkout', 'main']);
+    await git(repo, ['update-ref', 'refs/remotes/origin/main', remoteFork]);
+    await writeFile(join(repo, 'untracked.txt'), 'not a graph node');
+    const diverged = await read(); assert.equal(diverged.mergeBase, base);
+    assert.deepEqual((await compare({ repoPath: repo, base, hash: remoteFork })).files.map(file => file.path), ['remote.txt']);
+    const page = await history({ repoPath: repo, limit: 1 });
+    assert.equal(page.commits.length, 1); assert.equal(page.offset, 0); assert.equal(page.mergeBase, base);
+    assert.ok(!page.commits.some(commit => commit.hash.startsWith('scm-graph-')));
+    await git(repo, ['branch', 'local-upstream', base]);
+    await git(repo, ['branch', '--set-upstream-to=local-upstream', 'main']);
+    const localUpstream = await read();
+    assert.equal(localUpstream.upstreamRef?.name, 'refs/heads/local-upstream'); assert.equal(localUpstream.mergeBase, base);
+    await git(repo, ['branch', '--set-upstream-to=origin/main', 'main']);
+    const tree = (await git(repo, ['rev-parse', `${base}^{tree}`])).trim();
+    const unrelated = (await git(repo, ['commit-tree', tree, '-m', 'Unrelated root'])).trim();
+    await git(repo, ['update-ref', 'refs/remotes/origin/main', unrelated]);
+    assert.equal((await read()).mergeBase, null, 'unrelated histories have no invented common ancestor');
+    await git(repo, ['update-ref', '-d', 'refs/remotes/origin/main']);
+    const missing = await read(); assert.equal(missing.upstreamRef, null); assert.equal(missing.mergeBase, null);
+    await git(repo, ['checkout', '--detach', local]);
+    const detached = await read(); assert.equal(detached.currentRef?.name, local);
+    assert.equal(detached.upstreamRef, null); assert.equal(detached.baseRef, null); assert.equal(detached.mergeBase, null);
+    await git(repo, ['checkout', '--orphan', 'unborn']);
+    const unborn = await read(); assert.equal(unborn.head, ''); assert.ok(unborn.refs.length > 0);
+    assert.equal(unborn.currentRef, null); assert.equal(unborn.upstreamRef, null); assert.equal(unborn.baseRef, null); assert.equal(unborn.mergeBase, null);
+  } finally { await rm(repo, { recursive: true, force: true }); await rm(outside, { recursive: true, force: true }); }
+});
+
+test('base reference reads native config, creation and checkout reflogs, then symbolic remote HEAD', async () => {
+  const repo = await mkdtemp(join(tmpdir(), 'git-graph-base-'));
+  try {
+    await git(repo, ['init', '-b', 'main']);
+    await git(repo, ['config', 'user.name', 'Graph Test']); await git(repo, ['config', 'user.email', 'graph@example.invalid']);
+    await writeFile(join(repo, 'file.txt'), 'base'); await git(repo, ['add', '.']); await git(repo, ['commit', '-m', 'Base']);
+    const base = (await git(repo, ['rev-parse', 'HEAD'])).trim();
+    for (const remote of ['aardvark', 'origin']) {
+      await git(repo, ['remote', 'add', remote, '/not-contacted']);
+      await git(repo, ['update-ref', `refs/remotes/${remote}/default`, base]);
+      await git(repo, ['symbolic-ref', `refs/remotes/${remote}/HEAD`, `refs/remotes/${remote}/default`]);
+    }
+    await git(repo, ['update-ref', 'refs/remotes/origin/source', base]);
+    const readBase = async () => {
+      const config = await readFile(join(repo, '.git/config'));
+      const value = await history({ repoPath: repo });
+      assert.deepEqual(await readFile(join(repo, '.git/config')), config, 'native base inference does not persist configuration here');
+      return value.baseRef?.name || null;
+    };
+    assert.equal(await readBase(), 'refs/remotes/origin/default', 'origin takes precedence over the first remote');
+    await git(repo, ['config', 'branch.main.vscode-merge-base', 'origin/source']);
+    assert.equal(await readBase(), 'refs/remotes/origin/source');
+    await git(repo, ['config', 'branch.main.vscode-merge-base', 'ORIGIN/SOURCE']);
+    assert.equal(await readBase(), ['darwin', 'win32'].includes(process.platform) ? 'refs/remotes/origin/source' : 'refs/remotes/origin/default');
+    await git(repo, ['config', 'branch.main.vscode-merge-base', 'main']);
+    assert.equal(await readBase(), 'refs/remotes/origin/default', 'a stored local branch is not a native base');
+    await git(repo, ['config', 'branch.main.vscode-merge-base', 'origin/missing']);
+    assert.equal(await readBase(), 'refs/remotes/origin/default', 'an absent configured ref does not invent a base');
+    await git(repo, ['checkout', '-b', 'explicit', 'origin/source']);
+    await git(repo, ['branch', '--unset-upstream', 'explicit']);
+    assert.equal(await readBase(), 'refs/remotes/origin/source', 'explicit remote creation source precedes default');
+    await git(repo, ['branch', '--set-upstream-to=origin/source', 'explicit']);
+    await git(repo, ['checkout', '-b', 'from-head']);
+    assert.equal(await readBase(), 'refs/remotes/origin/source', 'creation from HEAD resolves its oldest checkout source and upstream');
+    await git(repo, ['checkout', 'main']); await git(repo, ['branch', '--set-upstream-to=explicit', 'main']);
+    await git(repo, ['checkout', '-b', 'from-local-upstream']);
+    assert.equal(await readBase(), 'refs/remotes/origin/default', 'local dot upstream is not a remote base inference');
+    await git(repo, ['remote', 'remove', 'origin']);
+    assert.equal(await readBase(), 'refs/remotes/aardvark/default');
+    await git(repo, ['symbolic-ref', '--delete', 'refs/remotes/aardvark/HEAD']);
+    assert.equal(await readBase(), null, 'a missing symbolic remote HEAD never guesses main/master');
+    await git(repo, ['remote', 'remove', 'aardvark']);
+    assert.equal(await readBase(), null);
   } finally { await rm(repo, { recursive: true, force: true }); }
 });
 
@@ -355,7 +642,7 @@ await createServer({ preferencesDirectory: ${JSON.stringify(data)} }).connect(ne
     assert.deepEqual(uiMetadata.parse(save._meta).ui.visibility, ['app']);
     assert.ok(tools.filter(tool => tool !== save).every(tool => tool.annotations?.readOnlyHint));
     assert.deepEqual((await callTool(first, { name: 'git_graph_layout', arguments: {} })).structuredContent, { panels: {} });
-    const panels = { detailHeight: 380, filesWidth: 180, summaryHeight: 144, detailMaximized: true };
+    const panels = { detailHeight: 380, filesWidth: 180, summaryHeight: 144, detailMaximized: true, fileView: 'tree' };
     assert.ok(!(await callTool(first, { name: 'git_graph_save_layout', arguments: { panels } })).isError);
     await first.close();
     const second = await connect(directory);
@@ -371,17 +658,23 @@ await createServer({ preferencesDirectory: ${JSON.stringify(data)} }).connect(ne
       { panels: { detailMaximized: 'true' } }, { panels: { summaryCollapsed: true } },
       { panels: { summaryHeight: 63 } }, { panels: { summaryHeight: 10001 } },
       { panels: { filesWidth: 96.5 } }, { panels: { repoPath: directory } },
+      { panels: { fileView: 'grid' } }, { panels: { fileView: null } },
       { panels: {}, preferencesDirectory: directory }, { panels: {}, repoPath: directory }]) {
       assert.equal((await second.callTool({ name: 'git_graph_save_layout', arguments: args })).isError, true);
       assert.equal(await readFile(settings, 'utf8'), savedPanels);
     }
+    const listPanels = { ...panels, fileView: 'list' };
+    assert.ok(!(await callTool(second, { name: 'git_graph_save_layout', arguments: { panels: listPanels } })).isError);
+    assert.deepEqual((await callTool(second, { name: 'git_graph_layout', arguments: {} })).structuredContent.panels, listPanels);
     assert.equal(await readFile(legacy, 'utf8'), '{broken legacy layout');
     await writeFile(settings, '{broken');
     const invalid = await second.callTool({ name: 'git_graph_layout', arguments: {} });
     assert.equal(invalid.isError, true);
     assert.equal(invalid.content[0].type, 'text');
     assert.ok('text' in invalid.content[0]);
-    assert.match(invalid.content[0].text, /读取面板布局失败/);
+    const descriptor = z.object({ error: z.unknown() }).parse(invalid.structuredContent).error;
+    assert.equal(toMessage(descriptor).key, 'backend.preference.read');
+    assert.match(format(toMessage(descriptor), 'zh-CN'), /读取面板布局失败/);
     assert.equal(await readFile(settings, 'utf8'), '{broken');
     assert.ok(!(await callTool(second, { name: 'git_graph_save_layout', arguments: { panels: {} } })).isError);
     await second.close();
@@ -471,7 +764,7 @@ await createServer({ preferencesDirectory: ${JSON.stringify(join(directory, 'dat
     assert.equal((await call('git_graph')).isError, true);
     assert.equal((await call('git_graph_history', { repository: changed.repositories[0].id })).isError, true, 'context failures invalidate stale repository access');
     await read('git_graph_layout');
-    await read('git_graph_editor');
+    await read('git_graph_editor', { locale: 'en' });
   } finally { await client.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
@@ -517,7 +810,7 @@ test('task workspace uses pending state, environments, cwd, project sources and 
   projectFails = true;
   const partial = await readWorkspace('task', { ...options, readState });
   assert.deepEqual(partial.runtimeRoots, applied.runtimeWorkspaceRoots);
-  assert.match(partial.notices.join(), /project unavailable/); projectFails = false;
+  assert.match(format(joinMessages(partial.notices), 'en'), /project unavailable/); projectFails = false;
   thread = new Error('thread not loaded: fresh');
   assert.deepEqual((await readWorkspace('fresh', options)).sourceRoots, ['/repo/web', '/repo/app']);
   assert.equal((await readWorkspace(undefined, options)).cwd, '/repo/web');

@@ -5,6 +5,7 @@ import { homedir } from 'node:os';
 import { basename, isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import { promisify } from 'node:util';
+import { error as messageError, toMessage } from './i18n.ts';
 
 export type CodexRequest = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 export type WithCodex = <T>(run: (request: CodexRequest) => Promise<T>) => Promise<T>;
@@ -25,7 +26,7 @@ export async function withCodex<T>(run: (request: CodexRequest) => Promise<T>): 
     pending.clear();
   };
   child.on('error', fail);
-  child.on('exit', () => fail(new Error('Codex 服务已退出。')));
+  child.on('exit', () => fail(messageError('backend.codex.exited')));
   child.stdin.on('error', fail);
   child.stderr.resume();
   const lines = createInterface({ input: child.stdout });
@@ -44,7 +45,7 @@ export async function withCodex<T>(run: (request: CodexRequest) => Promise<T>): 
     pending.set(id, { resolve, reject });
     child.stdin.write(JSON.stringify({ id, method, params }) + '\n');
   });
-  const timeout = setTimeout(() => { fail(new Error('读取 Codex 配置或项目超过 15 秒，请重试。')); child.kill(); }, 15000);
+  const timeout = setTimeout(() => { fail(messageError('backend.codex.timeout')); child.kill(); }, 15000);
   try {
     await request('initialize', { clientInfo: { name: 'git-graph', version: '0.3.0' }, capabilities: { experimentalApi: true } });
     return await run(request);
@@ -83,11 +84,13 @@ export function createAppearanceReader({
       throw error;
     });
     if (cached?.stamp === stamp) return cached.value;
-    const { config } = z.object({ config: z.object({ desktop: z.object({ codeFontSize: z.unknown().optional(), appearanceDarkChromeTheme: chromeThemeSchema.optional(), appearanceLightChromeTheme: chromeThemeSchema.optional() }).nullish() }) }).parse(await readConfig());
-    const noticeColors = { light: chromeColors(config.desktop?.appearanceLightChromeTheme, false), dark: chromeColors(config.desktop?.appearanceDarkChromeTheme, true) };
-    const value = { noticeColors, codeFontSize: codeFontSizeSchema.parse(config.desktop?.codeFontSize),
-      ghostHover: { light: noticeColors.light.ghostHover, dark: noticeColors.dark.ghostHover } };
-    cached = { stamp, value };
-    return value;
+    try {
+      const { config } = z.object({ config: z.object({ desktop: z.object({ codeFontSize: z.unknown().optional(), appearanceDarkChromeTheme: chromeThemeSchema.optional(), appearanceLightChromeTheme: chromeThemeSchema.optional() }).nullish() }) }).parse(await readConfig());
+      const noticeColors = { light: chromeColors(config.desktop?.appearanceLightChromeTheme, false), dark: chromeColors(config.desktop?.appearanceDarkChromeTheme, true) };
+      const value = { noticeColors, codeFontSize: codeFontSizeSchema.parse(config.desktop?.codeFontSize),
+        ghostHover: { light: noticeColors.light.ghostHover, dark: noticeColors.dark.ghostHover } };
+      cached = { stamp, value };
+      return value;
+    } catch (caught) { throw messageError('backend.codex.configuration', { diagnostic: toMessage(caught) }, caught); }
   };
 }
