@@ -1,7 +1,8 @@
 import { execFile, type ExecFileException } from 'node:child_process';
 import { promisify } from 'node:util';
-import { realpath, stat } from 'node:fs/promises';
-import { isAbsolute, resolve, sep } from 'node:path';
+import { constants, type BigIntStats } from 'node:fs';
+import { lstat, open, readlink, realpath, stat } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { error as messageError, msg, type Message } from './i18n.ts';
 
 const exec = promisify(execFile);
@@ -15,6 +16,12 @@ export type CompareOptions = { repoPath: string; base: string; hash: string };
 export type CompareFileOptions = CompareOptions & { path: string };
 export type HistoryRef = { name: string; hash: string; upstream?: string };
 export type RevisionFile = { hash: string | null; path: string; exists: boolean; mode: string | null; content: string; reason?: Message };
+export type WorktreeGroup = 'staged' | 'changes';
+export type WorktreeFileOptions = { repoPath: string; group: WorktreeGroup; path: string };
+type WorktreeObject = { mode: string | null; id: string | null };
+export type WorktreeFile = { group: WorktreeGroup; status: string; path: string; oldPath: string | null;
+  original: WorktreeObject; modified: WorktreeObject; submodule: string };
+export type WorktreeRevision = RevisionFile & { source: 'head' | 'index' | 'worktree' | 'empty' };
 
 export function git(repo: string, args: string[], encoding?: 'utf8'): Promise<string>;
 export function git(repo: string, args: string[], encoding: null): Promise<Buffer>;
@@ -111,9 +118,9 @@ export async function history({ repoPath, branch = '', offset = 0, tips, limit =
   const resolvedBase = currentRef?.name.startsWith('refs/heads/') ? await branchBase(repo, currentRef, refs, allRefs) : null;
   const baseRef = resolvedBase?.name !== upstreamRef?.name ? resolvedBase : null;
   const mergeBase = currentRef && upstreamRef ? (await optionalGit(repo, ['merge-base', currentRef.hash, upstreamRef.hash])).trim() || null : null;
-  const missingBranch = branch && !refs.some(ref => ref.name === branch) ? branch : '';
+  const missingBranch = branch && !refs.some(ref => ref.name === branch) && !(!head && branch === headRef) ? branch : '';
   if (missingBranch) { branch = ''; offset = 0; tips = undefined; }
-  if (!branch && refs.length === 1) branch = refs[0].name;
+  if (!branch && refs.length === 1 && refs[0].name === headRef) branch = refs[0].name;
   const selected = branch ? refs.filter(ref => ref.name === branch) : refs;
   const resolved = [];
   if (!tips) {
@@ -209,6 +216,134 @@ function revisionText(revision: RevisionFile, bytes: Buffer): RevisionFile {
   try { revision.content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); }
   catch { return { ...revision, reason: msg('backend.file.encoding') }; }
   return revision;
+}
+
+export function parseWorktreeStatus(raw: string) {
+  if (!raw.endsWith('\0')) throw messageError('backend.worktree.invalidStatus');
+  const records = raw.slice(0, -1).split('\0'), files: WorktreeFile[] = [];
+  let head: string | undefined, headName: string | undefined;
+  const validPath = (path: string) => path && path.length <= 4096 && !isAbsolute(path)
+    && !path.split('/').some(part => !part || part === '.' || part === '..');
+  const object = (mode: string, id: string): WorktreeObject => {
+    if ((mode === '000000') !== /^0+$/.test(id)) throw messageError('backend.worktree.invalidStatus');
+    return { mode: mode === '000000' ? null : mode, id: /^0+$/.test(id) ? null : id };
+  };
+  const absent: WorktreeObject = { mode: null, id: null };
+  for (let index = 0; index < records.length; index++) {
+    const record = records[index];
+    if (record.startsWith('# branch.oid ')) { const value = record.slice(13); if (value !== '(initial)' && !objectId.test(value)) throw messageError('backend.worktree.invalidStatus'); head = value === '(initial)' ? '' : value; continue; }
+    if (record.startsWith('# branch.head ')) { const value = record.slice(14); headName = value === '(detached)' ? '' : value; continue; }
+    if (record.startsWith('# ')) continue;
+    if (record.startsWith('? ')) {
+      const path = record.slice(2).replace(/\/$/, '');
+      if (!validPath(path)) throw messageError('backend.worktree.invalidStatus');
+      files.push({ group: 'changes', status: '?', path, oldPath: null, original: absent, modified: absent, submodule: 'N...' }); continue;
+    }
+    const fields = record.split(' '), type = fields[0], count = type === '1' ? 8 : type === '2' ? 9 : type === 'u' ? 10 : 0;
+    const path = fields.slice(count).join(' '), xy = fields[1], submodule = fields[2];
+    if (!count || !validPath(path) || !/^(?:N\.\.\.|S[.C][.M][.U])$/.test(submodule)) throw messageError('backend.worktree.invalidStatus');
+    const modes = fields.slice(3, type === 'u' ? 7 : 6), ids = fields.slice(type === 'u' ? 7 : 6, type === 'u' ? 10 : 8);
+    if (!modes.every(mode => /^[0-7]{6}$/.test(mode)) || !ids.every(id => objectId.test(id))) throw messageError('backend.worktree.invalidStatus');
+    if (type === 'u') {
+      if (!/^(DD|AU|UD|UA|DU|AA|UU)$/.test(xy)) throw messageError('backend.worktree.invalidStatus');
+      files.push({ group: 'changes', status: 'U', path, oldPath: null, original: absent, modified: { mode: modes[3] === '000000' ? null : modes[3], id: null }, submodule }); continue;
+    }
+    if (!/^[.MTADRC]{2}$/.test(xy) || xy === '..') throw messageError('backend.worktree.invalidStatus');
+    let oldPath: string | null = null;
+    if (type === '2') {
+      oldPath = records[++index];
+      if (!/^[RC](?:100|[0-9]{1,2})$/.test(fields[8]) || !oldPath || !validPath(oldPath) || !/[RC]/.test(xy)) throw messageError('backend.worktree.invalidStatus');
+    } else if (/[RC]/.test(xy)) throw messageError('backend.worktree.invalidStatus');
+    const original = object(modes[0], ids[0]), staged = object(modes[1], ids[1]);
+    if (xy[0] !== '.') files.push({ group: 'staged', status: /[RC]/.test(xy[0]) ? fields[8] : xy[0], path,
+      oldPath: /[RC]/.test(xy[0]) ? oldPath : null, original, modified: staged, submodule });
+    if (xy[1] !== '.') files.push({ group: 'changes', status: /[RC]/.test(xy[1]) ? fields[8] : xy[1], path,
+      oldPath: /[RC]/.test(xy[1]) ? oldPath : null, original: staged, modified: { mode: modes[2] === '000000' ? null : modes[2], id: null }, submodule });
+  }
+  if (head === undefined || headName === undefined || new Set(files.map(file => JSON.stringify([file.group, file.path]))).size !== files.length) throw messageError('backend.worktree.invalidStatus');
+  return { head, headName, files };
+}
+
+async function readWorktree(repo: string) {
+  const bytes = await git(repo, ['status', '--porcelain=v2', '-z', '--branch', '--no-ahead-behind', '--untracked-files=all', '--ignored=no', '--renames', '--ignore-submodules=none'], null);
+  let raw;
+  try { raw = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+  catch { throw messageError('backend.worktree.invalidStatus'); }
+  return { raw, ...parseWorktreeStatus(raw) };
+}
+
+export async function worktree({ repoPath }: { repoPath: string }) {
+  const repo = await repository(repoPath), { head, headName, files } = await readWorktree(repo);
+  return { repo, head, headName, files };
+}
+
+async function worktreeObject(repo: string, file: WorktreeObject, path: string, source: 'head' | 'index', head: string): Promise<WorktreeRevision> {
+  const revision: WorktreeRevision = { hash: source === 'head' ? head || null : file.id, path, exists: !!file.id, mode: file.mode, content: '', source: file.id ? source : 'empty' };
+  if (!file.id) return revision;
+  if (file.mode === '160000') return { ...revision, content: `Subproject commit ${file.id}\n` };
+  if (Number((await git(repo, ['cat-file', '-s', file.id])).trim()) > maxTextSize) return { ...revision, reason: msg('backend.file.tooLarge') };
+  return { ...revisionText(revision, await git(repo, ['cat-file', 'blob', file.id], null)), source: revision.source };
+}
+
+const sameFile = (a: BigIntStats, b: BigIntStats) => ['dev', 'ino', 'mode', 'size', 'mtimeNs', 'ctimeNs'].every(key => a[key as keyof BigIntStats] === b[key as keyof BigIntStats]);
+async function worktreeContent(repo: string, file: WorktreeFile): Promise<WorktreeRevision> {
+  const revision: WorktreeRevision = { hash: null, path: file.path, exists: file.status !== 'D', mode: file.modified.mode, content: '', source: file.status === 'D' ? 'empty' : 'worktree' };
+  if (!revision.exists) return revision;
+  const path = resolve(repo, file.path), parent = await realpath(dirname(path));
+  if (parent !== repo && !parent.startsWith(`${repo}${sep}`)) throw messageError('backend.file.outsideRepository');
+  const absolute = join(parent, basename(path)), before = await lstat(absolute, { bigint: true });
+  if (before.isSymbolicLink()) {
+    const bytes = await readlink(absolute, { encoding: 'buffer' });
+    if (!sameFile(before, await lstat(absolute, { bigint: true })) || await realpath(dirname(path)) !== parent) throw messageError('backend.worktree.changed');
+    return { ...revisionText({ ...revision, mode: '120000' }, bytes), source: 'worktree' };
+  }
+  if (file.modified.mode === '160000' && before.isDirectory()) {
+    const root = await repository(absolute);
+    if (root !== absolute) throw messageError('backend.file.notRegular');
+    const id = (await optionalGit(absolute, ['rev-parse', '--verify', '--quiet', 'HEAD'])).trim();
+    if (!objectId.test(id)) throw messageError('backend.worktree.changed');
+    return { ...revision, content: `Subproject commit ${id}${/[MU]/.test(file.submodule.slice(2)) ? '-dirty' : ''}\n` };
+  }
+  if (!before.isFile()) return { ...revision, reason: msg('backend.file.notRegular') };
+  const handle = await open(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const initial = await handle.stat({ bigint: true });
+    if (!sameFile(before, initial)) throw messageError('backend.worktree.changed');
+    let result: WorktreeRevision;
+    if (initial.size > BigInt(maxTextSize)) result = { ...revision, reason: msg('backend.file.tooLarge') };
+    else {
+      const bytes = Buffer.alloc(Number(initial.size) + 1); let length = 0;
+      while (length < bytes.length) { const read = await handle.read(bytes, length, bytes.length - length, length); if (!read.bytesRead) break; length += read.bytesRead; }
+      result = { ...revisionText({ ...revision, mode: revision.mode || (initial.mode & 0o111n ? '100755' : '100644') }, bytes.subarray(0, length)), source: 'worktree' };
+    }
+    if (!sameFile(initial, await handle.stat({ bigint: true })) || !sameFile(initial, await lstat(absolute, { bigint: true })) || await realpath(dirname(path)) !== parent) throw messageError('backend.worktree.changed');
+    return result;
+  } finally { await handle.close(); }
+}
+
+export async function worktreeDiff({ repoPath, group, path }: WorktreeFileOptions) {
+  const repo = await repository(repoPath), snapshot = await readWorktree(repo);
+  const file = snapshot.files.find(file => file.group === group && file.path === path);
+  if (!file) throw messageError('backend.file.outsideRange');
+  let original: WorktreeRevision, modified: WorktreeRevision;
+  if (file.status === 'U') {
+    original = { hash: null, path, exists: false, mode: null, content: '', source: 'index', reason: msg('backend.worktree.conflict') };
+    modified = { hash: null, path, exists: !!file.modified.mode, mode: file.modified.mode, content: '', source: 'worktree' };
+  } else {
+    original = await worktreeObject(repo, file.original, file.oldPath || path, group === 'staged' ? 'head' : 'index', snapshot.head);
+    try { modified = group === 'staged' ? await worktreeObject(repo, file.modified, path, 'index', snapshot.head) : await worktreeContent(repo, file); }
+    catch (error) { if (['ENOENT', 'ENOTDIR', 'ELOOP'].includes((error as NodeJS.ErrnoException).code || '')) throw messageError('backend.worktree.changed', undefined, error); throw error; }
+  }
+  if ((await readWorktree(repo)).raw !== snapshot.raw) throw messageError('backend.worktree.changed');
+  return { repo, head: snapshot.head, headName: snapshot.headName, group, status: file.status, path, oldPath: file.oldPath, original, modified };
+}
+
+export async function worktreeFile({ repoPath, group, path }: WorktreeFileOptions) {
+  const repo = await repository(repoPath), snapshot = await readWorktree(repo);
+  if (!snapshot.files.some(file => file.group === group && file.path === path)) throw messageError('backend.file.outsideRange');
+  const absolute = await currentFilePath(repo, path);
+  if ((await readWorktree(repo)).raw !== snapshot.raw) throw messageError('backend.worktree.changed');
+  return { path: absolute };
 }
 
 export async function diff(args: FileOptions) {

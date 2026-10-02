@@ -25616,9 +25616,9 @@ var require_codegen = /* @__PURE__ */ __commonJSMin(((exports) => {
       const rhs = this.rhs === void 0 ? "" : ` = ${this.rhs}`;
       return `${varKind} ${this.name}${rhs};` + _n;
     }
-    optimizeNames(names, constants) {
+    optimizeNames(names, constants2) {
       if (!names[this.name.str]) return;
-      if (this.rhs) this.rhs = optimizeExpr(this.rhs, names, constants);
+      if (this.rhs) this.rhs = optimizeExpr(this.rhs, names, constants2);
       return this;
     }
     get names() {
@@ -25635,9 +25635,9 @@ var require_codegen = /* @__PURE__ */ __commonJSMin(((exports) => {
     render({ _n }) {
       return `${this.lhs} = ${this.rhs};` + _n;
     }
-    optimizeNames(names, constants) {
+    optimizeNames(names, constants2) {
       if (this.lhs instanceof code_1.Name && !names[this.lhs.str] && !this.sideEffects) return;
-      this.rhs = optimizeExpr(this.rhs, names, constants);
+      this.rhs = optimizeExpr(this.rhs, names, constants2);
       return this;
     }
     get names() {
@@ -25696,8 +25696,8 @@ var require_codegen = /* @__PURE__ */ __commonJSMin(((exports) => {
     optimizeNodes() {
       return `${this.code}` ? this : void 0;
     }
-    optimizeNames(names, constants) {
-      this.code = optimizeExpr(this.code, names, constants);
+    optimizeNames(names, constants2) {
+      this.code = optimizeExpr(this.code, names, constants2);
       return this;
     }
     get names() {
@@ -25723,12 +25723,12 @@ var require_codegen = /* @__PURE__ */ __commonJSMin(((exports) => {
       }
       return nodes.length > 0 ? this : void 0;
     }
-    optimizeNames(names, constants) {
+    optimizeNames(names, constants2) {
       const { nodes } = this;
       let i = nodes.length;
       while (i--) {
         const n = nodes[i];
-        if (n.optimizeNames(names, constants)) continue;
+        if (n.optimizeNames(names, constants2)) continue;
         subtractNames(names, n.names);
         nodes.splice(i, 1);
       }
@@ -25775,11 +25775,11 @@ var require_codegen = /* @__PURE__ */ __commonJSMin(((exports) => {
       if (cond === false || !this.nodes.length) return void 0;
       return this;
     }
-    optimizeNames(names, constants) {
+    optimizeNames(names, constants2) {
       var _a3;
-      this.else = (_a3 = this.else) === null || _a3 === void 0 ? void 0 : _a3.optimizeNames(names, constants);
-      if (!(super.optimizeNames(names, constants) || this.else)) return;
-      this.condition = optimizeExpr(this.condition, names, constants);
+      this.else = (_a3 = this.else) === null || _a3 === void 0 ? void 0 : _a3.optimizeNames(names, constants2);
+      if (!(super.optimizeNames(names, constants2) || this.else)) return;
+      this.condition = optimizeExpr(this.condition, names, constants2);
       return this;
     }
     get names() {
@@ -25801,9 +25801,9 @@ var require_codegen = /* @__PURE__ */ __commonJSMin(((exports) => {
     render(opts) {
       return `for(${this.iteration})` + super.render(opts);
     }
-    optimizeNames(names, constants) {
-      if (!super.optimizeNames(names, constants)) return;
-      this.iteration = optimizeExpr(this.iteration, names, constants);
+    optimizeNames(names, constants2) {
+      if (!super.optimizeNames(names, constants2)) return;
+      this.iteration = optimizeExpr(this.iteration, names, constants2);
       return this;
     }
     get names() {
@@ -25838,9 +25838,9 @@ var require_codegen = /* @__PURE__ */ __commonJSMin(((exports) => {
     render(opts) {
       return `for(${this.varKind} ${this.name} ${this.loop} ${this.iterable})` + super.render(opts);
     }
-    optimizeNames(names, constants) {
-      if (!super.optimizeNames(names, constants)) return;
-      this.iterable = optimizeExpr(this.iterable, names, constants);
+    optimizeNames(names, constants2) {
+      if (!super.optimizeNames(names, constants2)) return;
+      this.iterable = optimizeExpr(this.iterable, names, constants2);
       return this;
     }
     get names() {
@@ -25879,11 +25879,11 @@ var require_codegen = /* @__PURE__ */ __commonJSMin(((exports) => {
       (_b = this.finally) === null || _b === void 0 || _b.optimizeNodes();
       return this;
     }
-    optimizeNames(names, constants) {
+    optimizeNames(names, constants2) {
       var _a3, _b;
-      super.optimizeNames(names, constants);
-      (_a3 = this.catch) === null || _a3 === void 0 || _a3.optimizeNames(names, constants);
-      (_b = this.finally) === null || _b === void 0 || _b.optimizeNames(names, constants);
+      super.optimizeNames(names, constants2);
+      (_a3 = this.catch) === null || _a3 === void 0 || _a3.optimizeNames(names, constants2);
+      (_b = this.finally) === null || _b === void 0 || _b.optimizeNames(names, constants2);
       return this;
     }
     get names() {
@@ -26132,7 +26132,7 @@ var require_codegen = /* @__PURE__ */ __commonJSMin(((exports) => {
   function addExprNames(names, from) {
     return from instanceof code_1._CodeOrName ? addNames(names, from.names) : names;
   }
-  function optimizeExpr(expr, names, constants) {
+  function optimizeExpr(expr, names, constants2) {
     if (expr instanceof code_1.Name) return replaceName(expr);
     if (!canOptimize(expr)) return expr;
     return new code_1._Code(expr._items.reduce((items, c) => {
@@ -26142,13 +26142,13 @@ var require_codegen = /* @__PURE__ */ __commonJSMin(((exports) => {
       return items;
     }, []));
     function replaceName(n) {
-      const c = constants[n.str];
+      const c = constants2[n.str];
       if (c === void 0 || names[n.str] !== 1) return n;
       delete names[n.str];
       return c;
     }
     function canOptimize(e) {
-      return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants[c.str] !== void 0);
+      return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants2[c.str] !== void 0);
     }
   }
   function subtractNames(names, from) {
@@ -33686,14 +33686,15 @@ function G(B, Q, F, V, q) {
 import { mkdir, readFile as readFile2, realpath as realpath4, rename, rm, writeFile } from "node:fs/promises";
 import { createHash as createHash2, randomUUID as randomUUID2 } from "node:crypto";
 import { homedir as homedir3 } from "node:os";
-import { join as join3 } from "node:path";
+import { join as join4 } from "node:path";
 import { pathToFileURL } from "node:url";
 
 // git.ts
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { realpath, stat } from "node:fs/promises";
-import { isAbsolute, resolve, sep } from "node:path";
+import { constants } from "node:fs";
+import { lstat, open as open2, readlink, realpath, stat } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 
 // i18n.ts
 var catalog = {
@@ -33754,6 +33755,9 @@ var catalog = {
   "backend.tool.readRange": { en: "View commit range", "zh-CN": "\u67E5\u770B\u63D0\u4EA4\u8303\u56F4" },
   "backend.tool.readDiff": { en: "View file diff", "zh-CN": "\u67E5\u770B\u6587\u4EF6\u5DEE\u5F02" },
   "backend.tool.readRangeDiff": { en: "View range file diff", "zh-CN": "\u67E5\u770B\u8303\u56F4\u6587\u4EF6\u5DEE\u5F02" },
+  "backend.tool.readWorktree": { en: "Read uncommitted changes", "zh-CN": "\u8BFB\u53D6\u672A\u63D0\u4EA4\u7684\u66F4\u6539" },
+  "backend.tool.readWorktreeDiff": { en: "View uncommitted file diff", "zh-CN": "\u67E5\u770B\u672A\u63D0\u4EA4\u6587\u4EF6\u5DEE\u5F02" },
+  "backend.tool.locateWorktreeFile": { en: "Locate uncommitted working directory file", "zh-CN": "\u5B9A\u4F4D\u672A\u63D0\u4EA4\u7684\u5DE5\u4F5C\u533A\u6587\u4EF6" },
   "backend.tool.locateFile": { en: "Locate working directory file", "zh-CN": "\u5B9A\u4F4D\u5DE5\u4F5C\u533A\u6587\u4EF6" },
   "backend.tool.startWatch": { en: "Watch current repository changes", "zh-CN": "\u76D1\u542C\u5F53\u524D\u4ED3\u5E93\u53D8\u5316" },
   "backend.tool.waitWatch": { en: "Wait for repository changes", "zh-CN": "\u7B49\u5F85\u4ED3\u5E93\u53D8\u5316" },
@@ -33826,6 +33830,19 @@ var catalog = {
   "ui.loadMore": { en: "Load more", "zh-CN": "\u52A0\u8F7D\u66F4\u591A" },
   "ui.incoming": { en: "Incoming Changes", "zh-CN": "\u4F20\u5165\u7684\u66F4\u6539" },
   "ui.outgoing": { en: "Outgoing Changes", "zh-CN": "\u4F20\u51FA\u7684\u66F4\u6539" },
+  "ui.uncommitted": { en: "Uncommitted Changes", "zh-CN": "\u672A\u63D0\u4EA4\u7684\u66F4\u6539" },
+  "ui.uncommittedDetail": { en: "Uncommitted changes", "zh-CN": "\u672A\u63D0\u4EA4\u66F4\u6539\u8BE6\u60C5" },
+  "ui.staged": { en: "Staged Changes", "zh-CN": "\u5DF2\u6682\u5B58\u7684\u66F4\u6539" },
+  "ui.changes": { en: "Changes", "zh-CN": "\u66F4\u6539" },
+  "ui.changeGroup": { en: "{group} \xB7 {count}", "zh-CN": "{group} \xB7 {count}" },
+  "ui.worktreeReadFailure": { en: "Could not read uncommitted changes: {diagnostic}", "zh-CN": "\u8BFB\u53D6\u672A\u63D0\u4EA4\u7684\u66F4\u6539\u5931\u8D25\uFF1A{diagnostic}" },
+  "ui.stateChanged": { en: "The checkout changed while reading history and uncommitted changes. The last consistent state is kept. Refresh to try again.", "zh-CN": "\u8BFB\u53D6\u5386\u53F2\u4E0E\u672A\u63D0\u4EA4\u66F4\u6539\u671F\u95F4\u68C0\u51FA\u72B6\u6001\u5DF2\u53D8\u5316\uFF0C\u5DF2\u4FDD\u7559\u4E0A\u4E2A\u4E00\u81F4\u72B6\u6001\u3002\u8BF7\u5237\u65B0\u91CD\u8BD5\u3002" },
+  "ui.index": { en: "Index", "zh-CN": "\u6682\u5B58\u533A" },
+  "ui.worktree": { en: "Working Tree", "zh-CN": "\u5DE5\u4F5C\u533A" },
+  "ui.noUncommittedFiles": { en: "There are no uncommitted changes.", "zh-CN": "\u5F53\u524D\u6CA1\u6709\u672A\u63D0\u4EA4\u7684\u66F4\u6539\u3002" },
+  "backend.worktree.invalidStatus": { en: "Git returned invalid working tree status.", "zh-CN": "Git \u8FD4\u56DE\u7684\u5DE5\u4F5C\u533A\u72B6\u6001\u683C\u5F0F\u65E0\u6548\u3002" },
+  "backend.worktree.changed": { en: "The working tree or index changed while reading. Try again.", "zh-CN": "\u5DE5\u4F5C\u533A\u6216\u6682\u5B58\u533A\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u8BD5\u3002" },
+  "backend.worktree.conflict": { en: "The index has an unresolved conflict and no single file version to compare. Open the working directory file to resolve it.", "zh-CN": "\u6682\u5B58\u533A\u5B58\u5728\u672A\u89E3\u51B3\u7684\u51B2\u7A81\uFF0C\u6CA1\u6709\u5355\u4E00\u6587\u4EF6\u7248\u672C\u53EF\u7528\u4E8E\u6BD4\u8F83\u3002\u8BF7\u6253\u5F00\u5DE5\u4F5C\u533A\u6587\u4EF6\u5904\u7406\u51B2\u7A81\u3002" },
   "ui.externalError": { en: "Request failed: {diagnostic}", "zh-CN": "\u8BF7\u6C42\u5931\u8D25\uFF1A{diagnostic}" },
   "ui.notConnected": { en: "Not connected to Codex. Reopen the Git Graph window.", "zh-CN": "\u5C1A\u672A\u8FDE\u63A5\u5230 Codex\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00 Git Graph \u7A97\u53E3\u3002" },
   "ui.queryFailure": { en: "Git query failed: {diagnostic}", "zh-CN": "Git \u67E5\u8BE2\u5931\u8D25\uFF1A{diagnostic}" },
@@ -34001,13 +34018,13 @@ async function history({ repoPath, branch = "", offset = 0, tips, limit = 250, r
   const resolvedBase = currentRef?.name.startsWith("refs/heads/") ? await branchBase(repo, currentRef, refs, allRefs) : null;
   const baseRef = resolvedBase?.name !== upstreamRef?.name ? resolvedBase : null;
   const mergeBase = currentRef && upstreamRef ? (await optionalGit(repo, ["merge-base", currentRef.hash, upstreamRef.hash])).trim() || null : null;
-  const missingBranch = branch && !refs.some((ref) => ref.name === branch) ? branch : "";
+  const missingBranch = branch && !refs.some((ref) => ref.name === branch) && !(!head && branch === headRef) ? branch : "";
   if (missingBranch) {
     branch = "";
     offset = 0;
     tips = void 0;
   }
-  if (!branch && refs.length === 1) branch = refs[0].name;
+  if (!branch && refs.length === 1 && refs[0].name === headRef) branch = refs[0].name;
   const selected = branch ? refs.filter((ref) => ref.name === branch) : refs;
   const resolved = [];
   if (!tips) {
@@ -34132,6 +34149,167 @@ function revisionText(revision, bytes) {
     return { ...revision, reason: msg("backend.file.encoding") };
   }
   return revision;
+}
+function parseWorktreeStatus(raw) {
+  if (!raw.endsWith("\0")) throw error62("backend.worktree.invalidStatus");
+  const records = raw.slice(0, -1).split("\0"), files = [];
+  let head, headName;
+  const validPath = (path) => path && path.length <= 4096 && !isAbsolute(path) && !path.split("/").some((part) => !part || part === "." || part === "..");
+  const object2 = (mode, id) => {
+    if (mode === "000000" !== /^0+$/.test(id)) throw error62("backend.worktree.invalidStatus");
+    return { mode: mode === "000000" ? null : mode, id: /^0+$/.test(id) ? null : id };
+  };
+  const absent = { mode: null, id: null };
+  for (let index = 0; index < records.length; index++) {
+    const record2 = records[index];
+    if (record2.startsWith("# branch.oid ")) {
+      const value = record2.slice(13);
+      if (value !== "(initial)" && !objectId.test(value)) throw error62("backend.worktree.invalidStatus");
+      head = value === "(initial)" ? "" : value;
+      continue;
+    }
+    if (record2.startsWith("# branch.head ")) {
+      const value = record2.slice(14);
+      headName = value === "(detached)" ? "" : value;
+      continue;
+    }
+    if (record2.startsWith("# ")) continue;
+    if (record2.startsWith("? ")) {
+      const path2 = record2.slice(2).replace(/\/$/, "");
+      if (!validPath(path2)) throw error62("backend.worktree.invalidStatus");
+      files.push({ group: "changes", status: "?", path: path2, oldPath: null, original: absent, modified: absent, submodule: "N..." });
+      continue;
+    }
+    const fields = record2.split(" "), type = fields[0], count = type === "1" ? 8 : type === "2" ? 9 : type === "u" ? 10 : 0;
+    const path = fields.slice(count).join(" "), xy = fields[1], submodule = fields[2];
+    if (!count || !validPath(path) || !/^(?:N\.\.\.|S[.C][.M][.U])$/.test(submodule)) throw error62("backend.worktree.invalidStatus");
+    const modes = fields.slice(3, type === "u" ? 7 : 6), ids = fields.slice(type === "u" ? 7 : 6, type === "u" ? 10 : 8);
+    if (!modes.every((mode) => /^[0-7]{6}$/.test(mode)) || !ids.every((id) => objectId.test(id))) throw error62("backend.worktree.invalidStatus");
+    if (type === "u") {
+      if (!/^(DD|AU|UD|UA|DU|AA|UU)$/.test(xy)) throw error62("backend.worktree.invalidStatus");
+      files.push({ group: "changes", status: "U", path, oldPath: null, original: absent, modified: { mode: modes[3] === "000000" ? null : modes[3], id: null }, submodule });
+      continue;
+    }
+    if (!/^[.MTADRC]{2}$/.test(xy) || xy === "..") throw error62("backend.worktree.invalidStatus");
+    let oldPath = null;
+    if (type === "2") {
+      oldPath = records[++index];
+      if (!/^[RC](?:100|[0-9]{1,2})$/.test(fields[8]) || !oldPath || !validPath(oldPath) || !/[RC]/.test(xy)) throw error62("backend.worktree.invalidStatus");
+    } else if (/[RC]/.test(xy)) throw error62("backend.worktree.invalidStatus");
+    const original = object2(modes[0], ids[0]), staged = object2(modes[1], ids[1]);
+    if (xy[0] !== ".") files.push({
+      group: "staged",
+      status: /[RC]/.test(xy[0]) ? fields[8] : xy[0],
+      path,
+      oldPath: /[RC]/.test(xy[0]) ? oldPath : null,
+      original,
+      modified: staged,
+      submodule
+    });
+    if (xy[1] !== ".") files.push({
+      group: "changes",
+      status: /[RC]/.test(xy[1]) ? fields[8] : xy[1],
+      path,
+      oldPath: /[RC]/.test(xy[1]) ? oldPath : null,
+      original: staged,
+      modified: { mode: modes[2] === "000000" ? null : modes[2], id: null },
+      submodule
+    });
+  }
+  if (head === void 0 || headName === void 0 || new Set(files.map((file2) => JSON.stringify([file2.group, file2.path]))).size !== files.length) throw error62("backend.worktree.invalidStatus");
+  return { head, headName, files };
+}
+async function readWorktree(repo) {
+  const bytes = await git(repo, ["status", "--porcelain=v2", "-z", "--branch", "--no-ahead-behind", "--untracked-files=all", "--ignored=no", "--renames", "--ignore-submodules=none"], null);
+  let raw;
+  try {
+    raw = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw error62("backend.worktree.invalidStatus");
+  }
+  return { raw, ...parseWorktreeStatus(raw) };
+}
+async function worktree({ repoPath }) {
+  const repo = await repository(repoPath), { head, headName, files } = await readWorktree(repo);
+  return { repo, head, headName, files };
+}
+async function worktreeObject(repo, file2, path, source, head) {
+  const revision = { hash: source === "head" ? head || null : file2.id, path, exists: !!file2.id, mode: file2.mode, content: "", source: file2.id ? source : "empty" };
+  if (!file2.id) return revision;
+  if (file2.mode === "160000") return { ...revision, content: `Subproject commit ${file2.id}
+` };
+  if (Number((await git(repo, ["cat-file", "-s", file2.id])).trim()) > maxTextSize) return { ...revision, reason: msg("backend.file.tooLarge") };
+  return { ...revisionText(revision, await git(repo, ["cat-file", "blob", file2.id], null)), source: revision.source };
+}
+var sameFile = (a, b) => ["dev", "ino", "mode", "size", "mtimeNs", "ctimeNs"].every((key) => a[key] === b[key]);
+async function worktreeContent(repo, file2) {
+  const revision = { hash: null, path: file2.path, exists: file2.status !== "D", mode: file2.modified.mode, content: "", source: file2.status === "D" ? "empty" : "worktree" };
+  if (!revision.exists) return revision;
+  const path = resolve(repo, file2.path), parent = await realpath(dirname(path));
+  if (parent !== repo && !parent.startsWith(`${repo}${sep}`)) throw error62("backend.file.outsideRepository");
+  const absolute = join(parent, basename(path)), before = await lstat(absolute, { bigint: true });
+  if (before.isSymbolicLink()) {
+    const bytes = await readlink(absolute, { encoding: "buffer" });
+    if (!sameFile(before, await lstat(absolute, { bigint: true })) || await realpath(dirname(path)) !== parent) throw error62("backend.worktree.changed");
+    return { ...revisionText({ ...revision, mode: "120000" }, bytes), source: "worktree" };
+  }
+  if (file2.modified.mode === "160000" && before.isDirectory()) {
+    const root = await repository(absolute);
+    if (root !== absolute) throw error62("backend.file.notRegular");
+    const id = (await optionalGit(absolute, ["rev-parse", "--verify", "--quiet", "HEAD"])).trim();
+    if (!objectId.test(id)) throw error62("backend.worktree.changed");
+    return { ...revision, content: `Subproject commit ${id}${/[MU]/.test(file2.submodule.slice(2)) ? "-dirty" : ""}
+` };
+  }
+  if (!before.isFile()) return { ...revision, reason: msg("backend.file.notRegular") };
+  const handle = await open2(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const initial = await handle.stat({ bigint: true });
+    if (!sameFile(before, initial)) throw error62("backend.worktree.changed");
+    let result;
+    if (initial.size > BigInt(maxTextSize)) result = { ...revision, reason: msg("backend.file.tooLarge") };
+    else {
+      const bytes = Buffer.alloc(Number(initial.size) + 1);
+      let length = 0;
+      while (length < bytes.length) {
+        const read = await handle.read(bytes, length, bytes.length - length, length);
+        if (!read.bytesRead) break;
+        length += read.bytesRead;
+      }
+      result = { ...revisionText({ ...revision, mode: revision.mode || (initial.mode & 0o111n ? "100755" : "100644") }, bytes.subarray(0, length)), source: "worktree" };
+    }
+    if (!sameFile(initial, await handle.stat({ bigint: true })) || !sameFile(initial, await lstat(absolute, { bigint: true })) || await realpath(dirname(path)) !== parent) throw error62("backend.worktree.changed");
+    return result;
+  } finally {
+    await handle.close();
+  }
+}
+async function worktreeDiff({ repoPath, group, path }) {
+  const repo = await repository(repoPath), snapshot = await readWorktree(repo);
+  const file2 = snapshot.files.find((file3) => file3.group === group && file3.path === path);
+  if (!file2) throw error62("backend.file.outsideRange");
+  let original, modified;
+  if (file2.status === "U") {
+    original = { hash: null, path, exists: false, mode: null, content: "", source: "index", reason: msg("backend.worktree.conflict") };
+    modified = { hash: null, path, exists: !!file2.modified.mode, mode: file2.modified.mode, content: "", source: "worktree" };
+  } else {
+    original = await worktreeObject(repo, file2.original, file2.oldPath || path, group === "staged" ? "head" : "index", snapshot.head);
+    try {
+      modified = group === "staged" ? await worktreeObject(repo, file2.modified, path, "index", snapshot.head) : await worktreeContent(repo, file2);
+    } catch (error63) {
+      if (["ENOENT", "ENOTDIR", "ELOOP"].includes(error63.code || "")) throw error62("backend.worktree.changed", void 0, error63);
+      throw error63;
+    }
+  }
+  if ((await readWorktree(repo)).raw !== snapshot.raw) throw error62("backend.worktree.changed");
+  return { repo, head: snapshot.head, headName: snapshot.headName, group, status: file2.status, path, oldPath: file2.oldPath, original, modified };
+}
+async function worktreeFile({ repoPath, group, path }) {
+  const repo = await repository(repoPath), snapshot = await readWorktree(repo);
+  if (!snapshot.files.some((file2) => file2.group === group && file2.path === path)) throw error62("backend.file.outsideRange");
+  const absolute = await currentFilePath(repo, path);
+  if ((await readWorktree(repo)).raw !== snapshot.raw) throw error62("backend.worktree.changed");
+  return { path: absolute };
 }
 async function diff(args) {
   const detail = await commit(args);
@@ -34330,7 +34508,7 @@ function createWatchers({ waitMs = 2e4, leaseMs = 6e4, debounceMs = 75 } = {}) {
 // project.ts
 import { readFile, realpath as realpath3 } from "node:fs/promises";
 import { homedir as homedir2 } from "node:os";
-import { basename as basename2, isAbsolute as isAbsolute4, join as join2, relative as relative2, resolve as resolve2, sep as sep3 } from "node:path";
+import { basename as basename3, isAbsolute as isAbsolute4, join as join3, relative as relative2, resolve as resolve2, sep as sep3 } from "node:path";
 import { createHash } from "node:crypto";
 
 // codex.ts
@@ -34338,12 +34516,12 @@ import { spawn, execFile as execFile2 } from "node:child_process";
 import { createInterface } from "node:readline";
 import { stat as stat2, access } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, isAbsolute as isAbsolute3, join } from "node:path";
+import { basename as basename2, isAbsolute as isAbsolute3, join as join2 } from "node:path";
 import { promisify as promisify2 } from "node:util";
 async function withCodex(run) {
   const parent = process.env.CODEX_CLI_PATH || process.platform === "win32" ? "" : (await promisify2(execFile2)("ps", ["-p", String(process.ppid), "-o", "comm="])).stdout.trim();
   const resources = process.env.CODEX_MCP_NODE_PATH?.match(/^(.*\.app\/Contents\/Resources)\//)?.[1];
-  const executable = process.env.CODEX_CLI_PATH || (isAbsolute3(parent) && basename(parent) === "codex" ? parent : resources ? join(resources, "codex") : "codex");
+  const executable = process.env.CODEX_CLI_PATH || (isAbsolute3(parent) && basename2(parent) === "codex" ? parent : resources ? join2(resources, "codex") : "codex");
   if (executable !== "codex") await access(executable);
   const child = spawn(executable, ["app-server", "--listen", "stdio://"], { stdio: ["pipe", "pipe", "pipe"] });
   const pending = /* @__PURE__ */ new Map();
@@ -34415,7 +34593,7 @@ function chromeColors(theme, dark) {
   };
 }
 function createAppearanceReader({
-  configPath = join(process.env.CODEX_HOME || join(homedir(), ".codex"), "config.toml"),
+  configPath = join2(process.env.CODEX_HOME || join2(homedir(), ".codex"), "config.toml"),
   readConfig = () => withCodex((request) => request("config/read", { includeLayers: false }))
 } = {}) {
   let cached2;
@@ -34454,14 +34632,14 @@ var worktreeSchema = external_exports.object({ root: pathSchema, workspaceRoot: 
 var message = (error63) => format(toMessage(error63), "en");
 async function readDesktopState(codexHome) {
   try {
-    return JSON.parse(await readFile(join2(codexHome, ".codex-global-state.json"), "utf8"));
+    return JSON.parse(await readFile(join3(codexHome, ".codex-global-state.json"), "utf8"));
   } catch (error63) {
     if (error63.code === "ENOENT") return {};
     throw error63;
   }
 }
 async function readWorkspace(threadId, {
-  codexHome = process.env.CODEX_HOME || join2(homedir2(), ".codex"),
+  codexHome = process.env.CODEX_HOME || join3(homedir2(), ".codex"),
   cwd = process.cwd(),
   readState = () => readDesktopState(codexHome),
   runWithCodex = withCodex
@@ -34569,10 +34747,10 @@ async function resolveRepositories(workspace) {
       const current2 = siblings[closest(siblings.map((repo) => repo.root), cwd)];
       if (current2) {
         const sameSources = sourceRoots.filter((_, i) => sourceOrigins[i]?.root === origin.root);
-        const target = join2(current2.root, rel), sourceIndex = sameSources.indexOf(source);
-        const others = siblings.filter((repo) => repo !== current2 && repo.workspaceRoots.some((path) => contains2(path, join2(repo.root, rel))));
-        preferred = others.find((repo) => repo.workspaceRoots.includes(join2(repo.root, rel))) ?? others[0];
-        if (current2.workspaceRoots.some((path) => contains2(path, target) && (!preferred || path === target) || contains2(target, path) && closest(sameSources, join2(origin.root, relative2(current2.root, path))) === sourceIndex) && (closest(sameSources, join2(origin.root, relative2(current2.root, cwd))) === sourceIndex || contains2(cwd, target))) preferred = current2;
+        const target = join3(current2.root, rel), sourceIndex = sameSources.indexOf(source);
+        const others = siblings.filter((repo) => repo !== current2 && repo.workspaceRoots.some((path) => contains2(path, join3(repo.root, rel))));
+        preferred = others.find((repo) => repo.workspaceRoots.includes(join3(repo.root, rel))) ?? others[0];
+        if (current2.workspaceRoots.some((path) => contains2(path, target) && (!preferred || path === target) || contains2(target, path) && closest(sameSources, join3(origin.root, relative2(current2.root, path))) === sourceIndex) && (closest(sameSources, join3(origin.root, relative2(current2.root, cwd))) === sourceIndex || contains2(cwd, target))) preferred = current2;
       }
     }
     const repository2 = preferred ?? candidates.find((repo) => repo.workspaceRoots.includes(source) || repo.root === origin?.root) ?? siblings.find((repo) => repo === indexed) ?? siblings[0];
@@ -34588,7 +34766,7 @@ async function resolveRepositories(workspace) {
   if (current) effective.set(current.root, current);
   const repositories = [...effective.values()].map(({ root }) => ({
     id: createHash("sha256").update(JSON.stringify(["local", root])).digest("hex"),
-    name: basename2(root),
+    name: basename3(root),
     path: root,
     displayPath: root
   }));
@@ -34618,8 +34796,8 @@ var resourceUri = `ui://git-graph/window-${createHash2("sha256").update(html).di
 var hash2 = external_exports.string().regex(/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/);
 var repositoryId = external_exports.string().regex(/^[0-9a-f]{64}$/).optional();
 var annotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
-var preferencesDirectory = join3(
-  process.env.CODEX_HOME || join3(homedir3(), ".codex"),
+var preferencesDirectory = join4(
+  process.env.CODEX_HOME || join4(homedir3(), ".codex"),
   "plugins/data/git-graph-codex-git-graph"
 );
 function watchSession({ session }) {
@@ -34640,19 +34818,19 @@ async function authorizeWatch(context, watchId) {
 }
 async function readPreference(directory, file2, schema, label) {
   try {
-    return schema.parse(JSON.parse(await readFile2(join3(directory, file2), "utf8")));
+    return schema.parse(JSON.parse(await readFile2(join4(directory, file2), "utf8")));
   } catch (error63) {
     if (error63.code === "ENOENT") return schema.parse({});
     throw error62("backend.preference.read", { label, diagnostic: toMessage(error63) }, error63);
   }
 }
 async function writePreference(directory, file2, value, label) {
-  const temporary = join3(directory, `${file2}.${randomUUID2()}.tmp`);
+  const temporary = join4(directory, `${file2}.${randomUUID2()}.tmp`);
   try {
     await mkdir(directory, { recursive: true });
     try {
       await writeFile(temporary, JSON.stringify(value) + "\n", { mode: 384, flag: "wx" });
-      await rename(temporary, join3(directory, file2));
+      await rename(temporary, join4(directory, file2));
     } finally {
       await rm(temporary, { force: true });
     }
@@ -34727,6 +34905,17 @@ var definitions = {
     parent: external_exports.number().int().min(0).optional(),
     path: external_exports.string().min(1).max(4096)
   }), run: workspaceFile }),
+  git_graph_worktree: defineTool({ title: format(msg("backend.tool.readWorktree"), "en"), schema: external_exports.strictObject({ repository: repositoryId }), run: worktree }),
+  git_graph_worktree_diff: defineTool({ title: format(msg("backend.tool.readWorktreeDiff"), "en"), schema: external_exports.strictObject({
+    repository: repositoryId,
+    group: external_exports.enum(["staged", "changes"]),
+    path: external_exports.string().min(1).max(4096)
+  }), run: worktreeDiff }),
+  git_graph_worktree_file: defineTool({ title: format(msg("backend.tool.locateWorktreeFile"), "en"), schema: external_exports.strictObject({
+    repository: repositoryId,
+    group: external_exports.enum(["staged", "changes"]),
+    path: external_exports.string().min(1).max(4096)
+  }), run: worktreeFile }),
   git_graph_watch_start: defineTool({
     title: format(msg("backend.tool.startWatch"), "en"),
     schema: external_exports.strictObject({ repository: repositoryId }),

@@ -15,7 +15,7 @@ import 'monaco-editor/languages/definitions/dart/register.js';
 
 import type { diff } from './git.ts';
 import { error, format, msg, type Locale } from './i18n.ts';
-type DiffResult = Awaited<ReturnType<typeof diff>>;
+type DiffResult = Pick<Awaited<ReturnType<typeof diff>>, 'original' | 'modified'>;
 export type DiffStatus = { text: string; canNavigate: boolean };
 export type DiffView = { state: editor.IDiffEditorViewState | null; focus: 'original' | 'modified' | null };
 type DiffInstance = {

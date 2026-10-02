@@ -7,7 +7,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { history, commit, compare, diff, compareDiff, workspaceFile, repository } from './git.ts';
+import { history, commit, compare, diff, compareDiff, workspaceFile, worktree, worktreeDiff, worktreeFile, repository } from './git.ts';
 import { createWatchers } from './watch.ts';
 import { readWorkspace, resolveRepositories, type GraphContext, type Workspace } from './project.ts';
 import { createAppearanceReader } from './codex.ts';
@@ -112,6 +112,11 @@ export const definitions = {
     path: z.string().min(1).max(4096) }), run: compareDiff }),
   git_graph_workspace_file: defineTool({ title: format(msg('backend.tool.locateFile'), 'en'), schema: z.strictObject({ repository: repositoryId, hash, base: hash.optional(), parent: z.number().int().min(0).optional(),
     path: z.string().min(1).max(4096) }), run: workspaceFile }),
+  git_graph_worktree: defineTool({ title: format(msg('backend.tool.readWorktree'), 'en'), schema: z.strictObject({ repository: repositoryId }), run: worktree }),
+  git_graph_worktree_diff: defineTool({ title: format(msg('backend.tool.readWorktreeDiff'), 'en'), schema: z.strictObject({ repository: repositoryId, group: z.enum(['staged', 'changes']),
+    path: z.string().min(1).max(4096) }), run: worktreeDiff }),
+  git_graph_worktree_file: defineTool({ title: format(msg('backend.tool.locateWorktreeFile'), 'en'), schema: z.strictObject({ repository: repositoryId, group: z.enum(['staged', 'changes']),
+    path: z.string().min(1).max(4096) }), run: worktreeFile }),
   git_graph_watch_start: defineTool({ title: format(msg('backend.tool.startWatch'), 'en'), schema: z.strictObject({ repository: repositoryId }),
     annotations: { ...annotations, idempotentHint: false }, run: async context => {
       const session = watchSession(context);

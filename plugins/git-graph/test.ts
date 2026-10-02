@@ -1,13 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, writeFile, readFile, rename, rm, copyFile, realpath, symlink } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, writeFile, readFile, rename, rm, copyFile, realpath, symlink } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client, type CallToolRequest } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
-import { git, history, commit, diff, repository, workspaceFile, compare, compareDiff } from './git.ts';
+import { git, history, commit, diff, repository, workspaceFile, compare, compareDiff, worktree, worktreeDiff, worktreeFile, parseWorktreeStatus } from './git.ts';
 import { createAppearanceReader, type WithCodex } from './codex.ts';
-import { layout, graphPaths, colors, incomingId, outgoingId, type GraphCommit } from './graph.ts';
+import { layout, graphPaths, colors, incomingId, outgoingId, uncommittedId, type GraphCommit } from './graph.ts';
 import { readWorkspace, resolveRepositories } from './project.ts';
 import type { definitions } from './server.ts';
 import { z } from 'zod';
@@ -159,6 +161,31 @@ test('native incoming reconnects only the upstream lineage and preserves true co
   assert.ok(rows.every(row => graphPaths(row).every(path => path.color && !path.d.includes('NaN'))));
 });
 
+test('uncommitted graph preserves native sync anchors, real parents and reference filtering', () => {
+  const currentRef = { name: 'refs/heads/main', hash: 'L' }, upstreamRef = { name: 'refs/remotes/origin/main', hash: 'R' };
+  const options = { refs: [currentRef, upstreamRef, { name: 'refs/tags/same', hash: 'L' }, { name: 'refs/remotes/origin/same', hash: 'L' }],
+    head: 'L', headName: 'main', currentRef, upstreamRef, mergeBase: 'B', uncommitted: true, offset: 7 };
+  const commits = [{ hash: 'L', parents: ['B'] }, { hash: 'R', parents: ['B'] }, { hash: 'B', parents: [] }], before = structuredClone({ commits, options });
+  const targets = (rows: ReturnType<typeof layout>['rows']) => rows.filter(row => row.target === incomingId || row.target === outgoingId).map(row => [row.target, row.base, row.revision]);
+  for (const branch of ['', currentRef.name]) {
+    const rows = layout(commits, { ...options, branch }).rows;
+    assert.deepEqual(rows.find(row => row.hash === uncommittedId)?.parents, ['L']);
+    assert.deepEqual(targets(rows), targets(layout(commits, { ...options, branch, uncommitted: false }).rows));
+    for (const commit of commits) assert.deepEqual(rows.find(row => row.hash === commit.hash)?.parents, commit.parents);
+    assert.equal(rows.filter(row => row.target === 'commit').length, commits.length);
+  }
+  for (const branch of ['refs/tags/same', 'refs/remotes/origin/same', 'refs/heads/other']) assert.ok(!layout(commits, { ...options, branch }).rows.some(row => row.hash === uncommittedId));
+  assert.ok(!layout(commits, { ...options, uncommitted: false }).rows.some(row => row.hash === uncommittedId));
+  const unborn = layout([], { headName: 'main', uncommitted: true, branch: 'refs/heads/main' }).rows;
+  assert.deepEqual(unborn.map(row => [row.hash, row.parents, row.base, row.revision]), [[uncommittedId, [], null, '']]);
+  const detached = { head: 'L', currentRef: { name: 'L', hash: 'L' }, uncommitted: true };
+  assert.ok(layout(commits, detached).rows.some(row => row.hash === uncommittedId));
+  assert.ok(!layout(commits, { ...detached, branch: 'refs/tags/same' }).rows.some(row => row.hash === uncommittedId));
+  const baseOnly = layout([{ hash: 'B', parents: [] }], { ...options, head: 'B', currentRef: { ...currentRef, hash: 'B' } }).rows;
+  assert.deepEqual(baseOnly.map(row => row.hash), [uncommittedId, 'B'], 'the workspace edge to a loaded base never manufactures an incoming anchor');
+  assert.deepEqual({ commits, options }, before, 'virtual insertion preserves source data and pagination');
+});
+
 test('native reference priority and icons distinguish current, upstream, base and other references', () => {
   const currentRef = { name: 'refs/heads/main', hash: 'A' }, upstreamRef = { name: 'refs/remotes/origin/main', hash: 'A' };
   const baseRef = { name: 'refs/remotes/origin/base', hash: 'A' };
@@ -176,6 +203,142 @@ test('native reference priority and icons distinguish current, upstream, base an
   const localUpstream = { name: 'refs/heads/tracked-local', hash: 'B' };
   const local = layout(commits, { refs: [currentRef, localUpstream], currentRef, upstreamRef: localUpstream }).rows;
   assert.equal(local[1].references[0].icon, 'git-branch', 'local dot upstream does not get a remote cloud icon');
+});
+
+test('uncommitted status and grouped diffs preserve index, renames, intent-to-add and bounded special files', async () => {
+  const repo = await realpath(await mkdtemp(join(tmpdir(), 'git-graph-uncommitted-')));
+  try {
+    await git(repo, ['init', '-b', 'main']);
+    for (const [key, value] of [['user.name', 'Worktree Test'], ['user.email', 'worktree@example.invalid'], ['commit.gpgsign', 'false'], ['core.hooksPath', '/dev/null'], ['core.autocrlf', 'false'], ['core.filemode', 'true']]) await git(repo, ['config', key, value]);
+    for (const [path, text] of [['mixed.txt', 'HEAD\n'], ['old.txt', 'rename\n'], ['delete.txt', 'deleted\n'], ['mode.txt', 'mode\n'], ['.gitignore', 'ignored*\n']]) await writeFile(join(repo, path), text);
+    await symlink('/outside/original', join(repo, 'link')); await git(repo, ['add', '-A']); await git(repo, ['commit', '-m', 'Initial']);
+    const head = (await git(repo, ['rev-parse', 'HEAD'])).trim(), renamed = ':(glob)*中文\tnew\nfile.txt';
+    await rename(join(repo, 'old.txt'), join(repo, renamed)); await git(repo, ['add', '--', 'old.txt', renamed]);
+    await writeFile(join(repo, renamed), 'rename\nworktree\n');
+    await writeFile(join(repo, 'mixed.txt'), 'INDEX\n'); await git(repo, ['add', '--', 'mixed.txt']); await writeFile(join(repo, 'mixed.txt'), 'HEAD\n');
+    await rm(join(repo, 'delete.txt')); await chmod(join(repo, 'mode.txt'), 0o755);
+    await rm(join(repo, 'link')); await symlink('/outside/modified', join(repo, 'link'));
+    await mkdir(join(repo, 'new')); await writeFile(join(repo, 'new', 'space file.txt'), 'untracked\n');
+    await writeFile(join(repo, 'ignored-secret'), 'ignored\n'); await writeFile(join(repo, 'intent.txt'), 'intent\n'); await git(repo, ['add', '-N', '--', 'intent.txt']);
+    await writeFile(join(repo, 'binary.bin'), Buffer.from([0, 1])); await writeFile(join(repo, 'invalid.txt'), Buffer.from([0xff]));
+    await writeFile(join(repo, 'large.txt'), 'x'.repeat(2 * 1024 * 1024 + 1));
+    const before = await readFile(join(repo, '.git/index')), headBefore = await readFile(join(repo, '.git/HEAD'));
+    const detail = await worktree({ repoPath: repo }); assert.equal(detail.head, head); assert.equal(detail.headName, 'main');
+    assert.equal(detail.files.filter(file => file.path === 'mixed.txt').length, 2, 'the two phases remain visible even when HEAD and worktree cancel');
+    assert.ok(!detail.files.some(file => file.path === 'ignored-secret'));
+    assert.deepEqual(detail.files.filter(file => file.path === 'intent.txt').map(file => [file.group, file.status, file.original.id]), [['changes', 'A', null]]);
+    const read = (group: 'staged' | 'changes', path: string) => worktreeDiff({ repoPath: repo, group, path });
+    const staged = await read('staged', 'mixed.txt'), changes = await read('changes', 'mixed.txt');
+    assert.equal(staged.headName, 'main'); assert.equal(changes.headName, 'main');
+    assert.deepEqual([staged.original.source, staged.original.content, staged.modified.source, staged.modified.content], ['head', 'HEAD\n', 'index', 'INDEX\n']);
+    assert.deepEqual([changes.original.source, changes.original.content, changes.modified.source, changes.modified.content], ['index', 'INDEX\n', 'worktree', 'HEAD\n']);
+    const moved = await read('staged', renamed), edited = await read('changes', renamed);
+    assert.equal(moved.status, 'R100'); assert.equal(moved.original.path, 'old.txt'); assert.equal(moved.modified.path, renamed);
+    assert.equal(moved.original.content, moved.modified.content); assert.equal(edited.original.path, renamed); assert.equal(edited.oldPath, null);
+    assert.deepEqual([edited.original.content, edited.modified.content], ['rename\n', 'rename\nworktree\n']);
+    for (const path of ['intent.txt', 'new/space file.txt']) {
+      const added = await read('changes', path); assert.equal(added.original.source, 'empty'); assert.equal(added.original.exists, false); assert.equal(added.modified.source, 'worktree');
+    }
+    const deleted = await read('changes', 'delete.txt'); assert.equal(deleted.original.content, 'deleted\n'); assert.equal(deleted.modified.exists, false); assert.equal(deleted.modified.source, 'empty');
+    const mode = await read('changes', 'mode.txt'); assert.equal(mode.original.content, mode.modified.content); assert.deepEqual([mode.original.mode, mode.modified.mode], ['100644', '100755']);
+    const link = await read('changes', 'link'); assert.deepEqual([link.original.content, link.modified.content, link.modified.mode], ['/outside/original', '/outside/modified', '120000']);
+    for (const [path, key] of [['binary.bin', 'backend.file.binary'], ['invalid.txt', 'backend.file.encoding'], ['large.txt', 'backend.file.tooLarge']] as const) assert.equal((await read('changes', path)).modified.reason?.key, key);
+    assert.equal((await worktreeFile({ repoPath: repo, group: 'changes', path: 'new/space file.txt' })).path, await realpath(join(repo, 'new/space file.txt')));
+    await assert.rejects(worktreeFile({ repoPath: repo, group: 'changes', path: 'link' }), isErrorKey('backend.file.missingWorkspace'));
+    for (const path of ['../outside', 'intent.txt\0', '/etc/passwd']) await assert.rejects(read('changes', path), isErrorKey('backend.file.outsideRange'));
+    await assert.rejects(read('staged', 'intent.txt'), isErrorKey('backend.file.outsideRange'));
+    assert.deepEqual(await readFile(join(repo, '.git/index')), before); assert.deepEqual(await readFile(join(repo, '.git/HEAD')), headBefore);
+    await git(repo, ['checkout', '-b', 'same-head']); const sameHead = await read('changes', 'mixed.txt');
+    assert.equal(sameHead.head, head); assert.equal(sameHead.headName, 'same-head', 'a different branch at the same commit has its own diff identity');
+    const raw = await git(repo, ['status', '--porcelain=v2', '-z', '--branch', '--untracked-files=all', '--renames']);
+    for (const malformed of [raw.slice(0, -1), raw + '? ../outside\0', raw + '? intent.txt\0', raw.replace('# branch.oid ', '# broken.oid ')]) assert.throws(() => parseWorktreeStatus(malformed), isErrorKey('backend.worktree.invalidStatus'));
+  } finally { await rm(repo, { recursive: true, force: true }); }
+});
+
+test('uncommitted unborn, conflicts, linked worktrees and submodules keep their real source semantics', async () => {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'git-graph-worktree-states-'))), unborn = join(directory, 'unborn'), repo = join(directory, 'main'), linked = join(directory, 'linked');
+  try {
+    for (const path of [unborn, repo]) {
+      await mkdir(path); await git(path, ['init', '-b', 'main']);
+      for (const [key, value] of [['user.name', 'Worktree Test'], ['user.email', 'worktree@example.invalid'], ['commit.gpgsign', 'false'], ['core.hooksPath', '/dev/null']]) await git(path, ['config', key, value]);
+    }
+    await writeFile(join(unborn, 'staged.txt'), 'staged\n'); await git(unborn, ['add', '--', 'staged.txt']); await writeFile(join(unborn, 'untracked.txt'), 'new\n');
+    const initial = await worktree({ repoPath: unborn }); assert.equal(initial.head, ''); assert.equal(initial.headName, 'main');
+    const unbornHistory = await history({ repoPath: unborn, branch: 'refs/heads/main' }); assert.equal(unbornHistory.branch, 'refs/heads/main'); assert.equal(unbornHistory.missingBranch, ''); assert.deepEqual(unbornHistory.refs, []);
+    const unbornDiff = await worktreeDiff({ repoPath: unborn, group: 'staged', path: 'staged.txt' }); assert.equal(unbornDiff.headName, 'main'); assert.equal(unbornDiff.original.source, 'empty'); assert.equal(unbornDiff.modified.source, 'index'); assert.equal(unbornDiff.modified.content, 'staged\n');
+    await writeFile(join(repo, 'conflict.txt'), 'base\n'); await git(repo, ['add', '-A']); await git(repo, ['commit', '-m', 'Base']);
+    await git(repo, ['worktree', 'add', '--detach', linked, 'HEAD']); await writeFile(join(linked, 'new.txt'), 'linked\n');
+    assert.equal((await worktree({ repoPath: linked })).headName, ''); const linkedDiff = await worktreeDiff({ repoPath: linked, group: 'changes', path: 'new.txt' }); assert.equal(linkedDiff.headName, ''); assert.equal(linkedDiff.modified.content, 'linked\n');
+    const detachedHistory = await history({ repoPath: linked }); assert.equal(detachedHistory.branch, '', 'a detached workspace keeps the all filter with only one unrelated local branch');
+    assert.ok(!(await worktree({ repoPath: repo })).files.some(file => file.path === 'new.txt'));
+    await git(repo, ['checkout', '-b', 'other']); await writeFile(join(repo, 'conflict.txt'), 'theirs\n'); await git(repo, ['add', '-A']); await git(repo, ['commit', '-m', 'Theirs']);
+    await git(repo, ['checkout', 'main']); await writeFile(join(repo, 'conflict.txt'), 'ours\n'); await git(repo, ['add', '-A']); await git(repo, ['commit', '-m', 'Ours']);
+    await assert.rejects(git(repo, ['merge', 'other']), isErrorKey('backend.git.failure'));
+    const index = await readFile(join(repo, '.git/index')), conflicted = await worktree({ repoPath: repo });
+    assert.deepEqual(conflicted.files.map(file => [file.group, file.status, file.path]), [['changes', 'U', 'conflict.txt']]);
+    const conflict = await worktreeDiff({ repoPath: repo, group: 'changes', path: 'conflict.txt' });
+    assert.equal(conflict.original.source, 'index'); assert.equal(conflict.original.reason?.key, 'backend.worktree.conflict'); assert.equal(conflict.original.content, '');
+    assert.equal((await worktreeFile({ repoPath: repo, group: 'changes', path: 'conflict.txt' })).path, join(repo, 'conflict.txt'));
+    await assert.rejects(worktreeDiff({ repoPath: repo, group: 'staged', path: 'conflict.txt' }), isErrorKey('backend.file.outsideRange'));
+    assert.deepEqual(await readFile(join(repo, '.git/index')), index);
+    const zero = '0'.repeat(40), id = 'a'.repeat(40);
+    for (const xy of ['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU']) {
+      const parsed = parseWorktreeStatus(`# branch.oid ${id}\0# branch.head main\0u ${xy} N... 100644 100644 100644 100644 ${id} ${id} ${zero} conflict.txt\0`);
+      assert.deepEqual(parsed.files.map(file => [file.group, file.status, file.original.id]), [['changes', 'U', null]]);
+    }
+    await git(repo, ['merge', '--abort']); const vendor = join(repo, 'vendor'); await mkdir(vendor); await git(vendor, ['init', '-b', 'main']);
+    for (const [key, value] of [['user.name', 'Submodule Test'], ['user.email', 'submodule@example.invalid'], ['commit.gpgsign', 'false'], ['core.hooksPath', '/dev/null']]) await git(vendor, ['config', key, value]);
+    await writeFile(join(vendor, 'file.txt'), 'old\n'); await git(vendor, ['add', '-A']); await git(vendor, ['commit', '-m', 'Old']); const old = (await git(vendor, ['rev-parse', 'HEAD'])).trim();
+    await git(repo, ['update-index', '--add', '--cacheinfo', `160000,${old},vendor`]); await git(repo, ['commit', '-m', 'Gitlink']);
+    await writeFile(join(vendor, 'file.txt'), 'new\n'); await git(vendor, ['add', '-A']); await git(vendor, ['commit', '-m', 'New']); const next = (await git(vendor, ['rev-parse', 'HEAD'])).trim();
+    const pointer = await worktreeDiff({ repoPath: repo, group: 'changes', path: 'vendor' }); assert.equal(pointer.original.content, `Subproject commit ${old}\n`); assert.equal(pointer.modified.content, `Subproject commit ${next}\n`); assert.equal(pointer.modified.reason, undefined);
+    await writeFile(join(vendor, 'file.txt'), 'dirty\n'); await writeFile(join(vendor, 'untracked.txt'), 'new\n');
+    const dirty = await worktreeDiff({ repoPath: repo, group: 'changes', path: 'vendor' }); assert.equal(dirty.modified.reason, undefined); assert.equal(dirty.modified.content, `Subproject commit ${next}-dirty\n`);
+    assert.equal((await worktree({ repoPath: repo })).files.find(file => file.path === 'vendor')?.submodule, 'SCMU');
+    await rm(join(vendor, 'untracked.txt'));
+    assert.equal((await worktree({ repoPath: repo })).files.find(file => file.path === 'vendor')?.submodule, 'SCM.');
+    assert.equal((await worktreeDiff({ repoPath: repo, group: 'changes', path: 'vendor' })).modified.content, `Subproject commit ${next}-dirty\n`, 'a changed pointer and tracked dirty state remain comparable');
+    await git(vendor, ['restore', '--worktree', '--', 'file.txt']); await writeFile(join(vendor, 'untracked.txt'), 'new\n');
+    assert.equal((await worktree({ repoPath: repo })).files.find(file => file.path === 'vendor')?.submodule, 'SC.U');
+    assert.equal((await worktreeDiff({ repoPath: repo, group: 'changes', path: 'vendor' })).modified.content, `Subproject commit ${next}-dirty\n`, 'a changed pointer and untracked dirty state remain comparable');
+    await git(repo, ['update-index', '--cacheinfo', `160000,${next},vendor`]);
+    const staged = await worktreeDiff({ repoPath: repo, group: 'staged', path: 'vendor' }); assert.equal(staged.modified.source, 'index'); assert.equal(staged.modified.content, `Subproject commit ${next}\n`);
+    const dirtyOnly = await worktreeDiff({ repoPath: repo, group: 'changes', path: 'vendor' }); assert.equal(dirtyOnly.original.content, `Subproject commit ${next}\n`); assert.equal(dirtyOnly.modified.content, `Subproject commit ${next}-dirty\n`); assert.equal(dirtyOnly.modified.reason, undefined);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('uncommitted reads reject concurrent staging, deletion and replaced parent symlinks', async () => {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'git-graph-worktree-race-'))), repo = join(directory, 'repo'), bin = join(directory, 'bin'), outside = join(directory, 'outside');
+  const savedEnvironment = { PATH: process.env.PATH, GRAPH_STATE_GIT: process.env.GRAPH_STATE_GIT, GRAPH_STATE_MARKER: process.env.GRAPH_STATE_MARKER, GRAPH_STATE_ACTION: process.env.GRAPH_STATE_ACTION, GRAPH_STATE_REPO: process.env.GRAPH_STATE_REPO, GRAPH_STATE_OUTSIDE: process.env.GRAPH_STATE_OUTSIDE };
+  try {
+    await mkdir(repo); await mkdir(bin); await mkdir(outside); await mkdir(join(repo, 'src')); await writeFile(join(outside, 'file.txt'), 'external secret\n');
+    await git(repo, ['init', '-b', 'main']);
+    for (const [key, value] of [['user.name', 'Race Test'], ['user.email', 'race@example.invalid'], ['commit.gpgsign', 'false'], ['core.hooksPath', '/dev/null']]) await git(repo, ['config', key, value]);
+    await writeFile(join(repo, 'src', 'file.txt'), 'base\n'); await git(repo, ['add', '-A']); await git(repo, ['commit', '-m', 'Base']);
+    const binary = (await promisify(execFile)('/usr/bin/which', ['git'])).stdout.trim(), marker = join(directory, 'changed');
+    await writeFile(join(bin, 'git'), `#!/usr/bin/env node
+const fs = require('node:fs'), cp = require('node:child_process'), path = require('node:path');
+const args = process.argv.slice(2), result = cp.spawnSync(process.env.GRAPH_STATE_GIT, args);
+if (args.includes('status') && !fs.existsSync(process.env.GRAPH_STATE_MARKER)) {
+  fs.writeFileSync(process.env.GRAPH_STATE_MARKER, 'changed');
+  const repo = process.env.GRAPH_STATE_REPO, file = path.join(repo, 'src/file.txt');
+  if (process.env.GRAPH_STATE_ACTION === 'stage') { fs.writeFileSync(file, 'next index\\n'); cp.spawnSync(process.env.GRAPH_STATE_GIT, ['-C', repo, 'add', '--', 'src/file.txt']); }
+  else if (process.env.GRAPH_STATE_ACTION === 'delete') fs.unlinkSync(file);
+  else { fs.renameSync(path.join(repo, 'src'), path.join(repo, 'saved')); fs.symlinkSync(process.env.GRAPH_STATE_OUTSIDE, path.join(repo, 'src')); }
+}
+process.stdout.write(result.stdout); process.stderr.write(result.stderr); process.exit(result.status === null ? 1 : result.status);
+`, { mode: 0o755 });
+    Object.assign(process.env, { GRAPH_STATE_GIT: binary, GRAPH_STATE_MARKER: marker, GRAPH_STATE_REPO: repo, GRAPH_STATE_OUTSIDE: outside });
+    for (const action of ['stage', 'delete', 'escape']) {
+      await git(repo, ['restore', '--staged', '--worktree', '--', 'src/file.txt']); await writeFile(join(repo, 'src', 'file.txt'), 'modified\n'); await rm(marker, { force: true });
+      process.env.GRAPH_STATE_ACTION = action; process.env.PATH = `${bin}:${savedEnvironment.PATH}`;
+      try { await assert.rejects(worktreeDiff({ repoPath: repo, group: 'changes', path: 'src/file.txt' }), isErrorKey(action === 'escape' ? 'backend.file.outsideRepository' : 'backend.worktree.changed')); }
+      finally { process.env.PATH = savedEnvironment.PATH; if (action === 'escape') { await rm(join(repo, 'src')); await rename(join(repo, 'saved'), join(repo, 'src')); } }
+    }
+  } finally {
+    for (const [key, value] of Object.entries(savedEnvironment)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test('real Git history, merge parents, renames, paths, pagination, read-only state and MCP window contract', async () => {
@@ -280,6 +443,12 @@ await createServer({ readContext: async () => ({ cwd: process.cwd(), runtimeRoot
       assert.deepEqual(Object.keys(tool.inputSchema.properties!).sort(), name === 'git_graph_compare' ? ['base', 'hash', 'repository'] : ['base', 'hash', 'path', 'repository']);
       assert.equal(tool.inputSchema.additionalProperties, false); assert.equal(tool.annotations?.readOnlyHint, true);
     }
+    for (const name of ['git_graph_worktree', 'git_graph_worktree_diff', 'git_graph_worktree_file']) {
+      const tool = tools.tools.find(tool => tool.name === name)!;
+      assert.deepEqual(Object.keys(tool.inputSchema.properties!).sort(), name === 'git_graph_worktree' ? ['repository'] : ['group', 'path', 'repository']);
+      assert.equal(tool.inputSchema.additionalProperties, false); assert.equal(tool.annotations?.readOnlyHint, true);
+      assert.deepEqual(uiMetadata.parse(tool._meta).ui.visibility, ['app']);
+    }
     assert.ok(!tools.tools.some(tool => tool.name.startsWith('git_graph_working_')));
     const tool = tools.tools.find(tool => tool.name === 'git_graph');
     assert.ok(tool);
@@ -295,6 +464,14 @@ await createServer({ readContext: async () => ({ cwd: process.cwd(), runtimeRoot
     assert.ok('commits' in current.structuredContent);
     assert.equal(current.structuredContent.commits[0].hash, latest);
     assert.equal((await callTool(client, { name: 'git_graph_history', arguments: {} })).structuredContent.head, latest);
+    const working = (await callTool(client, { name: 'git_graph_worktree', arguments: {} })).structuredContent;
+    assert.deepEqual(working.files.map(file => [file.group, file.path]), [['changes', 'untracked.txt']]);
+    assert.equal((await callTool(client, { name: 'git_graph_worktree_diff', arguments: { group: 'changes', path: 'untracked.txt' } })).structuredContent.modified.content, 'do not touch');
+    assert.equal((await callTool(client, { name: 'git_graph_worktree_file', arguments: { group: 'changes', path: 'untracked.txt' } })).structuredContent.path, await realpath(join(repo, 'untracked.txt')));
+    for (const arguments_ of [{ group: 'staged', path: 'untracked.txt' }, { group: 'changes', path: '../outside' }, { group: 'other', path: 'untracked.txt' }, { group: 'changes', path: 'untracked.txt', repoPath: noGit }, { group: 'changes', path: 'untracked.txt', repository: 'f'.repeat(64) }]) {
+      for (const name of ['git_graph_worktree_diff', 'git_graph_worktree_file']) assert.equal((await client.callTool({ name, arguments: arguments_ })).isError, true);
+    }
+    assert.deepEqual(await readFile(join(repo, '.git/index')), indexBefore);
     assert.equal((await callTool(client, { name: 'git_graph_commit', arguments: { hash: merge } })).structuredContent.parents.length, 2);
     assert.equal((await callTool(client, { name: 'git_graph_diff', arguments: { hash: root, path: 'alpha.txt' } })).structuredContent.modified.content, 'one\ntwo\nthree\n');
     assert.equal((await callTool(client, { name: 'git_graph_workspace_file', arguments: { hash: latest, path: strange } })).structuredContent.path, await realpath(join(repo, strange)));

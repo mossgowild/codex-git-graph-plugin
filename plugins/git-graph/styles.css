@@ -212,7 +212,7 @@ button svg { @apply size-icon flex-none; }
 .commit-row.is-focused .graph circle:nth-of-type(2) { stroke: var(--selected-surface, var(--surface)) }
 .commit-row.current:hover .graph circle:last-of-type { fill: var(--color-background-primary-ghost-hover) }
 .commit-row.io .graph circle:last-of-type { fill: var(--row-bg) }
-.commit-row.io:hover .dashed-node, .commit-row.io[data-selected] .dashed-node { stroke-width: 3px }
+.commit-row:hover .dashed-node, .commit-row[data-selected] .dashed-node { stroke-width: 3px }
 code, pre { @apply font-code; }
 .ref { @apply inline-flex items-center gap-[4px] flex-none min-w-0 text-ui-xs leading-[18px] h-[20px] border border-solid border-outline rounded-ref px-[6px] py-0 bg-surface; color: var(--ref-color, var(--fg)); }
 .ref > svg { @apply block size-[16px] flex-none; }

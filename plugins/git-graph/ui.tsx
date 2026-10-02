@@ -3,27 +3,35 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal, flushSync } from 'preact/compat';
 import { App, applyDocumentTheme, applyHostStyleVariables, applyHostFonts } from '@modelcontextprotocol/ext-apps';
 import { z } from 'zod';
-import { layout, graphPaths, laneX, type GraphRow, type GraphRef, type SyntheticCommit } from './graph.ts';
+import { layout, graphPaths, laneX, uncommittedId, type GraphRow, type GraphRef, type SyntheticCommit } from './graph.ts';
 import { panelsSchema } from './layout.ts';
 import { createPanels, type PanelView } from './panels.ts';
 import { Select, type SelectItem } from './select.tsx';
 import { Icon } from './icons.tsx';
 import { Tooltip } from './tooltip.tsx';
 import type { definitions } from './server.ts';
-import type { history, commit, diff, compare, compareDiff } from './git.ts';
+import type { history, commit, diff, compare, compareDiff, worktree, worktreeDiff } from './git.ts';
 import type * as Editor from './diff-editor.ts';
 import { msg, format, toMessage, isMessage, resolveLocale, error as localizedError, type Locale, type Message, type MessageKey } from './i18n.ts';
 
 type Tools = typeof definitions;
 type Call = <K extends keyof Tools>(name: K, args: z.input<Tools[K]['schema']>, options?: Parameters<App['callServerTool']>[1]) => Promise<Awaited<ReturnType<Tools[K]['invoke']>>>;
 type History = Awaited<ReturnType<typeof history>>;
+type Worktree = Awaited<ReturnType<typeof worktree>>;
+type CommitValue = Awaited<ReturnType<typeof commit>>;
 type RangeDetail = Awaited<ReturnType<typeof compare>> & { target: 'incoming-changes' | 'outgoing-changes' };
-type Detail = Awaited<ReturnType<typeof commit>> | RangeDetail;
-type Diff = Awaited<ReturnType<typeof diff>> | Awaited<ReturnType<typeof compareDiff>>;
+type WorktreeDetail = Worktree & { target: 'uncommitted-changes'; hash: string; base: string | null; parents: string[]; parent: number; revision: number };
+type Detail = CommitValue | RangeDetail | WorktreeDetail;
+type Diff = Awaited<ReturnType<typeof diff>> | Awaited<ReturnType<typeof compareDiff>> | Awaited<ReturnType<typeof worktreeDiff>>;
 type Row = GraphRow<History['commits'][number] | SyntheticCommit>;
-const isRange = (detail: Detail): detail is RangeDetail => 'target' in detail;
-const fileKey = (_detail: Detail, file: Detail['files'][number]) => file.path;
+const isRange = (detail: Detail): detail is RangeDetail => 'target' in detail && (detail.target === 'incoming-changes' || detail.target === 'outgoing-changes');
+const isWorktree = (detail: Detail): detail is WorktreeDetail => 'target' in detail && detail.target === uncommittedId;
+const isCommitDetail = (detail: Detail): detail is CommitValue => !('target' in detail);
+const fileKey = (_detail: Detail, file: Detail['files'][number]) => 'group' in file ? JSON.stringify([file.group, file.path]) : file.path;
 const sameRefs = (a: History, b: History) => ['head', 'headName', 'refs', 'tips', 'currentRef', 'upstreamRef', 'baseRef', 'mergeBase'].every(key => JSON.stringify(a[key as keyof History]) === JSON.stringify(b[key as keyof History]));
+const validHistoryIdentity = (history: History) => !history.currentRef || history.currentRef.hash === history.head;
+const sameCheckout = (a: Pick<History, 'repo' | 'head' | 'headName'>, b: Pick<Worktree, 'repo' | 'head' | 'headName'>) => a.repo === b.repo && a.head === b.head && a.headName === b.headName;
+const sameIdentity = (history: History, worktree: Worktree) => validHistoryIdentity(history) && sameCheckout(history, worktree);
 type GraphResult = Awaited<ReturnType<Tools['git_graph']['invoke']>>;
 type Repository = GraphResult['repositories'][number];
 type HostContext = NonNullable<ReturnType<App['getHostContext']>>;
@@ -33,7 +41,7 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 let uiLocale: Locale = 'en';
 const t = (key: MessageKey, params?: Message['params']) => format(msg(key, params), uiLocale);
 const message = (value: unknown) => { const descriptor = toMessage(value); return descriptor.key === 'backend.external' ? msg('ui.externalError', { diagnostic: descriptor }) : descriptor; };
-const rowSubject = (row: Row) => row.target === 'incoming-changes' ? t('ui.incoming') : row.target === 'outgoing-changes' ? t('ui.outgoing') : row.subject;
+const rowSubject = (row: Row) => row.target === 'incoming-changes' ? t('ui.incoming') : row.target === 'outgoing-changes' ? t('ui.outgoing') : row.target === uncommittedId ? t('ui.uncommitted') : row.subject;
 function toolError(result: { content?: { type: string; text?: string }[]; structuredContent?: unknown }) {
   const data = result.structuredContent;
   const descriptor = data && typeof data === 'object' && 'error' in data ? data.error : undefined;
@@ -104,7 +112,7 @@ function searchRows(rows: Row[], refs: GraphRef[], query: string) {
       values.push(text.slice(end)); return values;
     };
     const value: RowSearch = { refs: row.references.map(ref => parts(refName(ref, refs))), subject: parts(rowSubject(row) || t('ui.noSubject')), author: parts(row.author), matches: keys };
-    if (pattern && !keys.length) for (const [label, text] of [['SHA', row.target === 'commit' ? row.hash : row.revision], [t('ui.email'), row.email], ...refs.filter(ref => ref.hash === row.hash).map(ref => [t('ui.reference'), refsLabel(ref)])]) {
+    if (pattern && !keys.length) for (const [label, text] of [['SHA', row.target === uncommittedId ? '' : row.target === 'commit' ? row.hash : row.revision], [t('ui.email'), row.email], ...refs.filter(ref => ref.hash === row.hash).map(ref => [t('ui.reference'), refsLabel(ref)])]) {
       const match = [...text.matchAll(pattern)][0]; if (!match) continue;
       const start = Math.max(0, match.index! - 6), end = Math.min(text.length, match.index! + match[0].length + 6);
       value.context = { label, title: `${label}: ${text}`, parts: parts(`${start ? '…' : ''}${text.slice(start, end)}${end < text.length ? '…' : ''}`) }; break;
@@ -137,14 +145,15 @@ function CommitRow({ row, selected, focused, open, first, refs, search, active, 
     if (!icons.has(icon)) icons.set(icon, []);
     icons.get(icon)!.push(item);
   }
-  return <button class={`commit-row${row.kind === 'HEAD' ? ' current' : ''}${row.target !== 'commit' ? ' io' : ''}${focused === row.hash ? ' is-focused' : ''}${search.matches.length ? ' is-match' : ''}`}
+  const io = row.target === 'incoming-changes' || row.target === 'outgoing-changes';
+  return <button class={`commit-row${row.kind === 'HEAD' ? ' current' : ''}${io ? ' io' : ''}${row.target === uncommittedId ? ' uncommitted' : ''}${focused === row.hash ? ' is-focused' : ''}${search.matches.length ? ' is-match' : ''}`}
     data-hash={row.hash} data-selected={selected === row.hash ? '' : undefined} aria-expanded={open} aria-controls="detail-row"
     data-target={row.target} aria-label={`${rowSubject(row)}，${row.author}${row.target === 'commit' ? `，${row.hash.slice(0, 8)}` : ''}${row.references.length ? `，${row.references.map(ref => refName(ref, refs)).join('，')}` : ''}`}
     tabIndex={selected === row.hash || (!selected && first) ? 0 : -1}
     onClick={() => choose(row.hash)} onFocus={() => onFocus(row.hash)}>
     <svg class="graph mr-[4px] block h-[30px] flex-none self-stretch" style={{ width: row.width }} width={row.width} height={30} aria-hidden="true">
       {paths.map((path, index) => <path key={index} d={path.d} stroke={path.color} fill="none" stroke-width="1" stroke-linecap="round" class={edge && index === paths.length - 1 ? 'node-edge' : undefined} />)}
-      {row.kind === 'HEAD' ? <>{circle(7, 2)}{circle(2, 4, true)}</> : row.target !== 'commit' ? <circle class="dashed-node" cx={laneX(row.column)} cy={15} r={5} stroke-width={1} stroke-dasharray="4,2" style={{ stroke: row.color }} fill="var(--row-bg)" /> : row.parents.length > 1 ? <>{circle(6, 2)}{circle(3, 2)}</> : circle(5, 2)}
+      {row.kind === 'HEAD' ? <>{circle(7, 2)}{circle(2, 4, true)}</> : io || row.target === uncommittedId ? <circle class="dashed-node" cx={laneX(row.column)} cy={15} r={5} stroke-width={1} stroke-dasharray="4,2" style={{ stroke: row.color }} fill="var(--row-bg)" /> : row.parents.length > 1 ? <>{circle(6, 2)}{circle(3, 2)}</> : circle(5, 2)}
     </svg>
     <span class="message flex min-w-0 flex-1 items-center gap-[8px] overflow-hidden"><span class="badges flex min-w-0 max-w-full flex-none items-center gap-[4px] overflow-x-auto overflow-y-hidden empty:hidden">
       {primary && <RefBadge reference={primary.reference} refs={refs}><Highlight parts={primary.parts} active={active} /></RefBadge>}
@@ -162,9 +171,11 @@ function Header({ history, repositories, repository, pending, busy, initial, sea
   onBranch(value: string): void; onRepository(value: string): void; refresh(): void; toggleSearch(): void; search(value: string): void; step(direction: number): void;
 }) {
   const refs = history?.refs || [];
+  const unbornBranch = history && !history.head && history.headName ? `refs/heads/${history.headName}` : '';
+  const singleCurrentBranch = refs.length === 1 && refs[0].name === `refs/heads/${history?.headName}`;
   const groups: SelectItem[] = [[t('ui.localBranches'), 'refs/heads/'], [t('ui.remoteBranches'), 'refs/remotes/'], [t('ui.tag'), 'refs/tags/']].map(([label, prefix]) => ({ label,
-    options: refs.filter(ref => ref.name.startsWith(prefix)).map(ref => ({ label: refName(ref, refs), value: ref.name })) })).filter(group => group.options.length);
-  const items = refs.length === 1 ? groups.flatMap(group => 'options' in group ? group.options : [group]) : [{ label: t('ui.allRefs'), value: '' }, ...groups];
+    options: [...refs.filter(ref => ref.name.startsWith(prefix)).map(ref => ({ label: refName(ref, refs), value: ref.name })), ...(unbornBranch && prefix === 'refs/heads/' ? [{ label: history!.headName, value: unbornBranch }] : [])] })).filter(group => group.options.length);
+  const items = singleCurrentBranch ? groups.flatMap(group => 'options' in group ? group.options : [group]) : [{ label: t('ui.allRefs'), value: '' }, ...groups];
   return <header id="header" class="flex-none border-0 border-b border-solid border-outline">
     <div id="toolbar-skeleton" class="flex min-h-10 items-center gap-[8px] px-app py-content" hidden={!initial} role="status" aria-label={t('ui.loadingHistory')}><span class="skeleton-line h-[16px] w-[112px]" aria-hidden="true" /><span class="skeleton-block ml-auto size-[28px]" aria-hidden="true" /></div>
     <div id="toolbar" class="flex min-h-10 items-center gap-1 px-app py-content" hidden={!history}>
@@ -173,7 +184,7 @@ function Header({ history, repositories, repository, pending, busy, initial, sea
         items={repositories.map(repo => ({ label: repositories.some(other => other.id !== repo.id && other.name === repo.name) ? (repo.displayPath || repo.path) : repo.name, value: repo.id, title: repo.displayPath || repo.path }))}
         onChange={event => onRepository(event.currentTarget.value)} />
       <Select id="branch" class="max-w-1/2" aria-label={t('ui.branch')} icon="branch-light-16" items={items} value={pending?.branch ?? history?.branch ?? ''}
-        disabled={refs.length < 2 || (!!pending && pending.repository !== repository)} onChange={event => onBranch(event.currentTarget.value)} />
+        disabled={singleCurrentBranch || (!refs.length && !unbornBranch) || (!!pending && pending.repository !== repository)} onChange={event => onBranch(event.currentTarget.value)} />
       <span class="flex-1" /><button id="toggle-search" class="step" data-tooltip={t('ui.search')} aria-label={t('ui.search')} aria-controls="searchbar" aria-expanded={searchOpen} onClick={toggleSearch}><Icon name="toggle-search" /></button>
       <button id="refresh" class="step" data-tooltip={t('ui.refreshHint')} aria-label={t('ui.refresh')} onClick={refresh}><Icon name="refresh" /></button>
     </div>
@@ -208,6 +219,8 @@ function GitGraphApp() {
   const saveQueue = useRef(Promise.resolve()), panels = useRef<ReturnType<typeof createPanels>>();
   const [panelView, setPanelView] = useState<PanelView | null>(null);
   const [history, setHistory] = useState<History | null>(null), historyRef = useRef(history); historyRef.current = history;
+  const [worktree, setWorktree] = useState<Worktree | null>(null), worktreeRef = useRef(worktree); worktreeRef.current = worktree;
+  const [worktreeRevision, setWorktreeRevision] = useState(0);
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const repository = repositories.find(repo => repo.path === history?.repo)?.id || '', repositoryRef = useRef(repository); repositoryRef.current = repository;
   const [selected, setSelected] = useState(''), selectedRef = useRef(selected); selectedRef.current = selected;
@@ -219,18 +232,19 @@ function GitGraphApp() {
   const [historyNotice, setHistoryNotice] = useState<HistoryNotice | null>(null), [repositoryNotice, setRepositoryNotice] = useState<NoticeValue>(null);
   const [branchNotice, setBranchNotice] = useState<NoticeValue>(null), [layoutNotice, setLayoutNotice] = useState<NoticeValue>(null);
   const [watchNotice, setWatchNotice] = useState<NoticeValue>(null);
+  const [worktreeNotice, setWorktreeNotice] = useState<NoticeValue>(null);
   const [hostTheme, setHostTheme] = useState(''), [fontSize, setFontSize] = useState<number>(), [canOpenFile, setCanOpenFile] = useState(false);
   const [detailRow] = useState(() => { const el = document.createElement('div'); el.id = 'detail-row'; el.className = 'relative py-0.5 pr-[12px] pl-[calc(var(--graph-width,22px)+12px)]'; el.hidden = true; return el; });
-  const parking = useRef<HTMLDivElement>(null), slots = useRef(new Map<string, HTMLDivElement>()), reveal = useRef(false), focusRow = useRef(false), searchFocus = useRef<string>();
+  const parking = useRef<HTMLDivElement>(null), slots = useRef(new Map<string, HTMLDivElement>()), reveal = useRef(false), focusRow = useRef<boolean | 'toolbar'>(false), searchFocus = useRef<string>();
   const readingPosition = useRef<{ top: number; hash?: string; offset: number; focus: HTMLElement | null }>();
-  const graph = useMemo(() => layout(history?.commits || [], history || {}).rows, [history]);
+  const graph = useMemo(() => layout(history?.commits || [], { ...history, uncommitted: !!history && !!worktree && sameIdentity(history, worktree) && !!worktree.files.length }).rows, [history, worktree]);
   const search = useMemo(() => searchRows(graph, history?.refs || [], searchOpen ? query.trim() : ''), [graph, searchOpen, query, locale]);
   const match = Math.max(search.matches.length ? 0 : -1, search.matches.findIndex(item => item.key === matchKey));
   const active = search.matches[match]?.key || '';
   const park = () => { if (parking.current && detailRow.parentNode !== parking.current) parking.current.append(detailRow); };
   const call = useCallback(async <K extends keyof Tools,>(name: K, args: z.input<Tools[K]['schema']>, options?: Parameters<App['callServerTool']>[1]): Promise<Awaited<ReturnType<Tools[K]['invoke']>>> => {
     if (!connected.current) throw localizedError('ui.notConnected');
-    const result = await app.callServerTool({ name, arguments: repositoryRef.current && ['git_graph_history', 'git_graph_commit', 'git_graph_diff', 'git_graph_compare', 'git_graph_compare_diff', 'git_graph_workspace_file', 'git_graph_watch_start'].includes(name)
+    const result = await app.callServerTool({ name, arguments: repositoryRef.current && ['git_graph_history', 'git_graph_commit', 'git_graph_diff', 'git_graph_compare', 'git_graph_compare_diff', 'git_graph_workspace_file', 'git_graph_worktree', 'git_graph_worktree_diff', 'git_graph_worktree_file', 'git_graph_watch_start'].includes(name)
       ? { repository: repositoryRef.current, ...args } : args }, options);
     if (result.isError) { const descriptor = toolError(result); throw Object.assign(new Error(format(descriptor, uiLocale)), { messageDescriptor: descriptor }); }
     if (!result.structuredContent) throw localizedError('ui.invalidData');
@@ -265,19 +279,57 @@ function GitGraphApp() {
     setSelected(hash); setOpen(true); reveal.current = true; focusRow.current = keyboard;
     setMatchKey(search.matches.find(item => item.hash === hash)?.key || ''); refreshAppearance();
   }
-  function accept(data: History, append = false, preserve = false) {
-    const next = append && historyRef.current ? { ...data, commits: [...historyRef.current.commits, ...data.commits] } : data;
-    if (JSON.stringify(next) !== JSON.stringify(historyRef.current)) {
-      if (preserve) {
-        const scroll = $('history-scroll'), top = scroll.getBoundingClientRect().top;
-        const anchor = [...document.querySelectorAll<HTMLElement>('.commit-row')].find(row => row.getBoundingClientRect().bottom > top);
-        readingPosition.current = { top: scroll.scrollTop, hash: anchor?.dataset.hash, offset: anchor ? anchor.getBoundingClientRect().top - top : 0, focus: document.activeElement instanceof HTMLElement ? document.activeElement : null };
-      }
-      historyRef.current = next; setHistory(next);
+  function rememberPosition() {
+    const scroll = $('history-scroll'), top = scroll.getBoundingClientRect().top;
+    const anchor = [...document.querySelectorAll<HTMLElement>('.commit-row')].find(row => row.getBoundingClientRect().bottom > top);
+    readingPosition.current = { top: scroll.scrollTop, hash: anchor?.dataset.hash, offset: anchor ? anchor.getBoundingClientRect().top - top : 0, focus: document.activeElement instanceof HTMLElement ? document.activeElement : null };
+  }
+  function keepSelection(next: History, currentWorktree = worktreeRef.current) {
+    const rows = layout(next.commits, { ...next, uncommitted: !!currentWorktree && sameIdentity(next, currentWorktree) && !!currentWorktree.files.length }).rows;
+    if (!selectedRef.current || rows.some(row => row.hash === selectedRef.current)) return;
+    const moveFocus = selectedRef.current === uncommittedId && !!document.activeElement?.closest('.commit-row, #detail-row');
+    closeDetail(true);
+    if (moveFocus) {
+      const replacement = rows.find(row => row.hash === next.head) || rows[0];
+      if (replacement) { setSelected(replacement.hash); setFocused(replacement.hash); focusRow.current = true; }
+      else focusRow.current = 'toolbar';
     }
+  }
+  async function readState(candidate: History | Promise<History>, targetRepo: string, count: number, version: number, current = historyRef.current) {
+    let missingBranch = '';
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const [historyResult, worktreeResult] = await Promise.allSettled([candidate, call('git_graph_worktree', { repository: targetRepo })]);
+      if (version !== historyVersion.current || !connected.current) return null;
+      if (historyResult.status === 'rejected') throw historyResult.reason;
+      const data = historyResult.value; missingBranch ||= data.missingBranch;
+      if (worktreeResult.status === 'rejected' && validHistoryIdentity(data)) {
+        setWorktreeNotice({ message: msg('ui.worktreeReadFailure', { diagnostic: message(worktreeResult.reason) }), retry: refreshGraph });
+        return !worktreeRef.current || historyRef.current?.repo !== data.repo ? { history: { ...data, missingBranch }, worktree: null } : null;
+      }
+      if (worktreeResult.status === 'fulfilled' && sameIdentity(data, worktreeResult.value)) {
+        return { history: { ...data, missingBranch }, worktree: worktreeResult.value };
+      }
+      if (attempt < 2) candidate = readHistoryRange(data.branch, targetRepo, Math.max(count, data.commits.length), current?.repo === data.repo ? current : null);
+    }
+    setWorktreeNotice({ message: msg('ui.stateChanged'), retry: refreshGraph });
+    return null;
+  }
+  function accept(data: History, nextWorktree: Worktree | null, preserve = false) {
+    if (preserve) rememberPosition();
+    const historyChanged = JSON.stringify(data) !== JSON.stringify(historyRef.current), worktreeChanged = JSON.stringify(nextWorktree) !== JSON.stringify(worktreeRef.current);
+    keepSelection(data, nextWorktree);
+    historyRef.current = data; worktreeRef.current = nextWorktree;
+    flushSync(() => {
+      if (historyChanged) setHistory(data);
+      if (worktreeChanged) setWorktree(nextWorktree);
+      if (nextWorktree) setWorktreeRevision(value => value + 1);
+    });
+    if (nextWorktree) setWorktreeNotice(null);
     setContextCwd('');
-    if (!append && selectedRef.current && !layout(next.commits, next).rows.some(row => row.hash === selectedRef.current)) closeDetail(true);
-    if (data.missingBranch) setBranchNotice({ message: data.refs.length === 1 ? msg('ui.missingBranchOnly', { name: refsLabel({ name: data.missingBranch }), destination: refLabel(data.refs[0], data.refs) }) : msg('ui.missingBranchAll', { name: refsLabel({ name: data.missingBranch }) }), tone: 'info' });
+    if (data.missingBranch) {
+      const destination = data.refs.find(ref => ref.name === data.branch);
+      setBranchNotice({ message: data.branch ? msg('ui.missingBranchOnly', { name: refsLabel({ name: data.missingBranch }), destination: destination ? refLabel(destination, data.refs) : refsLabel({ name: data.branch }) }) : msg('ui.missingBranchAll', { name: refsLabel({ name: data.missingBranch }) }), tone: 'info' });
+    }
   }
   async function loadHistory(append = false, branch = historyRef.current?.branch || '', targetRepo = repositoryRef.current) {
     if (append && (busy || !historyRef.current?.hasMore)) return;
@@ -286,7 +338,7 @@ function GitGraphApp() {
     if (changingRepository) await stopWatching.current();
     if (version !== historyVersion.current) return;
     if (switching) closeDetail(true);
-    if (changingRepository) { setQuery(''); setMatchKey(''); }
+    if (changingRepository) { worktreeRef.current = null; setWorktree(null); setWorktreeNotice(null); setQuery(''); setMatchKey(''); }
     historyBusy.current = true; setBusy(true); setPending({ branch, repository: targetRepo }); setHistoryNotice(null); setBranchNotice(null);
     try {
       let data = await call('git_graph_history', { branch, ...(targetRepo ? { repository: targetRepo } : {}), ...(append && current ? { offset: current.commits.length, tips: current.tips } : {}) });
@@ -296,7 +348,10 @@ function GitGraphApp() {
         if (version !== historyVersion.current) return;
       }
       if (data.missingBranch) append = false;
-      accept(data, append, extending);
+      if (append && current) data = { ...data, offset: 0, commits: [...current.commits, ...data.commits] };
+      const state = await readState(data, targetRepo, data.commits.length, version, current);
+      if (!state) return;
+      repositoryRef.current = targetRepo; accept(state.history, state.worktree, extending);
       if (!append) { if (!extending) $('history-scroll').scrollTop = 0; setRefreshVersion(value => value + 1); }
     } catch (error) {
       if (version === historyVersion.current) setHistoryNotice({ message: message(error), retry: () => loadHistory(append, branch, targetRepo) });
@@ -323,11 +378,10 @@ function GitGraphApp() {
         const current = historyRef.current, targetRepo = repositoryRef.current, version = historyVersion.current;
         if (!current || !targetRepo) break;
         try {
-          const probe = await call('git_graph_history', { repository: targetRepo, branch: current.branch, limit: 1 });
-          const sameHistory = probe.branch === current.branch && sameRefs(probe, current);
-          const data = sameHistory ? current : await readHistoryRange(current.branch, targetRepo, current.commits.length, current);
+          const reading = call('git_graph_history', { repository: targetRepo, branch: current.branch, limit: 1 }).then(probe => probe.branch === current.branch && sameRefs(probe, current) ? current : readHistoryRange(current.branch, targetRepo, current.commits.length, current));
+          const state = await readState(reading, targetRepo, current.commits.length, version, current);
           if (version !== historyVersion.current || targetRepo !== repositoryRef.current || document.hidden) continue;
-          accept(data, false, true); setHistoryNotice(value => value?.automatic ? null : value);
+          if (state) { accept(state.history, state.worktree, true); setHistoryNotice(value => value?.automatic ? null : value); }
         } catch (error) {
           if (version === historyVersion.current && targetRepo === repositoryRef.current) setHistoryNotice(value => value && !value.automatic ? value : { automatic: true, message: message(error), retry: () => synchronize.current?.() });
         }
@@ -344,13 +398,15 @@ function GitGraphApp() {
       const changed = data.repo !== historyRef.current?.repo;
       setRepositories(data.repositories);
       repositoryRef.current = data.repositories.find(repo => repo.path === data.repo)?.id || '';
-      if (changed) { closeDetail(true); setQuery(''); setMatchKey(''); }
+      if (changed) { worktreeRef.current = null; setWorktree(null); setWorktreeNotice(null); closeDetail(true); setQuery(''); setMatchKey(''); }
       if (data.repo && 'commits' in data) {
         const current = historyRef.current;
         const next = !changed && current && (current.commits.length > data.commits.length || !sameRefs(data, current))
           ? await readHistoryRange(data.branch, repositoryRef.current, current.commits.length) : data;
         if (version !== historyVersion.current) return;
-        accept({ ...next, missingBranch: data.missingBranch || next.missingBranch }, false, !changed);
+        const state = await readState({ ...next, missingBranch: data.missingBranch || next.missingBranch }, repositoryRef.current, next.commits.length, version);
+        if (!state) return;
+        accept(state.history, state.worktree, !changed);
       }
       else { park(); setHistory(null); setContextCwd(data.contextCwd); setSearchOpen(false); }
       setRepositoryNotice(data.repositoryNotice ? { message: data.repositoryNotice, tone: 'info' } : null);
@@ -391,7 +447,8 @@ function GitGraphApp() {
     const slot = open ? slots.current.get(selected) : null;
     if (slot) { if (detailRow.parentNode !== slot) slot.append(detailRow); } else park();
     const row = document.querySelector<HTMLButtonElement>(`.commit-row[data-hash="${selected}"]`);
-    if (focusRow.current && row) { row.focus({ preventScroll: true }); row.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
+    if (focusRow.current === 'toolbar') $('refresh').focus({ preventScroll: true });
+    else if (focusRow.current && row) { row.focus({ preventScroll: true }); row.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
     focusRow.current = false;
     panels.current?.render();
     if (reveal.current && row && open) {
@@ -447,13 +504,21 @@ function GitGraphApp() {
     window.addEventListener('languagechange', languageChanged);
     app.onhostcontextchanged = context => { languageChanged(); applyTheme(context); setHostTheme(`${context.theme || document.documentElement.dataset.theme}:${Date.now()}`); refreshAppearance(); };
     app.ontoolresult = result => {
-      ++historyVersion.current; historyBusy.current = false; setBusy(false); setInitial(false); setPending(null);
+      const version = ++historyVersion.current; historyBusy.current = false; setBusy(false); setInitial(false); setPending(null);
       if (result.isError) { setHistoryNotice({ message: toolError(result), retry: reloadInitial }); return; }
       const data = result.structuredContent as GraphResult | undefined;
       if (!data) return;
-      closeDetail(true); setRepositories(data.repositories); repositoryRef.current = data.repositories.find(repo => repo.path === data.repo)?.id || '';
-      if (data.repo && 'commits' in data) { park(); setHistory(data); setContextCwd(''); }
-      else { park(); setHistory(null); setContextCwd(data.contextCwd); setSearchOpen(false); setQuery(''); }
+      closeDetail(true);
+      const targetRepo = data.repositories.find(repo => repo.path === data.repo)?.id || '';
+      if (data.repo !== historyRef.current?.repo) { worktreeRef.current = null; setWorktree(null); setWorktreeNotice(null); }
+      if (data.repo && 'commits' in data) {
+        historyBusy.current = true; setBusy(true); setInitial(!historyRef.current);
+        void readState(data, targetRepo, data.commits.length, version).then(state => {
+          if (!state || version !== historyVersion.current) return;
+          setRepositories(data.repositories); repositoryRef.current = targetRepo; park(); accept(state.history, state.worktree);
+        }).catch(error => { if (version === historyVersion.current) setHistoryNotice({ message: message(error), retry: reloadInitial }); })
+          .finally(() => { if (version === historyVersion.current) { historyBusy.current = false; setBusy(false); setInitial(false); if (syncPending.current) synchronize.current?.(); } });
+      } else { setRepositories(data.repositories); repositoryRef.current = ''; park(); historyRef.current = null; setHistory(null); setContextCwd(data.contextCwd); setSearchOpen(false); setQuery(''); }
       setHistoryNotice(null); setBranchNotice(null);
       setRepositoryNotice(data.repositoryNotice ? { message: data.repositoryNotice, tone: 'info' } : null);
     };
@@ -498,7 +563,7 @@ function GitGraphApp() {
     <Tooltip locale={locale} />
     <Header history={history} repositories={repositories} repository={repository} pending={pending} busy={busy} initial={initial} searchOpen={searchOpen} query={query} match={match} count={search.matches.length}
       onBranch={value => loadHistory(false, value)} onRepository={value => loadHistory(false, '', value)} refresh={refreshGraph} toggleSearch={() => toggleSearch(searchOpen && panelView?.maximized ? true : !searchOpen)} search={value => { setQuery(value); setMatchKey(''); }} step={step} />
-    <Notice id="branch-notice" value={branchNotice} /><Notice id="connection-error" value={connectionNotice} /><Notice id="font-error" value={fontNotice} /><Notice id="layout-error" value={layoutNotice} /><Notice id="watch-error" value={watchNotice} />
+    <Notice id="branch-notice" value={branchNotice} /><Notice id="connection-error" value={connectionNotice} /><Notice id="font-error" value={fontNotice} /><Notice id="layout-error" value={layoutNotice} /><Notice id="watch-error" value={watchNotice} /><Notice id="worktree-error" value={worktreeNotice} />
     <div id="content" class="flex min-h-0 flex-1"><section id="history-pane" aria-label={t('ui.history')} aria-busy={busy} class={`flex min-h-0 min-w-0 flex-1 flex-col ${panelView?.maximized && open ? 'detail-maximized' : ''}`} style={{ '--history-viewport-width': `${panelView?.width || 0}px` }}>
       <Notice id="repository-notice" value={repositoryNotice} /><Notice id="history-error" value={historyNotice} dismiss={() => setHistoryNotice(null)} />
       <div id="history-body" class="flex min-h-0 min-w-0 flex-1 flex-col"><div id="history-scroll" class="relative flex-1 overflow-auto overflow-x-hidden py-0.5 [overflow-anchor:none]">
@@ -520,18 +585,18 @@ function GitGraphApp() {
           <div class="detail-slot" ref={el => { if (el) slots.current.set(row.hash, el); else slots.current.delete(row.hash); }} />
         </div>)}</div></div>
         <button id="load-more" class="mx-auto my-[8px] flex text-muted" hidden={!history?.hasMore || switching} disabled={busy} onClick={() => loadHistory(true)}>{t('ui.loadMore')}</button>
-        <EmptyState id="empty" hidden={busy || !!history?.commits.length || !!historyNotice || !!connectionNotice}
+        <EmptyState id="empty" hidden={busy || !!graph.length || !!historyNotice || !!connectionNotice || !!worktreeNotice}
           title={contextCwd ? t('ui.noRepository') : t('ui.noCommits')} description={contextCwd || t('ui.firstCommit')} />
       </div></div>
     </section><div ref={parking} id="detail-parking" hidden /></div>
-    {createPortal(<CommitDetail locale={locale} call={call} app={app} selected={selected} open={open} visible={visible} repository={repository} refreshVersion={refreshVersion} row={graph.find(row => row.hash === selected)} refs={history?.refs || []}
+    {createPortal(<CommitDetail locale={locale} call={call} app={app} selected={selected} open={open} visible={visible} repository={repository} refreshState={refreshGraph} refreshVersion={refreshVersion} worktree={worktree} worktreeRevision={worktreeRevision} row={graph.find(row => row.hash === selected)} refs={history?.refs || []}
       view={panelView} setFileView={value => panels.current?.setFileView(value)} close={() => closeDetail()} maximize={() => panels.current?.setMaximized(!panelView?.maximized)} hostTheme={hostTheme} fontSize={fontSize} canOpenFile={canOpenFile} />, detailRow)}
   </main>;
 }
 
-function CommitDetail({ locale, call, app, selected, open, visible, repository, refreshVersion, row, refs, view, setFileView, close, maximize, hostTheme, fontSize, canOpenFile }: {
+function CommitDetail({ locale, call, app, selected, open, visible, repository, refreshState, refreshVersion, worktree, worktreeRevision, row, refs, view, setFileView, close, maximize, hostTheme, fontSize, canOpenFile }: {
   locale: Locale; call: Call; app: App; selected: string; open: boolean; visible: boolean; repository: string; refreshVersion: number; row?: Row; refs: GraphRef[];
-  view: PanelView | null; setFileView(value: PanelView['fileView']): void; close(): void; maximize(): void; hostTheme: string; fontSize?: number; canOpenFile: boolean;
+  refreshState(): void; worktree: Worktree | null; worktreeRevision: number; view: PanelView | null; setFileView(value: PanelView['fileView']): void; close(): void; maximize(): void; hostTheme: string; fontSize?: number; canOpenFile: boolean;
 }) {
   const [detail, setDetail] = useState<Detail | null>(null), [file, setFile] = useState(''), [parent, setParent] = useState(0);
   const detailRef = useRef(detail); detailRef.current = detail;
@@ -542,13 +607,16 @@ function CommitDetail({ locale, call, app, selected, open, visible, repository, 
     setParent(parentIndex); if (!preserve) setDetail(null); setFile(selectedFile); setLoading(!preserve); setNotice(null);
     try {
       let result: Detail;
-      if (row && row.target !== 'commit') {
+      if (row?.target === uncommittedId) {
+        if (!worktree) return;
+        result = { ...worktree, target: uncommittedId, hash: uncommittedId, base: worktree.head || null, parents: [], parent: 0, revision: worktreeRevision };
+      } else if (row && (row.target === 'incoming-changes' || row.target === 'outgoing-changes')) {
         if (!row.base) throw localizedError('ui.missingBase');
         result = { ...await call('git_graph_compare', { base: row.base, hash: row.revision }), target: row.target };
       } else result = await call('git_graph_commit', { hash: selected, parent: parentIndex });
       if (request !== version.current) return;
       const previousFile = detailRef.current?.files.find(item => fileKey(detailRef.current!, item) === selectedFile);
-      const samePath = previousFile ? result.files.filter(item => item.path === previousFile.path || item.oldPath === previousFile.path) : [];
+      const samePath = previousFile ? result.files.filter(item => (item.path === previousFile.path || item.oldPath === previousFile.path) && (!('group' in previousFile) || ('group' in item && item.group === previousFile.group))) : [];
       const selectedItem = result.files.find(item => fileKey(result, item) === selectedFile)
         || (samePath.length === 1 ? samePath[0] : undefined) || result.files[0];
       if (JSON.stringify(result) !== JSON.stringify(detailRef.current)) setDetail(result);
@@ -562,13 +630,13 @@ function CommitDetail({ locale, call, app, selected, open, visible, repository, 
     if (open && selected) load(same ? current.current.parent : 0, same ? current.current.file : '', same && !!detailRef.current);
     else { ++version.current; setDetail(null); setFile(''); setNotice(null); setLoading(false); }
     return () => { ++version.current; };
-  }, [selected, repository, open, refreshVersion, row?.base, row?.revision, row?.target]);
+  }, [selected, repository, open, refreshVersion, row?.base, row?.revision, row?.target, selected === uncommittedId ? worktreeRevision : 0]);
   const showSummary = row?.target === 'commit', detailNotice = <Notice id="detail-error" value={notice} />;
   return <>
     <div id="detail-graph" class="pointer-events-none absolute inset-y-0 left-[8px] w-(--graph-width,20px) [&_svg]:block [&_svg]:h-full" aria-hidden="true">{row && <svg width={row.width} viewBox={`0 0 ${row.width} 1`} preserveAspectRatio="none">
       {row.output.map((lane, index) => <path key={index} d={`M${laneX(index)} 0V1`} stroke={lane.color} stroke-width={index === row.column && row.parents.length ? 3 : 1} vector-effect="non-scaling-stroke" />)}
     </svg>}</div>
-    <section id="detail" class="sticky left-0 flex min-h-0 min-w-0 flex-col rounded-panel border-0 bg-panel p-card shadow-panel" aria-label={row?.target === 'commit' ? t('ui.commitDetail') : t('ui.rangeDetail')} style={{ '--detail-height': `${view?.detail || 480}px`, '--graph-width': `${row?.width || 0}px` }}>
+    <section id="detail" class="sticky left-0 flex min-h-0 min-w-0 flex-col rounded-panel border-0 bg-panel p-card shadow-panel" aria-label={row?.target === uncommittedId ? t('ui.uncommittedDetail') : row?.target === 'commit' ? t('ui.commitDetail') : t('ui.rangeDetail')} style={{ '--detail-height': `${view?.detail || 480}px`, '--graph-width': `${row?.width || 0}px` }}>
       <div id="detail-header" class="flex min-h-control flex-none flex-wrap items-center gap-1 [&_button]:text-ui-xs [&_button]:text-muted"><div id="detail-identity" class="flex min-w-0 flex-1 flex-wrap items-center gap-x-control-x gap-y-1 px-content"><code id="detail-hash" class="max-w-full flex-none truncate text-ui-xs text-muted" data-tooltip={row?.target === 'commit' ? selected : undefined}>{row && row.target !== 'commit' ? rowSubject(row) : selected.slice(0, 12)}</code><div id="commit-refs" class="flex min-w-0 flex-wrap items-baseline gap-x-[6px] gap-y-[4px] text-ui-xs text-muted empty:hidden" aria-label={t('ui.refs')}>{row?.references.map(ref => <RefBadge key={ref.name} reference={ref} refs={refs} />)}</div></div>
         <button id="expand-detail" class="step" disabled={!view?.ready} aria-pressed={!!view?.maximized} data-tooltip={view?.maximized ? t('ui.restoreLayout') : t('ui.expandDetail')} aria-label={view?.maximized ? t('ui.restoreLayout') : t('ui.expandDetail')} onClick={maximize}><Icon name="expand-detail" /></button>
         <button id="close-detail" class="step" data-tooltip={t('ui.closeDetail')} aria-label={t('ui.closeDetail')} onClick={close}><Icon name="close-detail" /></button>
@@ -576,103 +644,110 @@ function CommitDetail({ locale, call, app, selected, open, visible, repository, 
       <div id="detail-content" class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" aria-busy={loading}>
         <section id="summary-pane" class="flex min-h-0 min-w-0 flex-none flex-col overflow-hidden" hidden={!showSummary} aria-label={t('ui.commitInfo')} aria-busy={loading} style={{ '--summary-height': view?.summary != null ? `${view.summary}px` : undefined }}>
           <div id="detail-summary" class="min-h-0 flex-1 overflow-auto px-content pt-card pb-content">{showSummary && detailNotice}
-            <p id="commit-message" class={`whitespace-pre-wrap wrap-anywhere leading-[1.6] ${loading ? 'skeleton-line mx-0 mt-[4px] mb-[16px] h-[14px] w-[64%]' : 'm-0 mb-[8px]'}`}>{loading ? '' : detail && !isRange(detail) ? detail.message ? detail.message.replace(/\\r\\n|\\[nr]/g, '\n') : t('ui.noMessage') : ''}</p>
-            <div id="commit-meta" hidden={!!detail && isRange(detail)} class="flex min-w-0 items-baseline gap-[12px] text-ui-xs leading-[1.7] text-muted whitespace-nowrap [&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis [&_span:last-child]:flex-none">{detail && !isRange(detail) && <><span>{detail.author} &lt;{detail.email}&gt;</span><span>{new Date(detail.date).toLocaleString(uiLocale)}</span></>}</div>
-            <label id="parent-label" class="mt-[8px] flex items-center gap-[6px] text-muted" hidden={!detail || isRange(detail) || detail.parents.length < 2}>{t('ui.parentLabel')}<Select id="parent" aria-label={t('ui.parentSelect')} value={parent}
+            <p id="commit-message" class={`whitespace-pre-wrap wrap-anywhere leading-[1.6] ${loading ? 'skeleton-line mx-0 mt-[4px] mb-[16px] h-[14px] w-[64%]' : 'm-0 mb-[8px]'}`}>{loading ? '' : detail && isCommitDetail(detail) ? detail.message ? detail.message.replace(/\\r\\n|\\[nr]/g, '\n') : t('ui.noMessage') : ''}</p>
+            <div id="commit-meta" hidden={!!detail && !isCommitDetail(detail)} class="flex min-w-0 items-baseline gap-[12px] text-ui-xs leading-[1.7] text-muted whitespace-nowrap [&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis [&_span:last-child]:flex-none">{detail && isCommitDetail(detail) && <><span>{detail.author} &lt;{detail.email}&gt;</span><span>{new Date(detail.date).toLocaleString(uiLocale)}</span></>}</div>
+            <label id="parent-label" class="mt-[8px] flex items-center gap-[6px] text-muted" hidden={!detail || !isCommitDetail(detail) || detail.parents.length < 2}>{t('ui.parentLabel')}<Select id="parent" aria-label={t('ui.parentSelect')} value={parent}
               items={detail?.parents.map((hash, index) => ({ label: `${index + 1} · ${hash.slice(0, 12)}`, value: index })) || []} onChange={event => load(Number(event.currentTarget.value))} /></label>
           </div>
         </section>
         <ResizeHandle id="summary" label={t('ui.resizeSummary')} controls="summary-pane changes-pane" view={view} hidden={!showSummary} />
         {!showSummary && detailNotice}
-        <ChangesPane locale={locale} call={call} app={app} detail={detail} file={file} selectFile={setFile} open={open} visible={visible} view={view} setFileView={setFileView} hostTheme={hostTheme} fontSize={fontSize} canOpenFile={canOpenFile} />
+        <ChangesPane locale={locale} call={call} app={app} detail={detail} file={file} selectFile={setFile} refreshState={refreshState} open={open} visible={visible} view={view} setFileView={setFileView} hostTheme={hostTheme} fontSize={fontSize} canOpenFile={canOpenFile} />
       </div>
       <ResizeHandle id="detail" label={t('ui.resizeDetail')} controls="detail" view={view} />
     </section>
   </>;
 }
 function FileList({ detail, file, selectFile, view }: { detail: Detail | null; file: string; selectFile(value: string): void; view: PanelView | null }) {
-  type Node = { path: string; name: string; item?: Detail['files'][number]; children?: Node[] };
-  const mode = view?.fileView ?? 'list', tree = mode === 'tree';
+  type Node = { path: string; name: string; group: string; item?: Detail['files'][number]; children?: Node[] };
+  const mode = view?.fileView ?? 'list', tree = mode === 'tree', grouped = !!detail && isWorktree(detail);
   const [collapsed, setCollapsed] = useState(new Set<string>()), [focused, setFocused] = useState('');
   const container = useRef<HTMLDivElement>(null), buttons = useRef(new Map<string, HTMLButtonElement>()), hadFocus = useRef(false);
   hadFocus.current = !!container.current?.contains(document.activeElement);
-  const roots = useMemo(() => {
+  const sections = useMemo(() => grouped ? ['staged', 'changes'].map(group => ({ group, files: detail.files.filter(item => 'group' in item && item.group === group) })) : [{ group: '', files: detail?.files || [] }], [detail?.files, grouped]);
+  const directoryKey = (node: Node) => `d:${node.group ? JSON.stringify([node.group, node.path]) : node.path}`;
+  const roots = useMemo(() => sections.map(section => {
     const nodes: Node[] = [], directories = new Map<string, Node>();
-    for (const item of detail?.files || []) {
+    for (const item of section.files) {
       const parts = item.path.split('/'); let children = nodes;
       for (let index = 0; index < parts.length - 1; index++) {
         const path = parts.slice(0, index + 1).join('/'); let directory = directories.get(path);
-        if (!directory) { directory = { path, name: parts[index], children: [] }; directories.set(path, directory); children.push(directory); }
+        if (!directory) { directory = { path, name: parts[index], group: section.group, children: [] }; directories.set(path, directory); children.push(directory); }
         children = directory.children!;
       }
-      children.push({ path: item.path, name: parts.at(-1)!, item });
+      children.push({ path: item.path, name: parts.at(-1)!, group: section.group, item });
     }
     const sort = (nodes: Node[]) => {
       nodes.sort((a, b) => Number(!!b.children) - Number(!!a.children) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
       for (const node of nodes) if (node.children) sort(node.children);
     };
-    sort(nodes); return nodes;
-  }, [detail?.files]);
+    sort(nodes); return { group: section.group, nodes };
+  }), [sections]);
   const rows = useMemo(() => {
     const rows: { node: Node; key: string; level: number; parent: string; position: number; size: number }[] = [];
     const visit = (nodes: Node[], level: number, parent: string) => nodes.forEach((node, index) => {
-      const key = `${node.children ? 'd' : 'f'}:${node.path}`;
+      const key = node.children ? directoryKey(node) : `f:${fileKey(detail!, node.item!)}`;
       rows.push({ node, key, level, parent, position: index + 1, size: nodes.length });
-      if (node.children && !collapsed.has(node.path)) visit(node.children, level + 1, key);
+      if (node.children && !collapsed.has(key)) visit(node.children, level + 1, key);
     });
-    if (tree) visit(roots, 1, '');
-    else visit((detail?.files || []).map(item => ({ path: item.path, name: item.path.slice(item.path.lastIndexOf('/') + 1), item })), 1, '');
+    if (tree) for (const section of roots) visit(section.nodes, 1, '');
+    else for (const section of sections) visit(section.files.map(item => ({ path: item.path, name: item.path.slice(item.path.lastIndexOf('/') + 1), group: section.group, item })), 1, '');
     return rows;
-  }, [roots, detail?.files, tree, collapsed]);
-  const focusKey = rows.some(row => row.key === focused) ? focused : rows.find(row => row.node.item?.path === file)?.key
-    || rows.findLast(row => row.node.children && file.startsWith(`${row.node.path}/`))?.key || rows[0]?.key;
-  useLayoutEffect(() => { setCollapsed(new Set()); setFocused(''); }, [detail?.repo, detail?.hash, detail?.base, detail?.parent]);
+  }, [roots, sections, detail?.files, tree, collapsed]);
+  const selectedItem = detail?.files.find(item => fileKey(detail, item) === file), selectedGroup = selectedItem && 'group' in selectedItem ? selectedItem.group : '';
+  const selectedPath = selectedItem?.path || '';
+  const focusKey = rows.some(row => row.key === focused) ? focused : rows.find(row => row.node.item && fileKey(detail!, row.node.item) === file)?.key
+    || rows.findLast(row => row.node.children && row.node.group === selectedGroup && selectedPath.startsWith(`${row.node.path}/`))?.key || rows[0]?.key;
+  useLayoutEffect(() => { setCollapsed(new Set()); setFocused(''); }, [detail?.repo, detail?.hash, detail && isWorktree(detail) ? null : detail?.base, detail?.parent]);
   useLayoutEffect(() => { setFocused(`f:${file}`); }, [file]);
   useLayoutEffect(() => {
-    if (tree) setCollapsed(previous => new Set([...previous].filter(path => !file.startsWith(`${path}/`))));
+    if (tree) setCollapsed(previous => new Set([...previous].filter(key => !rows.some(row => row.key === key && row.node.group === selectedGroup && selectedPath.startsWith(`${row.node.path}/`)))));
   }, [tree]);
   useLayoutEffect(() => {
     if (hadFocus.current && !container.current?.contains(document.activeElement) && focusKey) buttons.current.get(focusKey)?.focus();
   }, [rows, focusKey]);
-  const toggle = (path: string) => setCollapsed(previous => { const next = new Set(previous); if (!next.delete(path)) next.add(path); return next; });
+  const toggle = (key: string) => setCollapsed(previous => { const next = new Set(previous); if (!next.delete(key)) next.add(key); return next; });
   const focus = (row: typeof rows[number] | undefined) => {
     if (!row) return;
     setFocused(row.key); buttons.current.get(row.key)?.focus();
-    if (row.node.item) selectFile(row.node.path);
+    if (row.node.item) selectFile(fileKey(detail!, row.node.item));
+  };
+  const renderRow = ({ node, key, level, position, size }: typeof rows[number]) => {
+    const item = node.item, directory = !!node.children, slash = node.path.lastIndexOf('/');
+    const title = item?.oldPath ? `${item.oldPath} → ${node.path}` : node.path, selected = !!item && file === fileKey(detail!, item);
+    return <button class={`flex w-full justify-start gap-[8px] rounded-item px-[6px] py-[4px] text-left text-ui-sm aria-selected:bg-selected ${tree ? 'items-center' : ''}`} key={key} ref={el => { if (el) buttons.current.set(key, el); else buttons.current.delete(key); }}
+      data-row-key={key} data-group={node.group || undefined} data-path={item?.path} data-file={item ? fileKey(detail!, item) : undefined} data-directory={directory ? node.path : undefined} data-status={item?.status}
+      role={tree ? 'treeitem' : 'option'} aria-level={tree ? level : undefined} aria-posinset={tree ? position : undefined} aria-setsize={tree ? size : undefined}
+      aria-expanded={directory ? !collapsed.has(key) : undefined} aria-selected={directory ? undefined : selected} tabIndex={key === focusKey ? 0 : -1}
+      style={tree ? { paddingLeft: `${6 + (level - 1) * 12}px` } : undefined} data-tooltip={title} data-tooltip-overflow={item?.oldPath ? undefined : '.file-path, .file-directory'}
+      aria-label={directory ? t('ui.directory', { path: node.path }) : `${node.group ? `${t(node.group === 'staged' ? 'ui.staged' : 'ui.changes')} · ` : ''}${item!.status[0]} ${title}`} onFocus={() => setFocused(key)} onClick={() => { setFocused(key); if (directory) toggle(key); else selectFile(fileKey(detail!, item!)); }}>
+      {tree && <span class="flex size-[12px] flex-none items-center justify-center [&_svg]:block [&_svg]:size-[12px]" aria-hidden="true">{directory && <span class={collapsed.has(key) ? '' : 'rotate-90'}><Icon name="tree-chevron" /></span>}</span>}
+      <span class="file-path min-w-0 truncate">{node.name}</span>{!tree && slash !== -1 && <span class="file-directory min-w-0 max-w-[45%] truncate text-ui-xs text-muted">{node.path.slice(0, slash)}</span>}
+      {item && <span class={`file-status ml-auto flex-none font-code text-ui-xs ${item.status[0]} ${item.status[0] === 'A' || item.status[0] === '?' ? 'text-success' : item.status[0] === 'D' ? 'text-danger' : 'text-muted'}`}>{item.status[0]}</span>}
+    </button>;
   };
   return <section id="files-pane" class="flex min-h-0 min-w-0 w-(--files-width,220px) flex-none flex-col overflow-hidden" aria-label={t('ui.fileList')} style={{ '--files-width': view?.files != null ? `${view.files}px` : undefined }}><div id="files" ref={container} class="min-h-0 flex-1 overflow-auto pt-0 pr-[6px] pb-[4px] pl-[3px]" role={tree ? 'tree' : 'listbox'} aria-label={tree ? t('ui.fileTree') : t('ui.files')} onKeyDown={event => {
     const button = (event.target as Element).closest<HTMLButtonElement>('button'); if (!button) return;
-    const key = button.dataset.directory != null ? `d:${button.dataset.directory}` : `f:${button.dataset.file}`;
-    const index = rows.findIndex(row => row.key === key), row = rows[index]; if (!row) return;
+    const index = rows.findIndex(row => row.key === button.dataset.rowKey), row = rows[index]; if (!row) return;
     let next: typeof row | undefined;
     if (event.key === 'ArrowDown') next = rows[index + 1];
     else if (event.key === 'ArrowUp') next = rows[index - 1];
     else if (tree && event.key === 'Home') next = rows[0];
     else if (tree && event.key === 'End') next = rows.at(-1);
     else if (tree && event.key === 'ArrowRight') {
-      if (row.node.children) { if (collapsed.has(row.node.path)) toggle(row.node.path); else next = rows[index + 1]; }
+      if (row.node.children) { if (collapsed.has(row.key)) toggle(row.key); else next = rows[index + 1]; }
     } else if (tree && event.key === 'ArrowLeft') {
-      if (row.node.children && !collapsed.has(row.node.path)) toggle(row.node.path);
+      if (row.node.children && !collapsed.has(row.key)) toggle(row.key);
       else next = rows.find(item => item.key === row.parent);
     } else return;
     event.preventDefault(); focus(next);
-  }}>{rows.map(({ node, key, level, position, size }) => {
-    const item = node.item, directory = !!node.children, slash = node.path.lastIndexOf('/');
-    const title = item?.oldPath ? `${item.oldPath} → ${node.path}` : node.path;
-    return <button class={`flex w-full justify-start gap-[8px] rounded-item px-[6px] py-[4px] text-left text-ui-sm aria-selected:bg-selected ${tree ? 'items-center' : ''}`} key={key} ref={el => { if (el) buttons.current.set(key, el); else buttons.current.delete(key); }}
-      data-path={item?.path} data-file={item?.path} data-directory={directory ? node.path : undefined} data-status={item?.status}
-      role={tree ? 'treeitem' : 'option'} aria-level={tree ? level : undefined} aria-posinset={tree ? position : undefined} aria-setsize={tree ? size : undefined}
-      aria-expanded={directory ? !collapsed.has(node.path) : undefined} aria-selected={directory ? undefined : file === node.path} tabIndex={key === focusKey ? 0 : -1}
-      style={tree ? { paddingLeft: `${6 + (level - 1) * 12}px` } : undefined} data-tooltip={title} data-tooltip-overflow={item?.oldPath ? undefined : '.file-path, .file-directory'}
-      aria-label={directory ? t('ui.directory', { path: node.path }) : `${item!.status[0]} ${title}`} onFocus={() => setFocused(key)} onClick={() => { setFocused(key); if (directory) toggle(node.path); else selectFile(node.path); }}>
-      {tree && <span class="flex size-[12px] flex-none items-center justify-center [&_svg]:block [&_svg]:size-[12px]" aria-hidden="true">{directory && <span class={collapsed.has(node.path) ? '' : 'rotate-90'}><Icon name="tree-chevron" /></span>}</span>}
-      <span class="file-path min-w-0 truncate">{node.name}</span>{!tree && slash !== -1 && <span class="file-directory min-w-0 max-w-[45%] truncate text-ui-xs text-muted">{node.path.slice(0, slash)}</span>}
-      {item && <span class={`file-status ml-auto flex-none font-code text-ui-xs ${item.status[0]} ${item.status[0] === 'A' ? 'text-success' : item.status[0] === 'D' ? 'text-danger' : 'text-muted'}`}>{item.status[0]}</span>}
-    </button>;
-  })}</div></section>;
+  }}>{grouped ? sections.map(section => <div key={section.group} role="group" data-group-section={section.group} aria-label={t(section.group === 'staged' ? 'ui.staged' : 'ui.changes')}>
+    <span class="block px-[6px] py-[4px] text-ui-xs text-muted">{t('ui.changeGroup', { group: msg(section.group === 'staged' ? 'ui.staged' : 'ui.changes'), count: section.files.length })}</span>
+    {rows.filter(row => row.node.group === section.group).map(renderRow)}
+  </div>) : rows.map(renderRow)}</div></section>;
 }
-function ChangesPane({ locale, call, app, detail, file, selectFile, open, visible, view, setFileView, hostTheme, fontSize, canOpenFile }: {
-  locale: Locale; call: Call; app: App; detail: Detail | null; file: string; selectFile(value: string): void; open: boolean; visible: boolean; view: PanelView | null; setFileView(value: PanelView['fileView']): void; hostTheme: string; fontSize?: number; canOpenFile: boolean;
+function ChangesPane({ locale, call, app, detail, file, selectFile, refreshState, open, visible, view, setFileView, hostTheme, fontSize, canOpenFile }: {
+  locale: Locale; call: Call; app: App; detail: Detail | null; file: string; selectFile(value: string): void; refreshState(): void; open: boolean; visible: boolean; view: PanelView | null; setFileView(value: PanelView['fileView']): void; hostTheme: string; fontSize?: number; canOpenFile: boolean;
 }) {
   const [result, setResult] = useState<Diff | null>(null), [loading, setLoading] = useState(false), [notice, setNotice] = useState<NoticeValue>(null), [openNotice, setOpenNotice] = useState<NoticeValue>(null);
   const [opening, setOpening] = useState(false), [split, setSplit] = useState(false), [status, setStatus] = useState<Editor.DiffStatus>({ text: '', canNavigate: false });
@@ -685,8 +760,10 @@ function ChangesPane({ locale, call, app, detail, file, selectFile, open, visibl
   const resultTarget = useRef(''), renderedTarget = useRef('');
   const savedView = useRef<{ target: string; view?: Editor.DiffView }>();
   const item = detail?.files.find(item => fileKey(detail, item) === file), path = item?.path || '';
-  const diffTarget = detail && item ? JSON.stringify([detail.repo, detail.hash, detail.base, detail.parent, item.status, path]) : '';
-  const lastTarget = useRef(''), preserveView = useRef(false);
+  const worktreeItem = detail && isWorktree(detail) ? detail.files.find(item => fileKey(detail, item) === file) : undefined;
+  const diffTarget = detail && item ? worktreeItem && isWorktree(detail) ? JSON.stringify([detail.repo, uncommittedId, detail.head, detail.headName, worktreeItem.group, path]) : JSON.stringify([detail.repo, detail.hash, detail.base, detail.parent, item.status, path]) : '';
+  const readingTarget = worktreeItem ? JSON.stringify([detail!.repo, uncommittedId, worktreeItem.group, path]) : diffTarget;
+  const lastTarget = useRef(''), lastReadingTarget = useRef(''), preserveView = useRef(false);
   const reasons = result ? [result.original, result.modified].flatMap((side, index) => side.reason ? [t('ui.reason', { label: index ? msg('ui.modified') : msg('ui.original'), reason: side.reason })] : []) : [];
   const comparable = !!result && !reasons.length;
   const context = useRef({ locale, fontSize, split, result, comparable, diffTarget, open, visible });
@@ -698,7 +775,7 @@ function ChangesPane({ locale, call, app, detail, file, selectFile, open, visibl
   }
   function releaseLanguage() {
     if (editor.current) {
-      savedView.current = { target: renderedTarget.current, view: editor.current.saveDiffView() };
+      if (resultTarget.current === renderedTarget.current) savedView.current = { target: renderedTarget.current, view: editor.current.saveDiffView() };
       editor.current.onStatus(() => {}); editor.current.disposeDiff(); editor.current = undefined;
     }
     activeLocale.current = undefined;
@@ -751,15 +828,19 @@ function ChangesPane({ locale, call, app, detail, file, selectFile, open, visibl
   }
   async function load() {
     const request = ++version.current;
-    const preserve = !!detail && !!path && lastTarget.current === diffTarget && !!resultRef.current;
+    const preserve = !!detail && !!path && lastReadingTarget.current === readingTarget && !!resultRef.current;
+    const sameTarget = lastTarget.current === diffTarget;
+    if (preserve && !sameTarget) savedView.current = { target: diffTarget, view: editor.current?.saveDiffView() };
+    lastReadingTarget.current = readingTarget;
     lastTarget.current = diffTarget; preserveView.current = preserve;
-    if (!preserve) { resultTarget.current = ''; editor.current?.clearDiff(); resultRef.current = null; setResult(null); }
+    if (!preserve || !sameTarget) { resultTarget.current = ''; editor.current?.clearDiff(); resultRef.current = null; setResult(null); }
     setNotice(null);
     if (!detail || !path) { resultTarget.current = ''; setResult(null); setLoading(false); return; }
     setLoading(!preserve);
     try {
-      const data = isRange(detail) ? await call('git_graph_compare_diff', { base: detail.base, hash: detail.hash, path }) : await call('git_graph_diff', { hash: detail.hash, parent: detail.parent, path });
+      const data = worktreeItem ? await call('git_graph_worktree_diff', { group: worktreeItem.group, path }) : isRange(detail) ? await call('git_graph_compare_diff', { base: detail.base, hash: detail.hash, path }) : await call('git_graph_diff', { hash: detail.hash, parent: detail.parent, path });
       if (request !== version.current) return;
+      if (isWorktree(detail) && (!('headName' in data) || !sameCheckout(detail, data))) { setNotice({ message: msg('ui.stateChanged'), retry: refreshState }); return; }
       resultTarget.current = diffTarget;
       if (JSON.stringify(data) !== JSON.stringify(resultRef.current)) setResult(data);
     } catch (error) { if (request === version.current) setNotice({ message: message(error), retry: load }); }
@@ -782,7 +863,7 @@ function ChangesPane({ locale, call, app, detail, file, selectFile, open, visibl
     const request = ++openVersion.current; setOpening(true); setOpenNotice(null);
     try {
       if (!canOpenFile) throw localizedError('ui.noFileOpening');
-      const { path: absolutePath } = await call('git_graph_workspace_file', isRange(detail) ? { base: detail.base, hash: detail.hash, path } : { hash: detail.hash, parent: detail.parent, path });
+      const { path: absolutePath } = worktreeItem ? await call('git_graph_worktree_file', { group: worktreeItem.group, path }) : await call('git_graph_workspace_file', isRange(detail) ? { base: detail.base, hash: detail.hash, path } : { hash: detail.hash, parent: detail.parent, path });
       if (request !== openVersion.current) return;
       const result = await app.request({ method: 'openai/files/open', params: { path: absolutePath } }, z.object({ isError: z.boolean().optional() }).passthrough());
       if (result.isError) throw localizedError('ui.fileOpenFailure');
@@ -793,6 +874,7 @@ function ChangesPane({ locale, call, app, detail, file, selectFile, open, visibl
     selectFile(value);
   };
   const title = item?.oldPath ? `${item.oldPath} → ${path}` : path || t('ui.selectFile');
+  const revisionLabel = (side: Diff['original']) => 'source' in side && side.source !== 'head' ? side.source === 'index' ? t('ui.index') : side.source === 'worktree' ? t('ui.worktree') : t('ui.emptyTree') : side.hash?.slice(0, 7) || t('ui.emptyTree');
   const empty = !!detail && !detail.files.length;
   return <section id="changes-pane" class="flex min-h-0 min-w-0 flex-1 flex-col" aria-label={t('ui.files')}>
     <div id="changes-header" class="flex min-h-9 flex-none flex-wrap items-center gap-1 py-card"><div id="changes-heading" class="flex min-w-0 flex-1 items-center gap-content px-content py-card text-muted [&_span]:truncate"><span id="files-label" class="min-w-0 max-w-1/2 flex-initial text-ui-xs">{detail ? t(detail.parents.length > 1 ? 'ui.filesParent' : 'ui.filesCount', { count: detail.files.length, parent: detail.parent + 1 }) : t('ui.files')}</span><span id="diff-title" class="min-w-0 flex-1 truncate text-ui-xs text-muted" hidden={empty} data-tooltip={title} data-tooltip-overflow="">{title}</span></div>
@@ -802,11 +884,11 @@ function ChangesPane({ locale, call, app, detail, file, selectFile, open, visibl
       <button id="next-change" class="step" disabled={!status.canNavigate} data-tooltip={t('ui.nextChange')} aria-label={t('ui.nextChange')} onClick={() => editor.current?.goToDiff('next')}><Icon name="next-change" /></button>
       <button id="open-file" class="step" hidden={!canOpenFile} disabled={!detail || !file || opening} data-tooltip={t('ui.openFileHint')} aria-label={t('ui.openFile')} onClick={openFile}><Icon name="open-file" /></button>
     </div><Notice id="file-error" value={openNotice} />
-    <EmptyState id="changes-empty" class="min-h-0 flex-1 overflow-auto" hidden={!empty} title={t('ui.noFiles')} description={detail && isRange(detail) ? t('ui.noRangeFiles') : t('ui.noParentFiles')} />
+    <EmptyState id="changes-empty" class="min-h-0 flex-1 overflow-auto" hidden={!empty} title={t('ui.noFiles')} description={detail && isWorktree(detail) ? t('ui.noUncommittedFiles') : detail && isRange(detail) ? t('ui.noRangeFiles') : t('ui.noParentFiles')} />
     <div id="detail-body" class="flex min-h-0 min-w-0 flex-1" hidden={empty}><FileList detail={detail} file={file} selectFile={chooseFile} view={view} /><ResizeHandle id="files" label={t('ui.resizeFiles')} controls="files-pane diff-pane" view={view} />
       <section id="diff-pane" class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" aria-label={t('ui.fileDiff')} aria-busy={loading || editorLoading}><div id="diff-content" class="flex min-h-0 min-w-0 flex-1 flex-col">
-        <div id="diff-revisions" class="flex flex-wrap gap-x-[16px] gap-y-[4px] px-[6px] py-[4px] text-ui-xs text-muted [&_span]:wrap-anywhere" hidden={!result}>{result && [result.original, result.modified].map((side, index) => <span key={index} id={index ? 'diff-modified' : 'diff-original'} data-tooltip={`${side.hash || t('ui.emptyTree')}\n${side.path}${side.mode ? `\n${t('ui.fileMode', { mode: side.mode })}` : ''}`}>
-          {t('ui.revision', { label: index ? msg('ui.modified') : msg('ui.original'), hash: side.hash?.slice(0, 7) || msg('ui.emptyTree'), missing: side.exists ? '' : msg('ui.missingSuffix'), mode: side.mode && result.original.mode !== result.modified.mode ? ` · ${side.mode}` : '' })}
+        <div id="diff-revisions" class="flex flex-wrap gap-x-[16px] gap-y-[4px] px-[6px] py-[4px] text-ui-xs text-muted [&_span]:wrap-anywhere" hidden={!result}>{result && [result.original, result.modified].map((side, index) => <span key={index} id={index ? 'diff-modified' : 'diff-original'} data-tooltip={`${revisionLabel(side)}${side.hash ? `\n${side.hash}` : ''}\n${side.path}${side.mode ? `\n${t('ui.fileMode', { mode: side.mode })}` : ''}`}>
+          {t('ui.revision', { label: index ? msg('ui.modified') : msg('ui.original'), hash: revisionLabel(side), missing: side.exists ? '' : msg('ui.missingSuffix'), mode: side.mode && result.original.mode !== result.modified.mode ? ` · ${side.mode}` : '' })}
         </span>)}</div>
         <div id="diff-body" class="relative min-h-[80px] flex-1"><div id="diff-editor" class="absolute inset-0" hidden={!comparable} /><Notice id="diff-error" value={notice} />
           <div id="diff-skeleton" class="p-[16px] [&_.skeleton-line]:mb-[14px] [&_.skeleton-line]:h-[12px] [&_.skeleton-line]:w-3/4 [&_.skeleton-line:nth-child(2)]:w-[55%]" hidden={!loading && !editorLoading} role="status" aria-label={t('ui.loadingDiff')}><span class="skeleton-line" /><span class="skeleton-line" /><span class="skeleton-line" /></div>

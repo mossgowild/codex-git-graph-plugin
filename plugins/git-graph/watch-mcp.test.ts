@@ -69,6 +69,14 @@ await createServer({ readContext: async id => ({ cwd: paths[id] || paths.first, 
     const history = z.record(z.string(), z.unknown()).parse(snapshot.structuredContent);
     assert.ok(history.currentRef, 'event-driven reads keep the real current reference');
     assert.equal('uncommitted' in history, false, 'dirty worktree has no synthetic history state');
+    const working = await call('git_graph_worktree', {});
+    assert.ok(!working.isError, JSON.stringify(working));
+    assert.deepEqual(z.object({ files: z.array(z.object({ group: z.string(), status: z.string(), path: z.string() })) }).parse(working.structuredContent).files,
+      [{ group: 'changes', status: 'M', path: 'file.txt' }], 'an M event updates the separate worktree state without changing refs');
+    const difference = await call('git_graph_worktree_diff', { group: 'changes', path: 'file.txt' });
+    assert.ok(!difference.isError, JSON.stringify(difference));
+    assert.deepEqual(z.object({ original: z.object({ source: z.string(), content: z.string() }), modified: z.object({ source: z.string(), content: z.string() }) }).parse(difference.structuredContent),
+      { original: { source: 'index', content: 'initial\n' }, modified: { source: 'worktree', content: 'modified\n' } });
 
     assert.ok(!(await call('git_graph_watch_stop', { watchId: one.watchId })).isError);
     assert.ok(!(await call('git_graph_watch_stop', { watchId: one.watchId })).isError, 'stopping an expired token is idempotent');

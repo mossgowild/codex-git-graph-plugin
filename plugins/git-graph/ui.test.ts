@@ -37,14 +37,17 @@ await createServer({preferencesDirectory:${JSON.stringify(data)},readContext:asy
 const client = new Client({ name: 'layout-ui-check', version: '1.0.0' });
 await client.connect(new StdioClientTransport({ command: process.execPath, args: [runner], cwd: root }));
 let failSave = false, codeFontSize = 15;
-let historyFixture: Fixture | undefined, historyClient: Client | undefined, intercept: ((request: Request) => Promise<Result | null | undefined | void>) | null;
+let historyFixture: Fixture | undefined, historyClient: Client | undefined, retiredClient: Client | undefined, intercept: ((request: Request) => Promise<Result | null | undefined | void>) | null;
 let editorCalls = 0;
 let liveWatch = false;
 let fileViewChecked = false;
+let displayedSnapshot: Pick<Awaited<ReturnType<typeof history>>, 'repo' | 'head' | 'headName'> | undefined;
 const requests: Request[] = [], idleWatches = new Map<string, { revision: number; release?: () => void }>();
 async function callTool(request: Request) {
   requests.push(request);
   const result = await invokeTool(request);
+  const value=result.structuredContent as Record<string,unknown>|undefined;
+  if(value&&typeof value.repo==='string'&&typeof value.head==='string'&&typeof value.headName==='string'&&Array.isArray(value.commits))displayedSnapshot={repo:value.repo,head:value.head,headName:value.headName};
   return result;
 }
 async function invokeTool(request: Request): Promise<Result> {
@@ -58,7 +61,7 @@ async function invokeTool(request: Request): Promise<Result> {
   if (!liveWatch && request.name === 'git_graph_watch_wait') {
     const watchId = String(request.arguments.watchId), watch = idleWatches.get(watchId);
     return new Promise<Result>(resolve => {
-      const done = () => { clearTimeout(timer); resolve({ content: [], structuredContent: { watchId, revision: watch?.revision || 0, changed: false } }); };
+      const done = () => { clearTimeout(timer); resolve({ content: [], structuredContent: { watchId, revision: watch?.revision || 0, changed: (watch?.revision || 0) !== request.arguments.revision } }); };
       const timer = setTimeout(done, 500); if (watch) watch.release = done;
     });
   }
@@ -76,6 +79,7 @@ async function invokeTool(request: Request): Promise<Result> {
     return historyClient.callTool(request.name === 'git_graph_history' ? { ...request, arguments: { ...request.arguments, limit: 2 } } : request);
   }
   const commit=historyFixture?.commits.find(commit=>commit.hash===request.arguments?.hash);
+  if(request.name==='git_graph_worktree')return {content:[],structuredContent:{...displayedSnapshot,files:[]}};
   if (historyFixture&&['git_graph','git_graph_history'].includes(request.name)) return {content:[],structuredContent:{currentRef:historyFixture.refs.find(ref=>ref.name===`refs/heads/${historyFixture!.headName}`)||null,upstreamRef:null,baseRef:null,mergeBase:null,...historyFixture,contextCwd:root,repositories:[{id:'a'.repeat(64),name:'fixture',path:root,displayPath:root}]}};
   if (commit&&request.name==='git_graph_commit') return {content:[],structuredContent:{...commit,message:commit.message??commit.subject,files:[],parent:0}};
   if (failSave&&request.name==='git_graph_save_layout') return {isError:true,content:[{type:'text',text:'模拟存储不可写'}]};
@@ -152,7 +156,235 @@ try {
     await f.locator('.commit-row').first().waitFor();
     await f.locator('#expand-detail:not([disabled])').waitFor({state:'attached'});return f;
   };
-  if (process.argv.includes('--locale-only')) {
+  if (process.argv.includes('--state-race-only')) {
+    const a='a'.repeat(40),b='b'.repeat(40),indexId='c'.repeat(40);
+    const makeHistory=(head:string,headName:string,branch=''):Fixture=>({repo:root,head,headName,branch,hasMore:false,tips:[a,b],offset:0,
+      currentRef:head?{name:headName?`refs/heads/${headName}`:head,hash:head}:null,upstreamRef:null,baseRef:null,mergeBase:null,
+      refs:[{name:'refs/heads/main',hash:a},{name:'refs/heads/branch-b',hash:headName==='branch-b'?head:b}],
+      commits:[head===b?b:a,head===b?a:b].map(hash=>({hash,parents:[],subject:`History ${hash[0]}`,author:'State Test',email:'state@example.invalid',date:'2026-10-02T00:00:00Z'}))});
+    const files=['sample.ts','second.ts'].map(path=>({group:'changes',status:'M',path,oldPath:null,original:{mode:'100644',id:indexId},modified:{mode:'100644',id:null},submodule:'N...'}));
+    let actual={repo:root,head:a,headName:'main',files},failStatus=true,failHistory=false;
+    let frozenHistory:Fixture|undefined,diffReply:{repo:string;head:string;headName:string;content:string}|undefined;
+    let enteredDiff:(()=>void)|undefined,heldDiff:Promise<void>|undefined;
+    let releaseInitialStatus!:()=>void,enteredInitialStatus!:()=>void,holdInitialStatus=true;
+    const initialStatusHeld=new Promise<void>(resolve=>releaseInitialStatus=resolve),initialStatusStarted=new Promise<void>(resolve=>enteredInitialStatus=resolve);
+    historyFixture=makeHistory(a,'main');
+    intercept=async request=>{
+      if(request.name==='git_graph_history'){
+        if(failHistory)return {isError:true,content:[{type:'text',text:'history unavailable'}]};
+        if(frozenHistory)return {content:[],structuredContent:frozenHistory};
+      }
+      if(request.name==='git_graph_worktree'){if(holdInitialStatus){enteredInitialStatus();await initialStatusHeld;}return failStatus?{isError:true,content:[{type:'text',text:'status unavailable'}]}:{content:[],structuredContent:actual};}
+      if(request.name==='git_graph_worktree_diff'){
+        const reply=diffReply||{repo:actual.repo,head:actual.head,headName:actual.headName,content:`const state = "${actual.headName}:${actual.head[0]}";\n`};
+        const result={content:[],structuredContent:{repo:reply.repo,head:reply.head,headName:reply.headName,group:'changes',status:'M',path:String(request.arguments.path),oldPath:null,
+          original:{source:'index',hash:indexId,path:String(request.arguments.path),exists:true,mode:'100644',content:'const state = "base";\n'},
+          modified:{source:'worktree',hash:null,path:String(request.arguments.path),exists:true,mode:'100644',content:reply.content}}};
+        enteredDiff?.();if(heldDiff)await heldDiff;return result;
+      }
+    };
+    await page.goto(url);const frame=page.frameLocator('iframe');const node=frame.locator('.commit-row[data-target="uncommitted-changes"]');
+    const waitFor=async(test:()=>boolean)=>{const until=Date.now()+10000;while(!test()&&Date.now()<until)await page.waitForTimeout(20);assert.ok(test(),'expected race request was observed');};
+    const event=async()=>{await waitFor(()=>idleWatches.size>0);for(const watcher of idleWatches.values()){watcher.revision++;watcher.release?.();}};
+    const worktreeReads=()=>requests.filter(request=>request.name==='git_graph_worktree').length;
+    const graphReads=()=>requests.filter(request=>request.name==='git_graph').length;
+    const currentHash=()=>frame.locator('.commit-row.current').getAttribute('data-hash');
+    await initialStatusStarted;
+    assert.equal(await frame.locator('#toolbar-skeleton').isVisible(),true,'initial pairing keeps the toolbar loading state while status is pending');
+    assert.equal(await frame.locator('#history-skeleton').isVisible(),true,'initial pairing keeps the history loading state while status is pending');
+    assert.equal(await frame.locator('#empty').isVisible(),false,'pending status is not an empty repository');
+    holdInitialStatus=false;releaseInitialStatus();
+    await frame.locator('.commit-row[data-target="commit"]').first().waitFor();await frame.locator('#worktree-error').getByText('status unavailable',{exact:false}).waitFor();
+    assert.equal(await node.count(),0,'unknown initial worktree never masquerades as a clean status node');
+    assert.equal(await frame.locator('.commit-row[data-target="commit"]').count(),2,'history remains readable when the initial status query fails');
+    failStatus=false;let beforeGraph=graphReads();await frame.locator('#worktree-error-retry').click();await node.waitFor();assert.ok(graphReads()>beforeGraph,'status retry also rereads history');
+    await node.click();await frame.locator('#files button[data-path="sample.ts"]').click();await frame.locator('#diff-status').getByText('1 处差异',{exact:true}).waitFor();
+    const stable=await frame.locator('#detail').elementHandle();assert.ok(stable);
+    const beforeRace=worktreeReads();frozenHistory=makeHistory(a,'main');historyFixture=makeHistory(b,'branch-b');actual={...actual,head:b,headName:'branch-b',files:[]};
+    await event();await frame.locator('#worktree-error').getByText('检出状态已变化',{exact:false}).waitFor();
+    assert.equal(await currentHash(),a);assert.equal(await node.count(),1,'a mismatched empty status cannot clear the last consistent uncommitted selection');
+    assert.equal(await frame.locator('.commit-row[data-selected]').getAttribute('data-hash'),'uncommitted-changes');
+    assert.equal(await stable.evaluate(el=>el===document.getElementById('detail')),true);assert.ok(worktreeReads()-beforeRace<=3,'one event performs bounded state reads');
+    const stoppedReads=worktreeReads();await page.waitForTimeout(700);assert.equal(worktreeReads(),stoppedReads,'persistent identity mismatch does not become Git polling');
+    frozenHistory=undefined;beforeGraph=graphReads();await frame.locator('#worktree-error-retry').click();await frame.locator('.commit-row.current[data-hash="'+b+'"]').waitFor();await node.waitFor({state:'detached'});assert.ok(graphReads()>beforeGraph);
+    historyFixture=makeHistory(a,'main');actual={...actual,head:a,headName:'main',files};await frame.locator('#refresh').click();await node.waitFor();await node.click();await frame.locator('#diff-status').getByText('1 处差异',{exact:true}).waitFor();
+    failHistory=true;historyFixture=makeHistory(b,'branch-b');actual={...actual,head:b,headName:'branch-b'};await event();await frame.locator('#history-error').getByText('history unavailable',{exact:false}).waitFor();
+    assert.equal(await currentHash(),a);assert.equal(await node.count(),1,'successful B status is discarded when the companion history fails');
+    assert.match((await frame.locator('#diff-editor .view-lines').allTextContents()).join(' '),/main:a/);
+    failHistory=false;await frame.locator('#history-error-retry').click();await frame.locator('.commit-row.current[data-hash="'+b+'"]').waitFor();await frame.locator('#diff-editor .view-lines').filter({hasText:'branch-b:b'}).first().waitFor();
+    historyFixture={...makeHistory(b,'branch-b'),currentRef:{name:'refs/heads/branch-b',hash:a}};actual={...actual,files:[]};await event();await frame.locator('#worktree-error').getByText('检出状态已变化',{exact:false}).waitFor();
+    assert.equal(await node.count(),1,'currentRef/hash mismatch cannot publish a seemingly matching clean status');
+    historyFixture=makeHistory(b,'branch-b');await frame.locator('#worktree-error-retry').click();await node.waitFor({state:'detached'});
+    historyFixture=makeHistory(a,'main','refs/heads/main');actual={...actual,head:a,headName:'main',files};await frame.locator('#refresh').click();await node.waitFor();await node.click();
+    historyFixture=makeHistory(b,'branch-b','refs/heads/main');actual={...actual,head:b,headName:'branch-b'};await event();await frame.locator('.commit-row.current[data-hash="'+b+'"]').waitFor();
+    await node.waitFor({state:'detached'});assert.equal(await frame.locator('#branch').inputValue(),'refs/heads/main','checkout pairing respects the existing current-branch filter');
+    historyFixture=makeHistory(a,'main');actual={...actual,head:a,headName:'main'};await frame.locator('#refresh').click();await node.waitFor();await node.click();await frame.locator('#files button[data-path="sample.ts"]').click();await frame.locator('#diff-status').getByText('1 处差异',{exact:true}).waitFor();
+    let releaseDiff!:()=>void;heldDiff=new Promise<void>(resolve=>releaseDiff=resolve);let diffStarted!:()=>void;const startedDiff=new Promise<void>(resolve=>diffStarted=resolve);enteredDiff=diffStarted;
+    diffReply={repo:root,head:a,headName:'branch-b',content:'const staleBranch = "should never render";\n'};
+    await frame.locator('#files button[data-path="second.ts"]').click();await startedDiff;const delayed=page.waitForResponse(response=>response.url().endsWith('/call')&&response.request().postDataJSON().name==='git_graph_worktree_diff');
+    releaseDiff();await (await delayed).finished();heldDiff=undefined;enteredDiff=undefined;diffReply=undefined;
+    await frame.locator('#diff-error').getByText('检出状态已变化',{exact:false}).waitFor();assert.equal(await frame.locator('#diff-editor').isVisible(),false,'same-SHA branch mismatch is rejected before binding models');
+    assert.doesNotMatch((await frame.locator('#diff-editor .view-lines').allTextContents()).join(' '),/should never render/);
+    historyFixture=makeHistory(a,'branch-b');actual={...actual,headName:'branch-b'};beforeGraph=graphReads();await frame.locator('#diff-error-retry').click();await frame.locator('#diff-editor .view-lines').filter({hasText:'branch-b:a'}).first().waitFor();assert.ok(graphReads()>beforeGraph,'diff identity retry reads a coherent history/status pair');
+    let headEntered!:()=>void,headRelease!:()=>void;const headStarted=new Promise<void>(resolve=>headEntered=resolve);heldDiff=new Promise<void>(resolve=>headRelease=resolve);enteredDiff=headEntered;diffReply={repo:root,head:b,headName:'branch-b',content:'const staleHead = "should never render";\n'};
+    await frame.locator('#files button[data-path="sample.ts"]').click();await headStarted;const headResponse=page.waitForResponse(response=>response.url().endsWith('/call')&&response.request().postDataJSON().name==='git_graph_worktree_diff');headRelease();await (await headResponse).finished();heldDiff=undefined;enteredDiff=undefined;diffReply=undefined;
+    await frame.locator('#diff-error').getByText('检出状态已变化',{exact:false}).waitFor();assert.equal(await frame.locator('#diff-editor').isVisible(),false,'a new HEAD diff cannot bind to the previous checkout detail');
+    historyFixture={...makeHistory(b,''),refs:[{name:'refs/heads/main',hash:a}],missingBranch:'refs/heads/deleted',branch:''};actual={...actual,head:b,headName:'',files:[]};await frame.locator('#refresh').click();await frame.locator('#branch-notice').getByText('已显示所有分支与标签',{exact:false}).waitFor();
+    assert.equal(await frame.locator('#branch').inputValue(),'');assert.doesNotMatch(await frame.locator('#branch-notice').innerText(),/已切换到/);
+    historyFixture={...makeHistory('','orphan'),commits:[],tips:[],currentRef:null,refs:[{name:'refs/heads/main',hash:a}],missingBranch:'refs/heads/deleted',branch:''};actual={...actual,head:'',headName:'orphan',files};await frame.locator('#refresh').click();await node.waitFor();
+    await frame.locator('#branch-notice').getByText('已显示所有分支与标签',{exact:false}).waitFor();assert.equal(await frame.locator('#branch').inputValue(),'');
+    await page.goto('about:blank');historyFixture=undefined;
+    const repositoryPaths:string[]=[];
+    for(const label of ['a','b']){
+      const directory=join(temporary,`race-repository-${label}`);await mkdir(directory);const repository=await realpath(directory);repositoryPaths.push(repository);await git(repository,['init','-b','main']);
+      for(const [key,value] of [['user.name','Scope Test'],['user.email','scope@example.invalid'],['commit.gpgsign','false'],['core.hooksPath','/dev/null']])await git(repository,['config',key,value]);
+      for(let index=0;index<(label==='a'?3:2);index++){await writeFile(join(repository,`${label}.ts`),`export const area = "${label}${index}";\n`);await git(repository,['add','.']);await git(repository,['commit','-m',`${label.toUpperCase()} history ${index}`]);}
+    }
+    const clientA=new Client({name:'scope-a-ui-check',version:'1.0.0'}),clientB=new Client({name:'scope-b-ui-check',version:'1.0.0'});
+    await clientA.connect(new StdioClientTransport({command:process.execPath,args:[runner],cwd:repositoryPaths[0]}));historyClient=clientA;
+    await clientB.connect(new StdioClientTransport({command:process.execPath,args:[runner],cwd:repositoryPaths[1]}));retiredClient=clientB;
+    const graphA=(await clientA.callTool({name:'git_graph',arguments:{}})).structuredContent as Fixture&{repositories:{id:string;name:string;path:string}[]};
+    const graphB=(await clientB.callTool({name:'git_graph',arguments:{}})).structuredContent as Fixture&{repositories:{id:string;name:string;path:string}[]};
+    const repositories=[...graphA.repositories,...graphB.repositories],scopeRequests=requests.length;let mismatchedB=false;
+    intercept=async request=>{
+      if(request.name==='git_graph'){
+        const chosen=request.arguments.selectedRepository===graphB.repositories[0].id?clientB:clientA;
+        const result=await chosen.callTool(request);return {...result,structuredContent:{...result.structuredContent as Record<string,unknown>,repositories}};
+      }
+      if(request.arguments.repository===graphB.repositories[0].id){
+        const result=await clientB.callTool(request);
+        if(request.name==='git_graph_history'&&!mismatchedB){mismatchedB=true;const data=result.structuredContent as Record<string,unknown>;return {...result,structuredContent:{...data,headName:`${data.headName}-racing`}};}
+        return result;
+      }
+    };
+    await page.goto(url);await frame.locator(`.commit-row[data-hash="${graphA.head}"]`).click();await frame.locator('#diff-status').getByText('1 处差异',{exact:true}).waitFor();
+    assert.equal(await frame.locator('#detail-hash').innerText(),graphA.head.slice(0,12));
+    await frame.locator('#repository').selectOption(graphB.repositories[0].id);await frame.locator(`.commit-row[data-hash="${graphB.head}"]`).waitFor();await frame.locator('#history-pane[aria-busy="false"]').waitFor();
+    assert.equal(mismatchedB,true);assert.equal(await frame.locator('#repository').inputValue(),graphB.repositories[0].id);
+    assert.equal(await frame.locator('#history-error').isVisible(),false,'a cross-repository pairing retry does not query absent A objects in B');
+    const retained=requests.slice(scopeRequests).filter(request=>request.name==='git_graph_history'&&request.arguments.repository===graphB.repositories[0].id&&Array.isArray(request.arguments.retain));
+    assert.ok(retained.length>0,'the mismatched B identity triggered a full history reread');
+    assert.equal(retained.some(request=>(request.arguments.retain as string[]).some(hash=>graphA.commits.some(commit=>commit.hash===hash))),false,'B history rereads never retain A commit IDs');
+    assert.equal(await frame.locator('.commit-row[data-selected]').count(),0);assert.equal(await frame.locator('#detail-row').isVisible(),false,'switching repository leaves no A details');
+    assert.equal(await frame.locator('.commit-row').evaluateAll((rows,hashes)=>rows.some(row=>hashes.includes(row.getAttribute('data-hash')!)),graphA.commits.map(commit=>commit.hash)),false);
+    assert.deepEqual(errors,[]);
+    console.log(JSON.stringify({passed:true,checks:['initial status unknown keeps readable history and paired retry','history A/status B retains last consistent selection and reading','bounded mismatch does not poll Git','history failure discards successful newer status','currentRef hash is consistent with HEAD','checkout respects current branch filter','same-SHA branch and concurrent HEAD diff responses rejected','diff identity retry rereads history/status','detached and unborn missing-ref notices reflect actual all filter','real cross-repository mismatch retry does not retain foreign commit IDs']}));
+  } else if (process.argv.includes('--worktree-only')) {
+
+    const requestedRepo=join(temporary,'worktree-repo');await mkdir(requestedRepo);const repo=await realpath(requestedRepo);
+    await git(repo,['init','-b','main']);
+    for(const [key,value] of [['user.name','Worktree Test'],['user.email','worktree@example.invalid'],['commit.gpgsign','false'],['core.hooksPath','/dev/null']])await git(repo,['config',key,value]);
+    await mkdir(join(repo,'src'));
+    const original=Array.from({length:120},(_,index)=>`const value${index} = ${index};`);
+    await writeFile(join(repo,'src/sample.ts'),original.join('\n')+'\n');await writeFile(join(repo,'.gitignore'),'ignored.txt\n');
+    const hashes:string[]=[];
+    for(let index=0;index<5;index++){await writeFile(join(repo,'timeline.txt'),`${index}\n`);await git(repo,['add','.']);await git(repo,['commit','-m',`Worktree ${index}`]);hashes.push((await git(repo,['rev-parse','HEAD'])).trim());}
+    historyClient=new Client({name:'worktree-ui-check',version:'1.0.0'});await historyClient.connect(new StdioClientTransport({command:process.execPath,args:[runner],cwd:repo}));liveWatch=true;
+    await page.goto(url+'?file-open');const frame=page.frameLocator('iframe');
+    const waitFor=async(matches:()=>boolean)=>{const until=Date.now()+10000;while(!matches()&&Date.now()<until)await page.waitForTimeout(20);assert.ok(matches(),'expected worktree operation completed');};
+    const statusReads=()=>requests.filter(request=>request.name==='git_graph_worktree').length;
+    const diffReads=()=>requests.filter(request=>request.name==='git_graph_worktree_diff').length;
+    const node=frame.locator('.commit-row[data-target="uncommitted-changes"]');
+    const select=async(group:'staged'|'changes',path:string)=>{await frame.locator(`#files button[data-group="${group}"][data-path="${path}"]`).click();};
+    const rendered=async(text:string)=>frame.locator('#diff-editor .view-lines').filter({hasText:text}).first().waitFor();
+    const visibility=async(hidden:boolean)=>frame.locator('#app').evaluate((_,hidden)=>{Object.defineProperty(document,'hidden',{configurable:true,value:hidden});document.dispatchEvent(new Event('visibilitychange'));},hidden);
+    await frame.locator('.commit-row').first().waitFor();await waitFor(()=>statusReads()>0);
+    assert.equal(await node.count(),0,'clean repositories have no uncommitted row');
+    await frame.locator('#load-more').click();await frame.locator('.commit-row[data-target="commit"]').nth(3).waitFor();
+    await frame.locator('#load-more').click();await frame.locator(`.commit-row[data-hash="${hashes[0]}"]`).waitFor();
+    const staged=[...original];staged[12]='const value12 = 1200;';staged[85]='const value85 = 8500;';
+    await writeFile(join(repo,'src/sample.ts'),staged.join('\n')+'\n');await git(repo,['add','src/sample.ts']);await writeFile(join(repo,'src/sample.ts'),original.join('\n')+'\n');
+    await writeFile(join(repo,'src/新建.txt'),'untracked 原文\n');await writeFile(join(repo,'ignored.txt'),'ignored\n');
+    await node.waitFor();
+    const nodePaint=()=>node.locator('.dashed-node').evaluate(el=>({width:getComputedStyle(el).strokeWidth,dash:getComputedStyle(el).strokeDasharray,stroke:getComputedStyle(el).stroke,fill:getComputedStyle(el).fill,surface:getComputedStyle(el.closest('.commit-row')!,'::before').backgroundColor}));
+    await page.mouse.move(0,0);assert.equal((await nodePaint()).width,'1px');
+    await node.hover();assert.deepEqual([(await nodePaint()).width,(await nodePaint()).dash],['3px','4px, 2px']);
+    await page.mouse.move(0,0);assert.equal((await nodePaint()).width,'1px','unselected worktree dashes return to their thin outline');
+    await node.click();await frame.locator('#files button[data-group="changes"][data-path="src/新建.txt"]').waitFor();
+    assert.equal(await node.count(),1);assert.equal(await node.getAttribute('class').then(value=>value?.includes('io')),false,'uncommitted uses a distinct node kind');
+    assert.deepEqual(await node.locator('circle').evaluateAll(elements=>elements.map(el=>[el.getAttribute('r'),el.getAttribute('cy'),el.getAttribute('stroke-dasharray')])),[['5','15','4,2']]);
+    await page.mouse.move(0,0);const paint=await nodePaint();assert.equal(paint.width,'3px','selection retains thick dashes without hover');assert.equal(paint.dash,'4px, 2px');assert.notEqual(paint.stroke,'rgba(0, 0, 0, 0)');assert.equal(paint.fill,paint.surface);
+    assert.equal(await node.locator('.ref').count(),0);assert.equal(await node.locator('.author').innerText(),'');
+    assert.equal(await frame.locator('#summary-pane').isVisible(),false,'uncommitted has no fabricated commit information');
+    await frame.locator('#file-view').focus();assert.equal((await nodePaint()).width,'3px','dashes remain selected after focus moves into details');
+    await page.evaluate(()=>window.light());await frame.locator('html[data-theme="light"]').waitFor();
+    const lightPaint=await nodePaint();assert.deepEqual([lightPaint.width,lightPaint.dash],['3px','4px, 2px']);assert.equal(lightPaint.fill,lightPaint.surface);assert.notEqual(lightPaint.fill,paint.fill,'hollow center follows the light selected surface');assert.notEqual(lightPaint.stroke,'rgba(0, 0, 0, 0)');
+    assert.equal(await frame.locator('#files button[data-path="src/sample.ts"]').count(),2,'opposing stages are both readable');
+    assert.equal(await frame.locator('#files button[data-path="ignored.txt"]').count(),0);
+    assert.equal(await frame.locator('#files [role="group"]').count(),2);
+    await select('staged','src/sample.ts');await rendered('8500');
+    assert.match(await frame.locator('#diff-modified').innerText(),/暂存区/);
+    await select('changes','src/sample.ts');await frame.locator('#diff-original').getByText('暂存区',{exact:false}).waitFor();
+    assert.match(await frame.locator('#diff-modified').innerText(),/工作区/);assert.doesNotMatch(await frame.locator('#diff-modified').innerText(),/空树/);
+    const detail=await frame.locator('#detail').elementHandle(),editor=await frame.locator('#diff-editor .monaco-diff-editor').elementHandle();assert.ok(detail&&editor);
+    await frame.locator('#expand-detail').click();await frame.locator('#next-change').click();
+    const cursor=()=>frame.locator('#diff-editor .editor.modified .cursors-layer .cursor').evaluateAll(elements=>elements.map(el=>({top:(el as HTMLElement).style.top,left:(el as HTMLElement).style.left})));
+    await frame.locator('#diff-editor .editor.modified').getByRole('textbox',{name:'目标版本，只读'}).focus();
+    await frame.locator('#diff-editor').evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));const beforeCursor=await cursor();
+    const changed=[...original];changed[85]='const value85 = 9999;';let beforeDiff=diffReads();
+    await writeFile(join(repo,'src/sample.ts'),changed.join('\n')+'\n');await waitFor(()=>diffReads()>beforeDiff);await rendered('9999');
+    beforeDiff=diffReads();changed[85]='const value85 = 10001;';await writeFile(join(repo,'src/sample.ts'),changed.join('\n')+'\n');await waitFor(()=>diffReads()>beforeDiff);await rendered('10001');
+    assert.equal(await frame.locator('#files button[aria-selected="true"]').getAttribute('data-group'),'changes');
+    assert.deepEqual(await cursor(),beforeCursor,'continuous M edits retain reading position');
+    assert.equal(await detail.evaluate(el=>el===document.getElementById('detail')),true);assert.equal(await editor.evaluate(el=>el===document.querySelector('#diff-editor .monaco-diff-editor')),true);
+    await frame.locator('#file-view').click();await frame.locator('#files[role="tree"]').waitFor();
+    const stagedDirectory=frame.locator('#files button[data-group="staged"][data-directory="src"]'),changesDirectory=frame.locator('#files button[data-group="changes"][data-directory="src"]');
+    await stagedDirectory.click();assert.equal(await stagedDirectory.getAttribute('aria-expanded'),'false');assert.equal(await changesDirectory.getAttribute('aria-expanded'),'true');
+    assert.equal(await frame.locator('#files button[data-group="changes"][data-path="src/sample.ts"]').count(),1,'folding one group never folds another');
+    await changesDirectory.focus();await changesDirectory.press('ArrowRight');
+    assert.equal(await frame.locator('#files button[tabindex="0"]').count(),1,'groups share one roving keyboard target');
+    await frame.locator('#file-view').click();await frame.locator('#files[role="listbox"]').waitFor();
+    await page.evaluate(()=>window.locale('en'));await frame.locator('html[lang="en"]').waitFor({state:'attached'});
+    assert.equal(await node.locator('.subject').innerText(),'Uncommitted Changes');assert.equal(await frame.locator('#files [data-group-section="staged"]').getAttribute('aria-label'),'Staged Changes');
+    await frame.locator('#diff-modified').getByText('Working Tree',{exact:false}).waitFor();
+    await page.evaluate(()=>window.locale('zh-CN'));await frame.locator('html[lang="zh-CN"]').waitFor({state:'attached'});
+    await frame.locator('#expand-detail').click();
+    await git(repo,['branch','other',hashes[4]]);await git(repo,['tag','same-head',hashes[4]]);await frame.locator('#branch option[value="refs/tags/same-head"]').waitFor({state:'attached'});
+    for(const branch of ['refs/heads/other','refs/tags/same-head']){await frame.locator('#branch').selectOption(branch);await frame.locator('#history-pane[aria-busy="false"]').waitFor();assert.equal(await node.count(),0,'other refs hide the current worktree even at the same SHA');}
+    await frame.locator('#branch').selectOption('refs/heads/main');await node.waitFor();await frame.locator('#branch').selectOption('');await node.waitFor();
+    await git(repo,['remote','add','origin','.']);await git(repo,['config','branch.main.remote','origin']);await git(repo,['config','branch.main.merge','refs/heads/main']);await git(repo,['update-ref','refs/remotes/origin/main',hashes[0]]);
+    await frame.locator('.commit-row[data-target="outgoing-changes"]').waitFor();
+    assert.deepEqual(await frame.locator('.commit-row').evaluateAll(rows=>rows.slice(0,3).map(row=>row.getAttribute('data-target'))),['uncommitted-changes','outgoing-changes','commit']);
+    await node.click();await select('staged','src/sample.ts');await frame.locator('#diff-modified').getByText('暂存区',{exact:false}).waitFor();
+    let entered!:()=>void,release!:()=>void;const started=new Promise<void>(resolve=>entered=resolve),held=new Promise<void>(resolve=>release=resolve);
+    intercept=async request=>{if(request.name==='git_graph_worktree_diff'&&request.arguments.group==='changes'&&request.arguments.path==='src/sample.ts'){const result=await historyClient!.callTool(request);entered();await held;return result;}};
+    await select('changes','src/sample.ts');await started;await select('staged','src/sample.ts');await frame.locator('#diff-modified').getByText('暂存区',{exact:false}).waitFor();
+    const delayed=page.waitForResponse(response=>response.url().endsWith('/call')&&response.request().postDataJSON().name==='git_graph_worktree_diff'&&response.request().postDataJSON().arguments.group==='changes');release();await (await delayed).finished();await page.waitForTimeout(50);intercept=null;
+    assert.equal(await frame.locator('#files button[aria-selected="true"]').getAttribute('data-group'),'staged');assert.match(await frame.locator('#diff-modified').innerText(),/暂存区/);
+    await git(repo,['rm','--cached','-f','src/sample.ts']);await frame.locator('#files button[data-group="staged"][data-path="src/sample.ts"][data-status="D"]').waitFor();
+    assert.equal(await frame.locator('#files button[aria-selected="true"]').getAttribute('data-group'),'staged','a status change retains the group/path identity');
+    await select('changes','src/sample.ts');await rendered('value0');
+    assert.match(await frame.locator('#diff-original').innerText(),/空树/);assert.match(await frame.locator('#diff-modified').innerText(),/工作区/);
+    await frame.locator('#open-file').click();await page.waitForFunction(path=>window.openedFiles.includes(path),join(repo,'src/sample.ts'));
+    const opened=requests.filter(request=>request.name==='git_graph_worktree_file').at(-1)!;assert.equal(opened.arguments.group,'changes');assert.equal(opened.arguments.path,'src/sample.ts');
+    let failStatus=true;intercept=async request=>request.name==='git_graph_worktree'&&failStatus?{isError:true,content:[{type:'text',text:'worktree status failure'}]}:null;
+    await writeFile(join(repo,'src/新建.txt'),'retry 原文\n');await frame.locator('#worktree-error').getByText('worktree status failure',{exact:false}).waitFor();
+    failStatus=false;await frame.locator('#worktree-error-retry').click();await frame.locator('#worktree-error').waitFor({state:'hidden'});intercept=null;
+    await select('changes','src/新建.txt');await rendered('retry');
+    await git(repo,['reset','--hard','HEAD']);await rm(join(repo,'src/新建.txt'));await node.waitFor({state:'detached'});
+    await frame.locator('#detail-row').waitFor({state:'hidden'});assert.equal(await frame.locator(`.commit-row[data-hash="${hashes[4]}"]`).evaluate(el=>el===document.activeElement),true,'clean removal restores focus to HEAD without opening details');
+    await git(repo,['checkout','-b','conflict-side']);await writeFile(join(repo,'timeline.txt'),'side\n');await git(repo,['add','timeline.txt']);await git(repo,['commit','-m','Side conflict']);await git(repo,['checkout','main']);
+    await writeFile(join(repo,'timeline.txt'),'main\n');await git(repo,['add','timeline.txt']);await git(repo,['commit','-m','Main conflict']);await git(repo,['merge','conflict-side']).catch(()=>{});
+    await node.waitFor();await node.click();await select('changes','timeline.txt');await frame.locator('#diff-notice').getByText('未解决的冲突',{exact:false}).waitFor();
+    assert.equal(await frame.locator('#files button[data-path="timeline.txt"]').getAttribute('data-status'),'U');assert.equal(await frame.locator('#diff-editor').isVisible(),false);
+    await frame.locator('#open-file').click();await page.waitForFunction(path=>window.openedFiles.includes(path),join(repo,'timeline.txt'));
+    assert.equal(requests.some(request=>['git_graph_commit','git_graph_diff','git_graph_compare','git_graph_compare_diff'].includes(request.name)&&request.arguments.hash==='uncommitted-changes'),false,'virtual worktree ID never reaches SHA tools');
+    const paging=requests.filter(request=>request.name==='git_graph_history'&&request.arguments.offset!=null);assert.ok(paging.every(request=>Number(request.arguments.offset)%2===0),'worktree and outgoing rows never consume history offsets');
+    await visibility(true);retiredClient=historyClient;
+    const unbornRequested=join(temporary,'unborn-repo');await mkdir(unbornRequested);const unborn=await realpath(unbornRequested);await git(unborn,['init','-b','main']);await writeFile(join(unborn,'new.txt'),'first content\n');
+    historyClient=new Client({name:'unborn-ui-check',version:'1.0.0'});await historyClient.connect(new StdioClientTransport({command:process.execPath,args:[runner],cwd:unborn}));
+    await page.goto(url+'?file-open');await node.waitFor();assert.equal(await frame.locator('.commit-row').count(),1);assert.equal(await node.locator('path').count(),0,'unborn worktree is isolated');assert.equal(await frame.locator('#empty').isVisible(),false);
+    await frame.locator('#branch').selectOption('refs/heads/main');await node.waitFor();assert.equal(await frame.locator('#branch-notice').isVisible(),false,'unborn current branch is a real selector identity');
+    await node.click();await select('changes','new.txt');await rendered('first content');
+    await git(unborn,['add','new.txt']);await frame.locator('#files button[data-group="staged"][data-path="new.txt"]').waitFor();await select('staged','new.txt');await frame.locator('#diff-modified').getByText('暂存区',{exact:false}).waitFor();assert.match(await frame.locator('#diff-original').innerText(),/空树/);
+    await git(unborn,['rm','--cached','-f','new.txt']);await select('changes','new.txt');
+    await frame.locator('#files button[data-group="changes"][data-path="new.txt"]').focus();await rm(join(unborn,'new.txt'));
+    await node.waitFor({state:'hidden'});await frame.locator('#empty').waitFor();
+    assert.equal(await frame.locator('#app').evaluate(()=>document.activeElement?.id),'refresh','unborn clean state returns keyboard focus to the toolbar');
+    assert.deepEqual(errors,[]);
+    console.log(JSON.stringify({passed:true,checks:['single dashed worktree node with idle/hover/selected and dark/light paint','native I/O ordering','all/current-only visibility with same-SHA filters','opposing staged/worktree versions and untracked/ignored files','same-path group identities and independent tree folders','repeated M content refresh and retained Monaco reading','locale/source labels without fake SHA','stale group diff and deletion/stage transitions','safe native open and status retry','clean focus handoff','unmerged conflict reason and current file open','unborn isolated row/current branch/empty-tree staged diff','real pagination offsets']}));
+  } else if (process.argv.includes('--locale-only')) {
+
     const requestedRepo=join(temporary,'locale-repo');await mkdir(requestedRepo);const repo=await realpath(requestedRepo);
     await git(repo,['init','-b','main']);
     for(const [key,value] of [['user.name','Locale 原文'],['user.email','locale@example.invalid'],['commit.gpgsign','false'],['core.hooksPath','/dev/null']])await git(repo,['config',key,value]);
@@ -316,7 +548,7 @@ try {
     const detail = await frame.locator('#detail').elementHandle(), historicalEditor = await frame.locator('#diff-editor .monaco-diff-editor').elementHandle();
     await frame.locator('#toggle-search').click(); await frame.locator('#search').fill('Live');
     let beforeReads=reads(); await writeFile(join(repo,'sample.ts'),'const dirtyChange = 1;\n'); await waitForRequest(()=>reads()>beforeReads);
-    assert.equal(await frame.locator('.commit-row').count(),5,'dirty worktree never adds a commit row');
+    assert.equal(await frame.locator('.commit-row[data-target="commit"]').count(),5,'dirty worktree never consumes a real commit row');
     assert.equal(await frame.locator('.commit-row[data-selected]').getAttribute('data-hash'),hashes[0]);
     assert.equal(await frame.locator('#search').inputValue(),'Live');
     assert.equal(await detail!.evaluate(element=>element===document.getElementById('detail')),true,'refresh keeps the detail portal');
@@ -661,7 +893,7 @@ try {
     context.fillStyle=getComputedStyle(el).color; context.fillRect(0,0,1,1); return context.getImageData(0,0,1,1).data[3];
   }), 166, 'empty descriptions use native secondary text at 65%, not the MCP description color');
   const initialData = (await client.callTool({ name: 'git_graph', arguments: {} })).structuredContent as Record<string, unknown>;
-  intercept = async request => request.name === 'git_graph' ? { content: [], structuredContent: { ...initialData, commits: [], refs: [], head: '', tips: [], hasMore: false } } : null;
+  intercept = async request => ['git_graph','git_graph_history'].includes(request.name) ? { content: [], structuredContent: { ...initialData, commits: [], refs: [], head: '', headName: 'unborn', currentRef: null, upstreamRef: null, baseRef: null, mergeBase: null, branch: '', missingBranch: '', tips: [], hasMore: false } } : null;
   await page.goto(url);
   await frame.locator('#empty').getByText('这个仓库还没有提交').waitFor();
   assert.equal(await frame.locator('#history-error').isVisible(), false, 'empty repository is not a query error');
@@ -1974,5 +2206,5 @@ try {
   console.log(JSON.stringify({passed:true,checks:['single repository label','project repository switch','repository detail routing','reset search and filter','preserve layout','switch failure and retry','stale repository responses','narrow toolbar']}));
   }
 }finally{
-  await browser?.close();server.closeAllConnections();server.close();await client.close();await historyClient?.close();await rm(temporary,{recursive:true,force:true});
+  await browser?.close();server.closeAllConnections();server.close();await client.close();await historyClient?.close();await retiredClient?.close();await rm(temporary,{recursive:true,force:true});
 }
